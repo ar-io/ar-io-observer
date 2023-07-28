@@ -19,7 +19,7 @@ import Ajv from "ajv";
 
 const ajv = new Ajv();
 
-const observerReportschema = {
+const observerReportSchema = {
   type: "object",
   properties: {
     reporterAddress: { $ref: "#/$defs/arweaveAddress" },
@@ -134,5 +134,5 @@ const exampleReport = {
   },
 };
 
-const valid = ajv.validate(observerReportschema, exampleReport);
+const valid = ajv.validate(observerReportSchema, exampleReport);
 if (!valid) console.log(ajv.errors);
