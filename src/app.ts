@@ -26,7 +26,7 @@ const observerReportschema = {
     generatedAt: { $ref: "#/$defs/timestamp" },
     arnsAssessments: { $ref: "#/$defs/arnsAssessments" },
   },
-  required: ["reporterAddress", "generatedAt", "arnsAssessments"],
+  required: ["arnsAssessments"],
   additionalProperties: false,
   $defs: {
     arweaveAddress: {
