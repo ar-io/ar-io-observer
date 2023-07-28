@@ -40,7 +40,6 @@ const observerReportschema = {
     },
     qosScore: {
       type: "number",
-      // TODO what range should we use - 0-1? 0-100?
     },
     pass: {
       type: "boolean",
