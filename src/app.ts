@@ -38,12 +38,6 @@ const observerReportschema = {
     timestamp: {
       type: "integer",
     },
-    arnsName: {
-      type: "string",
-    },
-    hostName: {
-      type: "string",
-    },
     qosScore: {
       type: "number",
       // TODO what range should we use - 0-1? 0-100?
