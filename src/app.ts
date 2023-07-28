@@ -25,9 +25,10 @@ const observerReportschema = {
     reporterAddress: { $ref: "#/$defs/arweaveAddress" },
     generatedAt: { $ref: "#/$defs/timestamp" },
     arnsAssessments: { $ref: "#/$defs/arnsAssessments" },
+    reportAssessments: { $ref: "#/$defs/reportAssessments" },
   },
   required: ["arnsAssessments"],
-  additionalProperties: false,
+  additionalProperties: true,
   $defs: {
     arweaveAddress: {
       type: "string",
@@ -54,6 +55,22 @@ const observerReportschema = {
       },
       additionalProperties: false,
     },
+    reportAssessment: {
+      type: "object",
+      properties: {
+        pass: { $ref: "#/$defs/pass" },
+        reasons: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              description: { type: "string" },
+            },
+          },
+        },
+      },
+      additionalProperties: false,
+    },
     arnsAssessments: {
       type: "object",
       patternProperties: {
@@ -68,6 +85,12 @@ const observerReportschema = {
             },
           },
         },
+      },
+    },
+    reportAssessments: {
+      type: "object",
+      patternProperties: {
+        ".*": { $ref: "#/$defs/reportAssessment" },
       },
     },
   },
@@ -97,6 +120,16 @@ const exampleReport = {
         },
         // 39 more names
       },
+    },
+  },
+  reportAssessments: {
+    "example-address-1": {
+      pass: false,
+      reasons: [
+        {
+          description: "An example reason",
+        },
+      ],
     },
   },
 };
