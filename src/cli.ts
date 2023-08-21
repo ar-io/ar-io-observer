@@ -31,11 +31,11 @@ interface ArnsNameAssessment {
 }
 
 interface ArnsNameAssessments {
-  [name: string]: ArnsNameAssessment;
+  [arnsName: string]: ArnsNameAssessment;
 }
 
 interface ArnsAssessments {
-  [host: string]: {
+  [gatewayHost: string]: {
     prescribedNames: ArnsNameAssessments;
     chosenNames: ArnsNameAssessments;
   };
@@ -285,9 +285,9 @@ class Observer {
       gatewayResolution.dataHashDigest === referenceResolution.dataHashDigest;
 
     return {
+      assessedAt: +(Date.now() / 1000).toFixed(0),
       resolvedId: gatewayResolution.resolvedId,
       dataHash: gatewayResolution.dataHashDigest,
-      assessedAt: +(Date.now() / 1000).toFixed(0),
       pass,
       timings: gatewayResolution.timings.phases,
     };
