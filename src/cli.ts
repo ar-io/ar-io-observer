@@ -178,6 +178,7 @@ function getArnsResolution({
 }): Promise<{
   resolvedId: string;
   ttlSeconds: string;
+  contentLength: string;
   contentType: string;
   dataHashDigest: string;
   timings: any;
@@ -190,6 +191,7 @@ function getArnsResolution({
     resolvedId: string;
     ttlSeconds: string;
     contentType: string;
+    contentLength: string;
     dataHashDigest: string;
     timings: any;
   }>((resolve, reject) => {
@@ -212,6 +214,7 @@ function getArnsResolution({
         resolvedId: response.headers['x-arns-resolved-id'],
         ttlSeconds: response.headers['x-arns-ttl-seconds'],
         contentType: response.headers['content-type'],
+        contentLength: response.headers['content-length'],
         dataHashDigest: dataHash.digest('base64url'),
         timings: response.timings.phases,
       });
@@ -278,6 +281,7 @@ class Observer {
       gatewayResolution.resolvedId === referenceResolution.resolvedId &&
       gatewayResolution.ttlSeconds === referenceResolution.ttlSeconds &&
       gatewayResolution.contentType === referenceResolution.contentType &&
+      gatewayResolution.contentLength === referenceResolution.contentLength &&
       gatewayResolution.dataHashDigest === referenceResolution.dataHashDigest;
 
     return {
