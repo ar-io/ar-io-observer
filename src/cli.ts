@@ -293,6 +293,23 @@ class Observer {
     };
   }
 
+  async assessArnsNames(names: string[]): Promise<ArnsNameAssessments> {
+    // TODO simplify
+    return Promise.all(
+      names.map((name) => {
+        return this.assessArnsName({
+          host: this.referenceGatewayHost,
+          arnsName: name,
+        });
+      }),
+    ).then((assessments) => {
+      return assessments.reduce((acc, assessment, index) => {
+        acc[names[index]] = assessment;
+        return acc;
+      }, {});
+    });
+  }
+
   async generateReport(): Promise<ObserverReport> {
     const prescribedNames = await this.prescribedNamesSource.getNames();
     const chosenNames = await this.chosenNamesSource.getNames();
@@ -300,29 +317,9 @@ class Observer {
     // Assess gateway
     const arnsAssessments: ArnsAssessments = {};
     for (const gatewayAddress of this.gatewayHosts) {
-      // Assess prescribed names
-      const prescribedAssessments: ArnsNameAssessments = {};
-      for (const prescribedAddress of prescribedNames) {
-        const arnsAssessment = await this.assessArnsName({
-          host: gatewayAddress,
-          arnsName: prescribedAddress,
-        });
-        prescribedAssessments[prescribedAddress] = arnsAssessment;
-      }
-
-      // Assess chosen names
-      const chosenAssessments: ArnsNameAssessments = {};
-      for (const chosenAddress of chosenNames) {
-        const arnsAssessment = await this.assessArnsName({
-          host: gatewayAddress,
-          arnsName: chosenAddress,
-        });
-        chosenAssessments[chosenAddress] = arnsAssessment;
-      }
-
       arnsAssessments[gatewayAddress] = {
-        prescribedNames: prescribedAssessments,
-        chosenNames: chosenAssessments,
+        prescribedNames: await this.assessArnsNames(prescribedNames),
+        chosenNames: await this.assessArnsNames(chosenNames),
       };
     }
 
