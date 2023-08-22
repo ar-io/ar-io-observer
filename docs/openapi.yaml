@@ -1,0 +1,55 @@
+---
+openapi: 3.1.0
+info:
+  title: AR.IO Observer
+  version: 0.0.1
+  description: |
+    AR.IO Observer
+components:
+  schemas:
+    ArweaveAddress:
+      type: string
+    ArweaveId:
+      type: string
+    Timestamp:
+      type: integer
+    Evaluation:
+      type: boolean
+    ArnsAssessment:
+      type: object
+      properties:
+        assessedAt: { '$ref': '#/components/schemas/Timestamp'}
+        resolvedId: { '$ref': '#/components/schemas/ArweaveId' }
+        pass: { '$ref': '#/components/schemas/Evaluation' }
+    ArnsAssessments:
+      type: object
+      patternProperties:
+        '.*':
+          type: object
+          properties:
+            prescribedNames:
+              type: object
+              patternProperties:
+                '.*': { '$ref': '#/components/schemas/ArnsAssessment' }
+            chosenNames:
+              type: object
+              patternProperties:
+                '.*': { '$ref': '#/components/schemas/ArnsAssessment' }
+    Report:
+      type: object
+      properties:
+        observerAddress: { '$ref': '#/components/schemas/ArweaveAddress' }
+        generatedAt: { '$ref': '#/components/schemas/Timestamp' } 
+        ArnsAssessments: { '$ref': '#/components/schemas/ArnsAssessments' }
+
+paths:
+  '/reports/current':
+    get:
+      responses:
+        '200':
+          description: |-
+            200 response
+          content:
+            application/json:
+              schema:
+                '$ref': '#/components/schemas/Report'
