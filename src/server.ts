@@ -20,6 +20,8 @@ import fs from 'node:fs';
 import swaggerUi from 'swagger-ui-express';
 import YAML from 'yaml';
 
+import { Observer, StaticArnsNamesSource } from './report.js';
+
 // HTTP server
 const app = express();
 
@@ -40,6 +42,27 @@ app.use(
   }),
 );
 
+// TODO retrieve names from config (environment variables)
+const prescribedNamesSource = new StaticArnsNamesSource(['now']);
+const chosenNamesSource = new StaticArnsNamesSource(['ardrive']);
+
+const observer = new Observer({
+  observerAddress: '<example>',
+  prescribedNamesSource,
+  chosenNamesSource,
+  gatewayHosts: ['arweave.dev'],
+  referenceGatewayHost: 'arweave.dev',
+});
+
+app.get('/report/current', async (_req, res) => {
+  try {
+    res.json(await observer.generateReport());
+  } catch (error: any) {
+    res.status(500).send(error?.message);
+  }
+});
+
+// TODO get port from config (environment variables)
 app.listen(3000, () => {
   console.log('Listening on port 3000');
 });
