@@ -294,7 +294,6 @@ class Observer {
   }
 
   async assessArnsNames(names: string[]): Promise<ArnsNameAssessments> {
-    // TODO simplify
     return Promise.all(
       names.map((name) => {
         return this.assessArnsName({
@@ -306,7 +305,7 @@ class Observer {
       return assessments.reduce((acc, assessment, index) => {
         acc[names[index]] = assessment;
         return acc;
-      }, {});
+      }, {} as ArnsNameAssessments);
     });
   }
 
