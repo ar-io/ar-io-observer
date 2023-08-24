@@ -47,7 +47,7 @@ const chosenNames = (
   typeof args.chosenNames === 'string' ? args.chosenNames : 'ardrive'
 ).split(',');
 
-const gatewayHosts = (
+const observedGatewayHosts = (
   typeof args.gatewayHosts === 'string' ? args.gatewayHosts : 'arweave.dev'
 ).split(',');
 
@@ -58,7 +58,7 @@ const observer = new Observer({
   observerAddress: '<example>',
   prescribedNamesSource,
   chosenNamesSource,
-  gatewayHosts,
+  observedGatewayHosts,
   referenceGatewayHost: args.referenceGateway ?? 'arweave.dev',
 });
 
