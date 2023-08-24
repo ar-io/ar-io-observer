@@ -16,7 +16,7 @@
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "express-async-handler": "^1.2.0",
-    "express-openapi-validator": "^5.0.1",
+    "express-openapi-validator": "^5.0.5",
     "express-prometheus-middleware": "^1.2.0",
     "fs-extra": "^11.1.0",
     "got": "^13.0.0",

@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import express from 'express';
+import * as OpenApiValidator from 'express-openapi-validator';
 import fs from 'node:fs';
 import swaggerUi from 'swagger-ui-express';
 import YAML from 'yaml';
@@ -26,7 +27,15 @@ import { Observer, StaticArnsNamesSource } from './report.js';
 // HTTP server
 const app = express();
 
-// OpenAPI Spec
+app.use(
+  OpenApiValidator.middleware({
+    apiSpec: './docs/openapi.yaml',
+    validateRequests: true, // (default)
+    validateResponses: true, // false by default
+  }),
+);
+
+// OpenAPI spec
 const openapiDocument = YAML.parse(
   fs.readFileSync('docs/openapi.yaml', 'utf8'),
 );

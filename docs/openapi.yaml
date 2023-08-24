@@ -1,5 +1,5 @@
 ---
-openapi: 3.1.0
+openapi: 3.0.0
 info:
   title: AR.IO Observer
   version: 0.0.1
@@ -21,26 +21,35 @@ components:
         assessedAt: { '$ref': '#/components/schemas/Timestamp'}
         resolvedId: { '$ref': '#/components/schemas/ArweaveId' }
         pass: { '$ref': '#/components/schemas/Evaluation' }
-    ArnsAssessments:
+      required:
+        - assessedAt
+        - resolvedId
+        - pass
+    GatewayArnsAssessment:
       type: object
-      patternProperties:
-        '.*':
+      properties:
+        prescribedNames:
           type: object
-          properties:
-            prescribedNames:
-              type: object
-              patternProperties:
-                '.*': { '$ref': '#/components/schemas/ArnsAssessment' }
-            chosenNames:
-              type: object
-              patternProperties:
-                '.*': { '$ref': '#/components/schemas/ArnsAssessment' }
+          additionalProperties: { '$ref': '#/components/schemas/ArnsAssessment' }
+        chosenNames:
+          type: object
+          additionalProperties: { '$ref': '#/components/schemas/ArnsAssessment' }
+      required:
+        - prescribedNames
+        - chosenNames
+    GatewayArnsAssessments:
+      type: object
+      additionalProperties: { '$ref': '#/components/schemas/GatewayArnsAssessment' }
     Report:
       type: object
       properties:
         observerAddress: { '$ref': '#/components/schemas/ArweaveAddress' }
         generatedAt: { '$ref': '#/components/schemas/Timestamp' } 
-        ArnsAssessments: { '$ref': '#/components/schemas/ArnsAssessments' }
+        arnsAssessments: { '$ref': '#/components/schemas/GatewayArnsAssessments' }
+      required:
+        - observerAddress
+        - generatedAt
+        - arnsAssessments
 
 paths:
   '/reports/current':
