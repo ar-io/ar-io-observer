@@ -20,6 +20,7 @@ import fs from 'node:fs';
 import swaggerUi from 'swagger-ui-express';
 import YAML from 'yaml';
 
+import * as config from './config.js';
 import { Observer, StaticArnsNamesSource } from './report.js';
 
 // HTTP server
@@ -42,19 +43,20 @@ app.use(
   }),
 );
 
-// TODO retrieve names from config (environment variables)
-const prescribedNamesSource = new StaticArnsNamesSource(['now']);
-const chosenNamesSource = new StaticArnsNamesSource(['ardrive']);
+const prescribedNamesSource = new StaticArnsNamesSource(
+  config.PRESCRIBED_NAMES,
+);
+const chosenNamesSource = new StaticArnsNamesSource(config.CHOSEN_NAMES);
 
 const observer = new Observer({
-  observerAddress: '<example>',
+  observerAddress: config.OBSERVER_ADDRESS,
+  referenceGatewayHost: config.REFERENCE_GATEWAY_HOST,
+  observedGatewayHosts: config.OBSERVED_GATEWAY_HOSTS,
   prescribedNamesSource,
   chosenNamesSource,
-  gatewayHosts: ['arweave.dev'],
-  referenceGatewayHost: 'arweave.dev',
 });
 
-app.get('/report/current', async (_req, res) => {
+app.get('/reports/current', async (_req, res) => {
   try {
     res.json(await observer.generateReport());
   } catch (error: any) {
@@ -62,7 +64,6 @@ app.get('/report/current', async (_req, res) => {
   }
 });
 
-// TODO get port from config (environment variables)
-app.listen(3000, () => {
-  console.log('Listening on port 3000');
+app.listen(config.PORT, () => {
+  console.log(`Listening on port ${config.PORT}`);
 });

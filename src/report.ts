@@ -114,29 +114,29 @@ export class StaticArnsNamesSource implements ArnsNamesSource {
 
 export class Observer {
   private observerAddress: string;
+  private referenceGatewayHost: string;
+  private observedGatewayHosts: string[];
   private prescribedNamesSource: ArnsNamesSource;
   private chosenNamesSource: ArnsNamesSource;
-  private gatewayHosts: string[];
-  private referenceGatewayHost: string;
 
   constructor({
     observerAddress,
     prescribedNamesSource,
     chosenNamesSource,
-    gatewayHosts,
     referenceGatewayHost,
+    observedGatewayHosts,
   }: {
     observerAddress: string;
+    referenceGatewayHost: string;
+    observedGatewayHosts: string[];
     prescribedNamesSource: ArnsNamesSource;
     chosenNamesSource: ArnsNamesSource;
-    gatewayHosts: string[];
-    referenceGatewayHost: string;
   }) {
     this.observerAddress = observerAddress;
+    this.referenceGatewayHost = referenceGatewayHost;
+    this.observedGatewayHosts = observedGatewayHosts;
     this.prescribedNamesSource = prescribedNamesSource;
     this.chosenNamesSource = chosenNamesSource;
-    this.gatewayHosts = gatewayHosts;
-    this.referenceGatewayHost = referenceGatewayHost;
   }
 
   async assessArnsName({ host, arnsName }: { host: string; arnsName: string }) {
@@ -190,7 +190,7 @@ export class Observer {
 
     // Assess gateway
     const arnsAssessments: ArnsAssessments = {};
-    for (const gatewayAddress of this.gatewayHosts) {
+    for (const gatewayAddress of this.observedGatewayHosts) {
       arnsAssessments[gatewayAddress] = {
         prescribedNames: await this.assessArnsNames(prescribedNames),
         chosenNames: await this.assessArnsNames(chosenNames),
