@@ -22,7 +22,7 @@ import swaggerUi from 'swagger-ui-express';
 import YAML from 'yaml';
 
 import * as config from './config.js';
-import { Observer, StaticArnsNamesSource } from './report.js';
+import { Observer, StaticArnsNamesSource } from './observer.js';
 
 // HTTP server
 const app = express();

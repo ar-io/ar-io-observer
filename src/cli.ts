@@ -18,7 +18,7 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 
-import { Observer, StaticArnsNamesSource } from './report.js';
+import { Observer, StaticArnsNamesSource } from './observer.js';
 
 const args = await yargs(hideBin(process.argv))
   .option('prescribed-names', {
