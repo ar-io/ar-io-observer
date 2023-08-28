@@ -108,6 +108,47 @@ export class StaticArnsNamesSource implements ArnsNamesSource {
   }
 }
 
+export class RandomArnsNamesSource implements ArnsNamesSource {
+  private nameCount: number;
+  private entropy: Buffer;
+  private nameList: ArnsNameList;
+
+  constructor({
+    entropy,
+    nameCount,
+    nameList,
+  }: {
+    entropy: Buffer;
+    nameCount: number;
+    nameList: ArnsNameList;
+  }) {
+    this.entropy = entropy;
+    this.nameCount = nameCount;
+    this.nameList = nameList;
+  }
+
+  async getNames(): Promise<string[]> {
+    const names: string[] = [];
+    const usedIndexes = new Set<number>();
+    let hash = crypto.createHash('sha256').update(this.entropy).digest();
+
+    for (let i = 0; i < this.nameCount; i++) {
+      let index = hash.readUInt32BE(0) % this.nameCount;
+
+      while (usedIndexes.has(index)) {
+        index = (index + 1) % this.nameCount;
+      }
+
+      usedIndexes.add(index);
+      names.push(await this.nameList.getName(index));
+
+      hash = crypto.createHash('sha256').update(hash).digest();
+    }
+
+    return names;
+  }
+}
+
 export class Observer {
   private observerAddress: string;
   private referenceGatewayHost: string;
