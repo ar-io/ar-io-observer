@@ -21,25 +21,10 @@ import crypto from 'node:crypto';
 import {
   ArnsAssessments,
   ArnsNameAssessments,
+  ArnsNameList,
   ArnsNamesSource,
   ObserverReport,
 } from './types.js';
-
-// interface ArnsResolver {
-//   resolveArnsName({ arnsName }: { arnsName: string }): Promise<{
-//     resolvedId: string;
-//     ttlSeconds: string;
-//     contentLength: string;
-//     contentType: string;
-//     dataHashDigest: string;
-//     timings: any;
-//   }>;
-// }
-//
-// class ArnsResolver {
-//
-//
-// }
 
 // TODO move this into a resolver class
 function getArnsResolution({
@@ -93,6 +78,22 @@ function getArnsResolution({
       });
     });
   });
+}
+
+export class StaticArnsNameList implements ArnsNameList {
+  private names: string[];
+
+  constructor(names: string[]) {
+    this.names = names;
+  }
+
+  async getNamesCount(): Promise<number> {
+    return this.names.length;
+  }
+
+  async getName(index: number): Promise<string> {
+    return this.names[index];
+  }
 }
 
 export class StaticArnsNamesSource implements ArnsNamesSource {

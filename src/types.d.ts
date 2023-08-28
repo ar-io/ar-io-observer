@@ -45,8 +45,13 @@ export interface ObserverReport {
 }
 
 //
-// Name interfaces
+// Name list and source
 //
+
+interface ArnsNameList {
+  getNamesCount(): Promise<number>;
+  getName(index: number): Promise<string>;
+}
 
 interface ArnsNamesSource {
   getNames(): Promise<string[]>;
