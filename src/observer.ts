@@ -18,29 +18,28 @@
 import got from 'got';
 import crypto from 'node:crypto';
 
-interface ArnsNameAssessment {
-  resolvedId: string;
-  dataHash: string;
-  assessedAt: number;
-  pass: boolean;
-}
+import {
+  ArnsAssessments,
+  ArnsNameAssessments,
+  ArnsNamesSource,
+  ObserverReport,
+} from './types.js';
 
-interface ArnsNameAssessments {
-  [arnsName: string]: ArnsNameAssessment;
-}
-
-interface ArnsAssessments {
-  [gatewayHost: string]: {
-    prescribedNames: ArnsNameAssessments;
-    chosenNames: ArnsNameAssessments;
-  };
-}
-
-interface ObserverReport {
-  observerAddress: string;
-  generatedAt: number;
-  arnsAssessments: ArnsAssessments;
-}
+// interface ArnsResolver {
+//   resolveArnsName({ arnsName }: { arnsName: string }): Promise<{
+//     resolvedId: string;
+//     ttlSeconds: string;
+//     contentLength: string;
+//     contentType: string;
+//     dataHashDigest: string;
+//     timings: any;
+//   }>;
+// }
+//
+// class ArnsResolver {
+//
+//
+// }
 
 // TODO move this into a resolver class
 function getArnsResolution({
@@ -94,10 +93,6 @@ function getArnsResolution({
       });
     });
   });
-}
-
-interface ArnsNamesSource {
-  getNames(): Promise<string[]>;
 }
 
 export class StaticArnsNamesSource implements ArnsNamesSource {
