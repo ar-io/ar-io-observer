@@ -17,12 +17,15 @@
  */
 import got from 'got';
 import crypto from 'node:crypto';
+import { randomBytes } from 'node:crypto';
+import fs from 'node:fs';
 
 import {
   ArnsAssessments,
   ArnsNameAssessments,
   ArnsNameList,
   ArnsNamesSource,
+  EntropySource,
   ObserverReport,
 } from './types.js';
 
@@ -109,28 +112,29 @@ export class StaticArnsNamesSource implements ArnsNamesSource {
 }
 
 export class RandomArnsNamesSource implements ArnsNamesSource {
-  private nameCount: number;
-  private entropy: Buffer;
   private nameList: ArnsNameList;
+  private entropySource: EntropySource;
+  private nameCount: number;
 
   constructor({
-    entropy,
-    nameCount,
     nameList,
+    entropySource,
+    nameCount,
   }: {
-    entropy: Buffer;
-    nameCount: number;
     nameList: ArnsNameList;
+    entropySource: EntropySource;
+    nameCount: number;
   }) {
-    this.entropy = entropy;
-    this.nameCount = nameCount;
     this.nameList = nameList;
+    this.entropySource = entropySource;
+    this.nameCount = nameCount;
   }
 
   async getNames(): Promise<string[]> {
     const names: string[] = [];
     const usedIndexes = new Set<number>();
-    let hash = crypto.createHash('sha256').update(this.entropy).digest();
+    const entropy = await this.entropySource.getEntropy();
+    let hash = crypto.createHash('sha256').update(entropy).digest();
 
     for (let i = 0; i < this.nameCount; i++) {
       let index = hash.readUInt32BE(0) % this.nameCount;
@@ -146,6 +150,63 @@ export class RandomArnsNamesSource implements ArnsNamesSource {
     }
 
     return names;
+  }
+}
+
+export class RandomEntropySource implements EntropySource {
+  async getEntropy(): Promise<Buffer> {
+    return randomBytes(256);
+  }
+}
+
+export class CachedEntropySource implements EntropySource {
+  private entropySource: EntropySource;
+  private cachePath: string;
+
+  constructor({
+    entropySource,
+    cachePath,
+  }: {
+    entropySource: EntropySource;
+    cachePath: string;
+  }) {
+    this.entropySource = entropySource;
+    this.cachePath = cachePath;
+
+    this.ensureEntropyFileExists();
+  }
+
+  async ensureEntropyFileExists(): Promise<void> {
+    try {
+      await fs.promises.access(this.cachePath);
+    } catch {
+      const entropy = await this.entropySource.getEntropy();
+      await fs.promises.writeFile(this.cachePath, entropy);
+    }
+  }
+
+  async getEntropy(): Promise<Buffer> {
+    return fs.promises.readFile(this.cachePath);
+  }
+}
+
+export class CompositeEntroySource {
+  private sources: EntropySource[];
+
+  constructor(sources: EntropySource[]) {
+    this.sources = sources;
+  }
+
+  async getEntropy(): Promise<Buffer> {
+    const hash = crypto.createHash('sha256');
+
+    const entropies = await Promise.all(
+      this.sources.map((source) => source.getEntropy()),
+    );
+
+    entropies.forEach((entropy) => hash.update(entropy));
+
+    return hash.digest();
   }
 }
 

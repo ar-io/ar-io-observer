@@ -27,14 +27,6 @@ import { Observer, StaticArnsNamesSource } from './observer.js';
 // HTTP server
 const app = express();
 
-app.use(
-  OpenApiValidator.middleware({
-    apiSpec: './docs/openapi.yaml',
-    validateRequests: true, // (default)
-    validateResponses: true, // false by default
-  }),
-);
-
 // OpenAPI spec
 const openapiDocument = YAML.parse(
   fs.readFileSync('docs/openapi.yaml', 'utf8'),
@@ -49,6 +41,14 @@ app.use(
   swaggerUi.serve,
   swaggerUi.setup(openapiDocument, {
     explorer: true,
+  }),
+);
+
+app.use(
+  OpenApiValidator.middleware({
+    apiSpec: './docs/openapi.yaml',
+    validateRequests: true, // (default)
+    validateResponses: true, // false by default
   }),
 );
 

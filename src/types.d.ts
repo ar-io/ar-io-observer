@@ -45,8 +45,12 @@ export interface ObserverReport {
 }
 
 //
-// Name list and source
+// Name selection
 //
+
+interface EntropySource {
+  getEntropy(): Promise<Buffer>;
+}
 
 interface ArnsNameList {
   getNamesCount(): Promise<number>;
