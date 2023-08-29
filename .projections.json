@@ -1,0 +1,9 @@
+{
+  "src/*.ts": {
+    "alternate": "src/{}.test.ts"
+  },
+  "src/*.test.ts": {
+    "alternate": "src/{}.ts",
+    "dispatch": "npx c8 -r lcov mocha --no-warnings --color=false"
+  }
+}
