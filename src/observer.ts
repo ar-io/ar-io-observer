@@ -17,19 +17,15 @@
  */
 import got from 'got';
 import crypto from 'node:crypto';
-import { randomBytes } from 'node:crypto';
-import fs from 'node:fs';
 
 import {
   ArnsAssessments,
   ArnsNameAssessments,
-  ArnsNameList,
   ArnsNamesSource,
-  EntropySource,
   ObserverReport,
 } from './types.js';
 
-// TODO move this into a resolver class
+// TODO consider moving this into a resolver class
 function getArnsResolution({
   host,
   arnsName,
@@ -83,133 +79,6 @@ function getArnsResolution({
   });
 }
 
-export class StaticArnsNameList implements ArnsNameList {
-  private names: string[];
-
-  constructor(names: string[]) {
-    this.names = names;
-  }
-
-  async getNamesCount(): Promise<number> {
-    return this.names.length;
-  }
-
-  async getName(index: number): Promise<string> {
-    return this.names[index];
-  }
-}
-
-export class StaticArnsNamesSource implements ArnsNamesSource {
-  private addresses: string[];
-
-  constructor(addresses: string[]) {
-    this.addresses = addresses;
-  }
-
-  async getNames(): Promise<string[]> {
-    return this.addresses;
-  }
-}
-
-export class RandomArnsNamesSource implements ArnsNamesSource {
-  private nameList: ArnsNameList;
-  private entropySource: EntropySource;
-  private nameCount: number;
-
-  constructor({
-    nameList,
-    entropySource,
-    nameCount,
-  }: {
-    nameList: ArnsNameList;
-    entropySource: EntropySource;
-    nameCount: number;
-  }) {
-    this.nameList = nameList;
-    this.entropySource = entropySource;
-    this.nameCount = nameCount;
-  }
-
-  async getNames(): Promise<string[]> {
-    const names: string[] = [];
-    const usedIndexes = new Set<number>();
-    const entropy = await this.entropySource.getEntropy();
-    let hash = crypto.createHash('sha256').update(entropy).digest();
-
-    for (let i = 0; i < this.nameCount; i++) {
-      let index = hash.readUInt32BE(0) % this.nameCount;
-
-      while (usedIndexes.has(index)) {
-        index = (index + 1) % this.nameCount;
-      }
-
-      usedIndexes.add(index);
-      names.push(await this.nameList.getName(index));
-
-      hash = crypto.createHash('sha256').update(hash).digest();
-    }
-
-    return names;
-  }
-}
-
-export class RandomEntropySource implements EntropySource {
-  async getEntropy(): Promise<Buffer> {
-    return randomBytes(256);
-  }
-}
-
-export class CachedEntropySource implements EntropySource {
-  private entropySource: EntropySource;
-  private cachePath: string;
-
-  constructor({
-    entropySource,
-    cachePath,
-  }: {
-    entropySource: EntropySource;
-    cachePath: string;
-  }) {
-    this.entropySource = entropySource;
-    this.cachePath = cachePath;
-
-    this.ensureEntropyFileExists();
-  }
-
-  async ensureEntropyFileExists(): Promise<void> {
-    try {
-      await fs.promises.access(this.cachePath);
-    } catch {
-      const entropy = await this.entropySource.getEntropy();
-      await fs.promises.writeFile(this.cachePath, entropy);
-    }
-  }
-
-  async getEntropy(): Promise<Buffer> {
-    return fs.promises.readFile(this.cachePath);
-  }
-}
-
-export class CompositeEntroySource {
-  private sources: EntropySource[];
-
-  constructor(sources: EntropySource[]) {
-    this.sources = sources;
-  }
-
-  async getEntropy(): Promise<Buffer> {
-    const hash = crypto.createHash('sha256');
-
-    const entropies = await Promise.all(
-      this.sources.map((source) => source.getEntropy()),
-    );
-
-    entropies.forEach((entropy) => hash.update(entropy));
-
-    return hash.digest();
-  }
-}
-
 export class Observer {
   private observerAddress: string;
   private referenceGatewayHost: string;
@@ -256,7 +125,7 @@ export class Observer {
       gatewayResolution.contentLength === referenceResolution.contentLength &&
       gatewayResolution.dataHashDigest === referenceResolution.dataHashDigest;
 
-    // TODO fix timings
+    // TODO fix timings (currently not working)
     return {
       assessedAt: +(Date.now() / 1000).toFixed(0),
       resolvedId: gatewayResolution.resolvedId,
@@ -267,16 +136,19 @@ export class Observer {
   }
 
   async assessArnsNames(names: string[]): Promise<ArnsNameAssessments> {
-    return Promise.all(
+    return Promise.allSettled(
       names.map((name) => {
         return this.assessArnsName({
           host: this.referenceGatewayHost,
           arnsName: name,
         });
       }),
-    ).then((assessments) => {
-      return assessments.reduce((acc, assessment, index) => {
-        acc[names[index]] = assessment;
+    ).then((results) => {
+      return results.reduce((acc, result, index) => {
+        if (result.status === 'fulfilled') {
+          acc[names[index]] = result.value;
+        }
+        // TODO log or otherwise handle errors
         return acc;
       }, {} as ArnsNameAssessments);
     });

@@ -15,28 +15,24 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import dotenv from 'dotenv';
+import { ArnsNameList } from '../types.js';
 
-import * as env from './lib/env.js';
+export class StaticArnsNameList implements ArnsNameList {
+  private names: string[];
 
-dotenv.config();
+  constructor({ names }: { names: string[] }) {
+    this.names = names;
+  }
 
-export const OBSERVER_ADDRESS = env.varOrDefault(
-  'OBSERVER_ADDRESS',
-  '<example>',
-);
+  async getNamesCount(): Promise<number> {
+    return this.names.length;
+  }
 
-export const REFERENCE_GATEWAY_HOST = env.varOrDefault(
-  'REFERENCE_GATEWAY_HOST',
-  'arweave.dev',
-);
+  async getName(index: number): Promise<string> {
+    return this.names[index];
+  }
 
-export const OBSERVED_GATEWAY_HOSTS = env
-  .varOrDefault('OBSERVED_GATEWAY_HOSTS', 'ar-io.dev')
-  .split(',');
-
-export const ARNS_NAMES = env
-  .varOrDefault('ARNS_NAMES', 'ardrive,bazar,now,pages')
-  .split(',');
-
-export const PORT = +env.varOrDefault('PORT', '3000');
+  async getAllNames(): Promise<string[]> {
+    return this.names;
+  }
+}

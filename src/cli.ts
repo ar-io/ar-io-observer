@@ -18,48 +18,88 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 
-import { Observer, StaticArnsNamesSource } from './observer.js';
+import { ChainSource } from './arweave.js';
+import * as config from './config.js';
+import { CachedEntropySource } from './entropy/cached-entropy-source.js';
+import { ChainEntropySource } from './entropy/chain-entropy-source.js';
+import { CompositeEntropySource } from './entropy/composite-entropy-source.js';
+import { RandomEntropySource } from './entropy/random-entropy-source.js';
+import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
+import { StaticArnsNameList } from './names/static-arns-name-list.js';
+import { Observer } from './observer.js';
+import { EpochHeightSource } from './protocol.js';
 
 const args = await yargs(hideBin(process.argv))
-  .option('prescribed-names', {
+  .option('arns-names', {
     type: 'string',
-    description: 'Comma separated list of prescribed names',
-  })
-  .option('chosen-names', {
-    type: 'string',
-    description: 'Comma separated list of chosen names',
-  })
-  .option('gateway-hosts', {
-    type: 'string',
-    description: 'Comma separated list of gateway hosts',
+    description: 'Comma separated list of ArNS names',
   })
   .option('reference-gateway', {
     type: 'string',
     description: 'Reference gateway host',
   })
+  .option('observed-gateway-hosts', {
+    type: 'string',
+    description: 'Comma separated list of gateways hosts to observer',
+  })
   .parse();
 
-const prescribedNames = (
-  typeof args.prescribedNames === 'string' ? args.prescribedNames : 'now'
-).split(',');
+const arnsNames =
+  typeof args.arnsNames === 'string'
+    ? args.arnsNames.split(',')
+    : config.ARNS_NAMES;
 
-const chosenNames = (
-  typeof args.chosenNames === 'string' ? args.chosenNames : 'ardrive'
-).split(',');
+const observedGatewayHosts =
+  typeof args.observedGatewayHosts === 'string'
+    ? args.observedGatewayHosts.split(',')
+    : config.OBSERVED_GATEWAY_HOSTS;
 
-const observedGatewayHosts = (
-  typeof args.gatewayHosts === 'string' ? args.gatewayHosts : 'arweave.dev'
-).split(',');
+const chainSource = new ChainSource({
+  arweaveBaseUrl: 'https://arweave.net',
+});
 
-const prescribedNamesSource = new StaticArnsNamesSource(prescribedNames);
-const chosenNamesSource = new StaticArnsNamesSource(chosenNames);
+const epochHeightSelector = new EpochHeightSource({
+  heightSource: chainSource,
+});
+
+const nameList = new StaticArnsNameList({
+  names: arnsNames,
+});
+
+const chainEntropySource = new ChainEntropySource({
+  arweaveBaseUrl: 'https://arweave.net',
+  heightSource: epochHeightSelector,
+});
+
+const prescribedNamesSource = new RandomArnsNamesSource({
+  nameList,
+  entropySource: chainEntropySource,
+  numNamesToSource: 1,
+});
+
+const randomEntropySource = new RandomEntropySource();
+
+const cachedEntropySource = new CachedEntropySource({
+  entropySource: randomEntropySource,
+  cachePath: './tmp/entropy',
+});
+
+const compositeEntropySource = new CompositeEntropySource({
+  sources: [cachedEntropySource, chainEntropySource],
+});
+
+const chosenNamesSource = new RandomArnsNamesSource({
+  nameList,
+  entropySource: compositeEntropySource,
+  numNamesToSource: 1,
+});
 
 const observer = new Observer({
-  observerAddress: '<example>',
+  observerAddress: config.OBSERVER_ADDRESS,
+  referenceGatewayHost: args.referenceGateway ?? config.REFERENCE_GATEWAY_HOST,
+  observedGatewayHosts,
   prescribedNamesSource,
   chosenNamesSource,
-  observedGatewayHosts,
-  referenceGatewayHost: args.referenceGateway ?? 'arweave.dev',
 });
 
 observer.generateReport().then((report) => {

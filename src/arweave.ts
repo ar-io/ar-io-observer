@@ -15,17 +15,36 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { expect } from 'chai';
+import got from 'got';
 
-import { StaticArnsNamesSource } from './observer.js';
+import { HeightSource } from './types.js';
 
-describe('StaticArnsNamesSource', () => {
-  it('should return the correct names', async () => {
-    const addresses = ['address1', 'address2', 'address3'];
-    const source = new StaticArnsNamesSource(addresses);
+export class FixedHeightSource implements HeightSource {
+  private height: number;
 
-    const names = await source.getNames();
+  constructor({ height }: { height: number }) {
+    this.height = height;
+  }
 
-    expect(names).to.deep.equal(addresses);
-  });
-});
+  async getHeight(): Promise<number> {
+    return this.height;
+  }
+}
+
+export class ChainSource implements HeightSource {
+  private arweaveBaseUrl: string;
+
+  constructor({ arweaveBaseUrl }: { arweaveBaseUrl: string }) {
+    this.arweaveBaseUrl = arweaveBaseUrl;
+  }
+
+  async getHeight(): Promise<number> {
+    const url = `${this.arweaveBaseUrl}/height`;
+    const resp = await got(url);
+    const height = parseInt(resp.body);
+    if (isNaN(height)) {
+      throw new Error(`Invalid height: ${resp.body}`);
+    }
+    return height;
+  }
+}

@@ -21,8 +21,16 @@ import fs from 'node:fs';
 import swaggerUi from 'swagger-ui-express';
 import YAML from 'yaml';
 
+import { ChainSource } from './arweave.js';
 import * as config from './config.js';
-import { Observer, StaticArnsNamesSource } from './observer.js';
+import { CachedEntropySource } from './entropy/cached-entropy-source.js';
+import { ChainEntropySource } from './entropy/chain-entropy-source.js';
+import { CompositeEntropySource } from './entropy/composite-entropy-source.js';
+import { RandomEntropySource } from './entropy/random-entropy-source.js';
+import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
+import { StaticArnsNameList } from './names/static-arns-name-list.js';
+import { Observer } from './observer.js';
+import { EpochHeightSource } from './protocol.js';
 
 // HTTP server
 const app = express();
@@ -52,10 +60,45 @@ app.use(
   }),
 );
 
-const prescribedNamesSource = new StaticArnsNamesSource(
-  config.PRESCRIBED_NAMES,
-);
-const chosenNamesSource = new StaticArnsNamesSource(config.CHOSEN_NAMES);
+const chainSource = new ChainSource({
+  arweaveBaseUrl: 'https://arweave.net',
+});
+
+const epochHeightSelector = new EpochHeightSource({
+  heightSource: chainSource,
+});
+
+const nameList = new StaticArnsNameList({
+  names: config.ARNS_NAMES,
+});
+
+const chainEntropySource = new ChainEntropySource({
+  arweaveBaseUrl: 'https://arweave.net',
+  heightSource: epochHeightSelector,
+});
+
+const prescribedNamesSource = new RandomArnsNamesSource({
+  nameList,
+  entropySource: chainEntropySource,
+  numNamesToSource: 1,
+});
+
+const randomEntropySource = new RandomEntropySource();
+
+const cachedEntropySource = new CachedEntropySource({
+  entropySource: randomEntropySource,
+  cachePath: './tmp/entropy',
+});
+
+const compositeEntropySource = new CompositeEntropySource({
+  sources: [cachedEntropySource, chainEntropySource],
+});
+
+const chosenNamesSource = new RandomArnsNamesSource({
+  nameList,
+  entropySource: compositeEntropySource,
+  numNamesToSource: 1,
+});
 
 const observer = new Observer({
   observerAddress: config.OBSERVER_ADDRESS,

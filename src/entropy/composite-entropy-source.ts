@@ -15,28 +15,26 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import dotenv from 'dotenv';
+import crypto from 'node:crypto';
 
-import * as env from './lib/env.js';
+import { EntropySource } from '../types.js';
 
-dotenv.config();
+export class CompositeEntropySource implements EntropySource {
+  private sources: EntropySource[];
 
-export const OBSERVER_ADDRESS = env.varOrDefault(
-  'OBSERVER_ADDRESS',
-  '<example>',
-);
+  constructor({ sources }: { sources: EntropySource[] }) {
+    this.sources = sources;
+  }
 
-export const REFERENCE_GATEWAY_HOST = env.varOrDefault(
-  'REFERENCE_GATEWAY_HOST',
-  'arweave.dev',
-);
+  async getEntropy(): Promise<Buffer> {
+    const hash = crypto.createHash('sha256');
 
-export const OBSERVED_GATEWAY_HOSTS = env
-  .varOrDefault('OBSERVED_GATEWAY_HOSTS', 'ar-io.dev')
-  .split(',');
+    const entropies = await Promise.all(
+      this.sources.map((source) => source.getEntropy()),
+    );
 
-export const ARNS_NAMES = env
-  .varOrDefault('ARNS_NAMES', 'ardrive,bazar,now,pages')
-  .split(',');
+    entropies.forEach((entropy) => hash.update(entropy));
 
-export const PORT = +env.varOrDefault('PORT', '3000');
+    return hash.digest();
+  }
+}

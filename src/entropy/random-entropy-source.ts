@@ -15,48 +15,12 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+import { randomBytes } from 'node:crypto';
 
-//
-// Observer report
-//
+import { EntropySource } from '../types.js';
 
-export interface ArnsNameAssessment {
-  resolvedId: string;
-  dataHash: string;
-  assessedAt: number;
-  pass: boolean;
-}
-
-export interface ArnsNameAssessments {
-  [arnsName: string]: ArnsNameAssessment;
-}
-
-export interface ArnsAssessments {
-  [gatewayHost: string]: {
-    prescribedNames: ArnsNameAssessments;
-    chosenNames: ArnsNameAssessments;
-  };
-}
-
-export interface ObserverReport {
-  observerAddress: string;
-  generatedAt: number;
-  arnsAssessments: ArnsAssessments;
-}
-
-//
-// Name selection
-//
-
-interface EntropySource {
-  getEntropy(): Promise<Buffer>;
-}
-
-interface ArnsNameList {
-  getNamesCount(): Promise<number>;
-  getName(index: number): Promise<string>;
-}
-
-interface ArnsNamesSource {
-  getNames(): Promise<string[]>;
+export class RandomEntropySource implements EntropySource {
+  async getEntropy(): Promise<Buffer> {
+    return randomBytes(256);
+  }
 }
