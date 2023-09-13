@@ -27,6 +27,7 @@ import { CachedEntropySource } from './entropy/cached-entropy-source.js';
 import { ChainEntropySource } from './entropy/chain-entropy-source.js';
 import { CompositeEntropySource } from './entropy/composite-entropy-source.js';
 import { RandomEntropySource } from './entropy/random-entropy-source.js';
+import { RemoteCacheHostList } from './hosts/remote-cache-host-list.js';
 import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
 import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
@@ -59,6 +60,12 @@ app.use(
     validateResponses: true, // false by default
   }),
 );
+
+// TODO remove hard coded values
+const observedGatewayHostList = new RemoteCacheHostList({
+  baseCacheUrl: 'https://dev.arns.app',
+  contractId: 'bLAgYxAdX2Ry-nt6aH2ixgvJXbpsEYm28NgJgyqfs-U',
+});
 
 const chainSource = new ChainSource({
   arweaveBaseUrl: 'https://arweave.net',
@@ -103,7 +110,7 @@ const chosenNamesSource = new RandomArnsNamesSource({
 const observer = new Observer({
   observerAddress: config.OBSERVER_ADDRESS,
   referenceGatewayHost: config.REFERENCE_GATEWAY_HOST,
-  observedGatewayHosts: config.OBSERVED_GATEWAY_HOSTS,
+  observedGatewayHostList,
   prescribedNamesSource,
   chosenNamesSource,
 });
