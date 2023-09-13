@@ -22,6 +22,7 @@ import {
   ArnsAssessments,
   ArnsNameAssessments,
   ArnsNamesSource,
+  HostList,
   ObserverReport,
 } from './types.js';
 
@@ -82,7 +83,7 @@ function getArnsResolution({
 export class Observer {
   private observerAddress: string;
   private referenceGatewayHost: string;
-  private observedGatewayHosts: string[];
+  private observedGatewayHostList: HostList;
   private prescribedNamesSource: ArnsNamesSource;
   private chosenNamesSource: ArnsNamesSource;
 
@@ -91,17 +92,17 @@ export class Observer {
     prescribedNamesSource,
     chosenNamesSource,
     referenceGatewayHost,
-    observedGatewayHosts,
+    observedGatewayHostList,
   }: {
     observerAddress: string;
     referenceGatewayHost: string;
-    observedGatewayHosts: string[];
+    observedGatewayHostList: HostList;
     prescribedNamesSource: ArnsNamesSource;
     chosenNamesSource: ArnsNamesSource;
   }) {
     this.observerAddress = observerAddress;
     this.referenceGatewayHost = referenceGatewayHost;
-    this.observedGatewayHosts = observedGatewayHosts;
+    this.observedGatewayHostList = observedGatewayHostList;
     this.prescribedNamesSource = prescribedNamesSource;
     this.chosenNamesSource = chosenNamesSource;
   }
@@ -166,7 +167,8 @@ export class Observer {
 
     // Assess gateway
     const arnsAssessments: ArnsAssessments = {};
-    for (const host of this.observedGatewayHosts) {
+    const gatewayHosts = await this.observedGatewayHostList.getHosts();
+    for (const host of gatewayHosts) {
       arnsAssessments[host] = {
         prescribedNames: await this.assessArnsNames({
           host,

@@ -47,6 +47,14 @@ export interface ArnsNamesSource {
 }
 
 //
+// Hosts
+//
+
+export interface HostList {
+  getHosts(): Promise<string[]>;
+}
+
+//
 // Observer report
 //
 
