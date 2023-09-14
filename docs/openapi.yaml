@@ -15,6 +15,15 @@ components:
       type: integer
     Evaluation:
       type: boolean
+    HealthCheck:
+     type: object
+     properties:
+       uptime: { type: number }
+       date: { 
+        type: string,
+        format: date
+       }
+       message: { type: string }
     ArnsAssessment:
       type: object
       properties:
@@ -52,6 +61,16 @@ components:
         - arnsAssessments
 
 paths:
+  '/healthcheck':
+    get:
+      responses:
+        '200':
+          description: |-
+            200 response
+          content:
+            application/json:
+              schema:
+                '$ref': '#/components/schemas/HealthCheck'
   '/reports/current':
     get:
       responses:
