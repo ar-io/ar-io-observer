@@ -135,11 +135,17 @@ export class Observer {
     };
   }
 
-  async assessArnsNames(names: string[]): Promise<ArnsNameAssessments> {
+  async assessArnsNames({
+    host,
+    names,
+  }: {
+    host: string;
+    names: string[];
+  }): Promise<ArnsNameAssessments> {
     return Promise.allSettled(
       names.map((name) => {
         return this.assessArnsName({
-          host: this.referenceGatewayHost,
+          host,
           arnsName: name,
         });
       }),
@@ -160,10 +166,16 @@ export class Observer {
 
     // Assess gateway
     const arnsAssessments: ArnsAssessments = {};
-    for (const gatewayAddress of this.observedGatewayHosts) {
-      arnsAssessments[gatewayAddress] = {
-        prescribedNames: await this.assessArnsNames(prescribedNames),
-        chosenNames: await this.assessArnsNames(chosenNames),
+    for (const host of this.observedGatewayHosts) {
+      arnsAssessments[host] = {
+        prescribedNames: await this.assessArnsNames({
+          host,
+          names: prescribedNames,
+        }),
+        chosenNames: await this.assessArnsNames({
+          host,
+          names: chosenNames,
+        }),
       };
     }
 
