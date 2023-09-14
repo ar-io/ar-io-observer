@@ -1,0 +1,34 @@
+# arns-service
+
+Express microservice that provides REST API to run randomized observation reports against ar.io nodes.
+
+## Getting Started
+
+Requirements:
+
+- `nvm`
+- `yarn`
+
+### Running Locally
+
+Starting the service:
+
+- `nvm use`
+- `yarn`
+- `yarn server`
+
+You can check the service is running by running the command:
+
+```shell
+curl localhost:3000/healthcheck
+{"timestamp":"2023-04-13T13:33:38.299Z","status":200,"message":"Hello world."}
+```
+
+### Docker
+
+Build and run the container:
+
+```shell
+docker build --build-arg NODE_VERSION=$(cat .nvmrc |cut -c2-8) --build-arg NODE_VERSION_SHORT=$(cat .nvmrc |cut -c2-3) . -t ar-io-observer
+docker run -p 3000:3000 ar-io-observer
+```

@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import fs from 'node:fs';
+import path from 'node:path';
 
 import { EntropySource } from '../types.js';
 
@@ -41,6 +42,9 @@ export class CachedEntropySource implements EntropySource {
       // Throws if the file doesn't exist
       await fs.promises.access(this.cachePath);
     } catch {
+      await fs.promises.mkdir(path.dirname(this.cachePath), {
+        recursive: true,
+      });
       const entropy = await this.entropySource.getEntropy();
       await fs.promises.writeFile(this.cachePath, entropy);
     }
