@@ -1,0 +1,46 @@
+name: Build / Test / Push
+
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        step: ['lint:check', 'test', 'build']
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup yarn
+        uses: actions/setup-node@v3
+        with:
+          node-version-file: .nvmrc
+          cache: 'yarn'
+      - run: yarn --immutable --immutable-cache
+      - run: yarn
+      - run: yarn ${{ matrix.step }}
+
+  push:
+    needs: [build]
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      checks: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v3
+      - name: Log in to the GitHub Container Registry
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push container image to GitHub Container Registry
+        uses: docker/build-push-action@v4
+        with:
+          push: true
+          # TODO: add build version node args
+          tags: |
+            ghcr.io/ar-io/ar-io-observer:latest
+            ghcr.io/ar-io/ar-oi-observer:${{ github.sha }}

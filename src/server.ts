@@ -108,6 +108,16 @@ const observer = new Observer({
   chosenNamesSource,
 });
 
+app.get('/healthcheck', async (_req, res) => {
+  const data = {
+    uptime: process.uptime(),
+    date: new Date(),
+    message: 'Welcome to the Permaweb.',
+  };
+
+  res.status(200).send(data);
+});
+
 app.get('/reports/current', async (_req, res) => {
   try {
     res.json(await observer.generateReport());
