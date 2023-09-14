@@ -26,7 +26,8 @@ import { CompositeEntropySource } from './entropy/composite-entropy-source.js';
 import { RandomEntropySource } from './entropy/random-entropy-source.js';
 import { RemoteCacheHostList } from './hosts/remote-cache-host-list.js';
 import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
-import { StaticArnsNameList } from './names/static-arns-name-list.js';
+import { RemoteCacheArnsNameList } from './names/remote-cache-arns-name-list.js';
+//import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
 import { EpochHeightSource } from './protocol.js';
 
@@ -69,8 +70,10 @@ const epochHeightSelector = new EpochHeightSource({
   heightSource: chainSource,
 });
 
-const nameList = new StaticArnsNameList({
-  names: arnsNames,
+// TODO remove hard coded values
+const remoteCacheArnsNameList = new RemoteCacheArnsNameList({
+  baseCacheUrl: 'https://dev.arns.app',
+  contractId: 'bLAgYxAdX2Ry-nt6aH2ixgvJXbpsEYm28NgJgyqfs-U',
 });
 
 const chainEntropySource = new ChainEntropySource({
@@ -79,7 +82,7 @@ const chainEntropySource = new ChainEntropySource({
 });
 
 const prescribedNamesSource = new RandomArnsNamesSource({
-  nameList,
+  nameList: remoteCacheArnsNameList,
   entropySource: chainEntropySource,
   numNamesToSource: 1,
 });
@@ -96,7 +99,7 @@ const compositeEntropySource = new CompositeEntropySource({
 });
 
 const chosenNamesSource = new RandomArnsNamesSource({
-  nameList,
+  nameList: remoteCacheArnsNameList,
   entropySource: compositeEntropySource,
   numNamesToSource: 1,
 });
