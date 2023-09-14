@@ -21,7 +21,7 @@ You can check the service is running by running the command:
 
 ```shell
 curl localhost:3000/healthcheck
-{"timestamp":"2023-04-13T13:33:38.299Z","status":200,"message":"Hello world."}
+{"uptime":2.555423702,"date":"2023-09-14T21:24:27.677Z","message":"Welcome to the Permaweb."}
 ```
 
 ### Docker
