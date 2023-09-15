@@ -43,4 +43,4 @@ jobs:
           # TODO: add build version node args
           tags: |
             ghcr.io/ar-io/ar-io-observer:latest
-            ghcr.io/ar-io/ar-oi-observer:${{ github.sha }}
+            ghcr.io/ar-io/ar-io-observer:${{ github.sha }}
