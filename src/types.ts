@@ -59,9 +59,11 @@ export interface HostList {
 //
 
 export interface ArnsNameAssessment {
-  resolvedId: string;
-  dataHash: string;
   assessedAt: number;
+  expectedId: string | null;
+  resolvedId: string | null;
+  expectedDataHash: string | null;
+  resolvedDataHash: string | null;
   pass: boolean;
 }
 
