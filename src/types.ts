@@ -65,6 +65,15 @@ export interface ArnsNameAssessment {
   expectedDataHash: string | null;
   resolvedDataHash: string | null;
   pass: boolean;
+  timings?: {
+    wait?: number;
+    dns?: number;
+    tcp?: number;
+    tls?: number;
+    firstByte?: number;
+    download?: number;
+    total?: number;
+  };
 }
 
 export interface ArnsNameAssessments {

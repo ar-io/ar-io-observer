@@ -15,6 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+import { Timings } from '@szmarczak/http-timer';
 import got from 'got';
 import crypto from 'node:crypto';
 import pMap from 'p-map';
@@ -41,7 +42,7 @@ function getArnsResolution({
   contentLength: string;
   contentType: string;
   dataHashDigest: string;
-  timings: any;
+  timings: Timings;
 }> {
   const url = `https://${arnsName}.${host}/`;
   const stream = got.stream.get(url);
@@ -76,7 +77,7 @@ function getArnsResolution({
         contentType: response.headers['content-type'],
         contentLength: response.headers['content-length'],
         dataHashDigest: dataHash.digest('base64url'),
-        timings: response.timings.phases,
+        timings: response.timings,
       });
     });
   });
@@ -117,7 +118,13 @@ export class Observer {
     this.nameAssessmentConcurrency = nameAssessmentConcurrency;
   }
 
-  async assessArnsName({ host, arnsName }: { host: string; arnsName: string }) {
+  async assessArnsName({
+    host,
+    arnsName,
+  }: {
+    host: string;
+    arnsName: string;
+  }): Promise<ArnsNameAssessment> {
     // TODO handle exceptions
     const referenceResolution = await getArnsResolution({
       host: this.referenceGatewayHost,
@@ -136,7 +143,6 @@ export class Observer {
       gatewayResolution.contentLength === referenceResolution.contentLength &&
       gatewayResolution.dataHashDigest === referenceResolution.dataHashDigest;
 
-    // TODO fix timings (currently not working)
     return {
       assessedAt: +(Date.now() / 1000).toFixed(0),
       expectedId: referenceResolution.resolvedId,
