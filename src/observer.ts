@@ -45,7 +45,14 @@ function getArnsResolution({
   timings: Timings;
 }> {
   const url = `https://${arnsName}.${host}/`;
-  const stream = got.stream.get(url);
+  const stream = got.stream.get(url, {
+    timeout: {
+      lookup: 500,
+      connect: 200,
+      secureConnect: 200,
+      socket: 1000,
+    },
+  });
   const dataHash = crypto.createHash('sha256');
 
   return new Promise<{
