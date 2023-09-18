@@ -176,13 +176,21 @@ export class Observer {
             host,
             arnsName: name,
           });
-        } catch (e) {
+        } catch (err) {
+          const errorMessage =
+            typeof err === 'object' &&
+            err !== null &&
+            'message' in err &&
+            typeof err.message === 'string'
+              ? err.message
+              : undefined;
           return {
             assessedAt: +(Date.now() / 1000).toFixed(0),
             expectedId: null,
             resolvedId: null,
             expectedDataHash: null,
             resolvedDataHash: null,
+            errorMessage: errorMessage?.slice(0, 512),
             pass: false,
           };
         }
