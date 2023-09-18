@@ -110,6 +110,8 @@ const observer = new Observer({
   observedGatewayHostList,
   prescribedNamesSource,
   chosenNamesSource,
+  gatewayAssessmentConcurrency: config.GATEWAY_ASSESSMENT_CONCURRENCY,
+  nameAssessmentConcurrency: config.NAME_ASSESSMENT_CONCURRENCY,
 });
 
 observer.generateReport().then((report) => {

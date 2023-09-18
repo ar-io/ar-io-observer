@@ -17,6 +17,7 @@
  */
 import got from 'got';
 import crypto from 'node:crypto';
+import pMap from 'p-map';
 
 import {
   ArnsAssessments,
@@ -86,6 +87,8 @@ export class Observer {
   private observedGatewayHostList: HostList;
   private prescribedNamesSource: ArnsNamesSource;
   private chosenNamesSource: ArnsNamesSource;
+  private gatewayAsessementConcurrency: number;
+  private nameAssessmentConcurrency: number;
 
   constructor({
     observerAddress,
@@ -93,18 +96,24 @@ export class Observer {
     chosenNamesSource,
     referenceGatewayHost,
     observedGatewayHostList,
+    gatewayAssessmentConcurrency,
+    nameAssessmentConcurrency,
   }: {
     observerAddress: string;
     referenceGatewayHost: string;
     observedGatewayHostList: HostList;
     prescribedNamesSource: ArnsNamesSource;
     chosenNamesSource: ArnsNamesSource;
+    gatewayAssessmentConcurrency: number;
+    nameAssessmentConcurrency: number;
   }) {
     this.observerAddress = observerAddress;
     this.referenceGatewayHost = referenceGatewayHost;
     this.observedGatewayHostList = observedGatewayHostList;
     this.prescribedNamesSource = prescribedNamesSource;
     this.chosenNamesSource = chosenNamesSource;
+    this.gatewayAsessementConcurrency = gatewayAssessmentConcurrency;
+    this.nameAssessmentConcurrency = nameAssessmentConcurrency;
   }
 
   async assessArnsName({ host, arnsName }: { host: string; arnsName: string }) {
@@ -143,20 +152,29 @@ export class Observer {
     host: string;
     names: string[];
   }): Promise<ArnsNameAssessments> {
-    return Promise.allSettled(
-      names.map((name) => {
-        return this.assessArnsName({
-          host,
-          arnsName: name,
-        });
-      }),
-    ).then((results) => {
-      return results.reduce((acc, result, index) => {
-        if (result.status === 'fulfilled') {
-          acc[names[index]] = result.value;
+    return pMap(
+      names,
+      async (name) => {
+        try {
+          return await this.assessArnsName({
+            host,
+            arnsName: name,
+          });
+        } catch (e) {
+          return {
+            assessedAt: +(Date.now() / 1000).toFixed(0),
+            resolvedId: '',
+            dataHash: '',
+            pass: false,
+            timings: {},
+          };
         }
-        // TODO log or otherwise handle errors
-        return acc;
+      },
+      { concurrency: this.nameAssessmentConcurrency },
+    ).then((results) => {
+      return results.reduce((assessments, assessment, index) => {
+        assessments[names[index]] = assessment;
+        return assessments;
       }, {} as ArnsNameAssessments);
     });
   }
@@ -168,18 +186,26 @@ export class Observer {
     // Assess gateway
     const arnsAssessments: ArnsAssessments = {};
     const gatewayHosts = await this.observedGatewayHostList.getHosts();
-    for (const host of gatewayHosts) {
-      arnsAssessments[host] = {
-        prescribedNames: await this.assessArnsNames({
-          host,
-          names: prescribedNames,
-        }),
-        chosenNames: await this.assessArnsNames({
-          host,
-          names: chosenNames,
-        }),
-      };
-    }
+    await pMap(
+      gatewayHosts,
+      async (host) => {
+        const [prescribedAssessments, chosenAssessments] = await Promise.all([
+          await this.assessArnsNames({
+            host,
+            names: prescribedNames,
+          }),
+          await this.assessArnsNames({
+            host,
+            names: chosenNames,
+          }),
+        ]);
+        arnsAssessments[host] = {
+          prescribedNames: prescribedAssessments,
+          chosenNames: chosenAssessments,
+        };
+      },
+      { concurrency: this.gatewayAsessementConcurrency },
+    );
 
     return {
       observerAddress: this.observerAddress,
