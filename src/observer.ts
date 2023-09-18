@@ -21,6 +21,7 @@ import pMap from 'p-map';
 
 import {
   ArnsAssessments,
+  ArnsNameAssessment,
   ArnsNameAssessments,
   ArnsNamesSource,
   HostList,
@@ -138,8 +139,10 @@ export class Observer {
     // TODO fix timings (currently not working)
     return {
       assessedAt: +(Date.now() / 1000).toFixed(0),
+      expectedId: referenceResolution.resolvedId,
       resolvedId: gatewayResolution.resolvedId,
-      dataHash: gatewayResolution.dataHashDigest,
+      expectedDataHash: referenceResolution.dataHashDigest,
+      resolvedDataHash: gatewayResolution.dataHashDigest,
       pass,
       timings: gatewayResolution.timings.phases,
     };
@@ -163,10 +166,11 @@ export class Observer {
         } catch (e) {
           return {
             assessedAt: +(Date.now() / 1000).toFixed(0),
-            resolvedId: '',
-            dataHash: '',
+            expectedId: null,
+            resolvedId: null,
+            expectedDataHash: null,
+            resolvedDataHash: null,
             pass: false,
-            timings: {},
           };
         }
       },
