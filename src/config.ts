@@ -40,3 +40,13 @@ export const ARNS_NAMES = env
   .split(',');
 
 export const PORT = +env.varOrDefault('PORT', '3000');
+
+export const GATEWAY_ASSESSMENT_CONCURRENCY = +env.varOrDefault(
+  'GATEWAY_ASSESSMENT_CONCURRENCY',
+  '10',
+);
+
+export const NAME_ASSESSMENT_CONCURRENCY = +env.varOrDefault(
+  'NAME_ASSESSMENT_CONCURRENCY',
+  '5',
+);

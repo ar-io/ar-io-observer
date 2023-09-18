@@ -77,7 +77,7 @@ const epochHeightSelector = new EpochHeightSource({
 });
 
 // TODO remove hard coded values
-const remoteCacheArnsNameList = new RemoteCacheArnsNameList({
+const nameList = new RemoteCacheArnsNameList({
   baseCacheUrl: 'https://dev.arns.app',
   contractId: 'bLAgYxAdX2Ry-nt6aH2ixgvJXbpsEYm28NgJgyqfs-U',
 });
@@ -116,6 +116,8 @@ const observer = new Observer({
   observedGatewayHostList,
   prescribedNamesSource,
   chosenNamesSource,
+  gatewayAssessmentConcurrency: config.GATEWAY_ASSESSMENT_CONCURRENCY,
+  nameAssessmentConcurrency: config.NAME_ASSESSMENT_CONCURRENCY,
 });
 
 app.get('/healthcheck', async (_req, res) => {
