@@ -24,15 +24,15 @@ export class StaticArnsNameList implements ArnsNameList {
     this.names = names;
   }
 
-  async getNamesCount(): Promise<number> {
+  async getNamesCount(_: number): Promise<number> {
     return this.names.length;
   }
 
-  async getName(index: number): Promise<string> {
+  async getName(_: number, index: number): Promise<string> {
     return this.names[index];
   }
 
-  async getAllNames(): Promise<string[]> {
+  async getAllNames(_: number): Promise<string[]> {
     return this.names;
   }
 }

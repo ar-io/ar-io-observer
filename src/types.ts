@@ -37,9 +37,9 @@ export interface EntropySource {
 }
 
 export interface ArnsNameList {
-  getNamesCount(): Promise<number>;
-  getName(index: number): Promise<string>;
-  getAllNames(): Promise<string[]>;
+  getNamesCount(height: number): Promise<number>;
+  getName(height: number, index: number): Promise<string>;
+  getAllNames(height: number): Promise<string[]>;
 }
 
 export interface ArnsNamesSource {
