@@ -19,6 +19,8 @@ import got from 'got';
 
 import { HeightSource } from './types.js';
 
+export const AVERAGE_BLOCK_TIME = 120;
+
 export class FixedHeightSource implements HeightSource {
   private height: number;
 

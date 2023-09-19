@@ -17,6 +17,7 @@
  */
 import got from 'got';
 
+import { AVERAGE_BLOCK_TIME } from '../arweave.js';
 import { ArnsNameList } from '../types.js';
 
 interface NameRecords {
@@ -45,6 +46,30 @@ function hasNameRecords(obj: unknown): obj is NameRecords {
   return true;
 }
 
+interface TimeStamped {
+  timestamp: number;
+}
+
+function hasTimestamp(obj: unknown): obj is TimeStamped {
+  if (!(typeof obj === 'object')) {
+    return false;
+  }
+
+  if (obj === null) {
+    return false;
+  }
+
+  if (!('timestamp' in obj)) {
+    return false;
+  }
+
+  if ((typeof obj['timestamp'] as any) !== 'number') {
+    return false;
+  }
+
+  return true;
+}
+
 export class RemoteCacheArnsNameList implements ArnsNameList {
   private baseCacheUrl: string;
   private contractId: string;
@@ -61,29 +86,55 @@ export class RemoteCacheArnsNameList implements ArnsNameList {
     this.contractId = contractId;
   }
 
-  async getNamesCount(): Promise<number> {
-    const names = await this.getAllNames();
+  async getNamesCount(height: number): Promise<number> {
+    const names = await this.getAllNames(height);
     return names.length;
   }
 
-  async getAllNames(): Promise<string[]> {
-    // TODO cache based on height and timestamp range
+  async getAllNames(height: number): Promise<string[]> {
     if (this.names === undefined) {
-      // TODO request state as of the given height
-      const url = `${this.baseCacheUrl}/v1/contract/${this.contractId}/records`;
-      const resp = await got.get(url).json<unknown>();
+      const block = await got(
+        `https://arweave.net/block/height/${height}`,
+      ).json<unknown>();
+      if (!hasTimestamp(block)) {
+        throw new Error('Unexpected block response format');
+      }
+      const blockTimestamp = block.timestamp;
+
+      // TODO request the state at the given height
+      const cacheUrl = `${this.baseCacheUrl}/v1/contract/${this.contractId}/records`;
+      const resp = await got.get(cacheUrl).json<unknown>();
       if (!hasNameRecords(resp)) {
         throw new Error('Unexpected name records response format');
       }
-      // TODO filter based on start and end timestamps
-      this.names = Object.keys(resp.records).sort();
+      const names = [];
+      for (const [name, record] of Object.entries(resp.records)) {
+        const anyRecord = record as any;
+        // TODO remove magic number
+        if (
+          +anyRecord?.startTimestamp <
+          blockTimestamp - AVERAGE_BLOCK_TIME * 50
+        ) {
+          continue;
+        }
+        // TODO remove magic number
+        if (
+          +anyRecord?.endTimestamp >
+          blockTimestamp + AVERAGE_BLOCK_TIME * 6000
+        ) {
+          continue;
+        }
+        names.push(name);
+      }
+
+      // TODO cache based on height and timestamp range
+      this.names = names.sort();
     }
 
     return this.names;
   }
 
-  async getName(index: number): Promise<string> {
-    const names = await this.getAllNames();
-    return names[index];
+  async getName(height: number, index: number): Promise<string> {
+    return (await this.getAllNames(height))[index];
   }
 }

@@ -17,36 +17,46 @@
  */
 import crypto from 'node:crypto';
 
-import { ArnsNameList, ArnsNamesSource, EntropySource } from '../types.js';
+import {
+  ArnsNameList,
+  ArnsNamesSource,
+  EntropySource,
+  HeightSource,
+} from '../types.js';
 
 export class RandomArnsNamesSource implements ArnsNamesSource {
   private nameList: ArnsNameList;
   private entropySource: EntropySource;
   private numNamesToSource: number;
+  private heightSource: HeightSource;
 
   constructor({
     nameList,
     entropySource,
     numNamesToSource,
+    heightSource,
   }: {
     nameList: ArnsNameList;
     entropySource: EntropySource;
     numNamesToSource: number;
+    heightSource: HeightSource;
   }) {
     this.nameList = nameList;
     this.entropySource = entropySource;
     this.numNamesToSource = numNamesToSource;
+    this.heightSource = heightSource;
   }
 
   async getNames(): Promise<string[]> {
     const selectedNames: string[] = [];
     const usedIndexes = new Set<number>();
     const entropy = await this.entropySource.getEntropy();
-    const namesCount = await this.nameList.getNamesCount();
+    const height = await this.heightSource.getHeight();
+    const namesCount = await this.nameList.getNamesCount(height);
 
     // If we want to source more names than exist in the list, just return all
     if (this.numNamesToSource >= namesCount) {
-      return this.nameList.getAllNames();
+      return this.nameList.getAllNames(height);
     }
 
     let hash = crypto.createHash('sha256').update(entropy).digest();
@@ -58,7 +68,7 @@ export class RandomArnsNamesSource implements ArnsNamesSource {
       }
 
       usedIndexes.add(index);
-      selectedNames.push(await this.nameList.getName(index));
+      selectedNames.push(await this.nameList.getName(height, index));
 
       hash = crypto.createHash('sha256').update(hash).digest();
     }
