@@ -91,6 +91,7 @@ const prescribedNamesSource = new RandomArnsNamesSource({
   nameList,
   entropySource: chainEntropySource,
   numNamesToSource: 1,
+  heightSource: epochHeightSelector,
 });
 
 const randomEntropySource = new RandomEntropySource();
@@ -108,6 +109,7 @@ const chosenNamesSource = new RandomArnsNamesSource({
   nameList,
   entropySource: compositeEntropySource,
   numNamesToSource: 1,
+  heightSource: epochHeightSelector,
 });
 
 const observer = new Observer({
