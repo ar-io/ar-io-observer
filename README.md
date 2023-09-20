@@ -1,4 +1,4 @@
-# arns-service
+# ar-io-observer
 
 Express microservice that provides REST API to run randomized observation reports against ar.io nodes.
 
