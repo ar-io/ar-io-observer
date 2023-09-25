@@ -46,16 +46,6 @@ const args = await yargs(hideBin(process.argv))
   })
   .parse();
 
-const arnsNames =
-  typeof args.arnsNames === 'string'
-    ? args.arnsNames.split(',')
-    : config.ARNS_NAMES;
-
-const observedGatewayHosts =
-  typeof args.observedGatewayHosts === 'string'
-    ? args.observedGatewayHosts.split(',')
-    : config.OBSERVED_GATEWAY_HOSTS;
-
 // TODO remove hard coded values
 const observedGatewayHostList = new RemoteCacheHostList({
   baseCacheUrl: 'https://dev.arns.app',
