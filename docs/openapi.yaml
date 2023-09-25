@@ -11,6 +11,10 @@ components:
       type: string
     ArweaveId:
       type: string
+      nullable: true
+    DataHash:
+      type: string
+      nullable: true
     Timestamp:
       type: integer
     Evaluation:
@@ -28,11 +32,17 @@ components:
       type: object
       properties:
         assessedAt: { '$ref': '#/components/schemas/Timestamp'}
+        expectedId: { '$ref': '#/components/schemas/ArweaveId' }
         resolvedId: { '$ref': '#/components/schemas/ArweaveId' }
+        expectedDataHash: { '$ref': '#/components/schemas/ArweaveId' }
+        resolvedDataHash: { '$ref': '#/components/schemas/ArweaveId' }
         pass: { '$ref': '#/components/schemas/Evaluation' }
       required:
         - assessedAt
+        - expectedId
         - resolvedId
+        - expectedDataHash
+        - resolvedDataHash
         - pass
     GatewayArnsAssessment:
       type: object
