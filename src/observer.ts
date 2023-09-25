@@ -152,10 +152,10 @@ export class Observer {
 
     return {
       assessedAt: +(Date.now() / 1000).toFixed(0),
-      expectedId: referenceResolution.resolvedId,
-      resolvedId: gatewayResolution.resolvedId,
-      expectedDataHash: referenceResolution.dataHashDigest,
-      resolvedDataHash: gatewayResolution.dataHashDigest,
+      expectedId: referenceResolution.resolvedId ?? null,
+      resolvedId: gatewayResolution.resolvedId ?? null,
+      expectedDataHash: referenceResolution.dataHashDigest ?? null,
+      resolvedDataHash: gatewayResolution.dataHashDigest ?? null,
       pass,
       timings: gatewayResolution.timings.phases,
     };
