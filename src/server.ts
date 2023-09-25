@@ -30,7 +30,6 @@ import { RandomEntropySource } from './entropy/random-entropy-source.js';
 import { RemoteCacheHostList } from './hosts/remote-cache-host-list.js';
 import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
 import { RemoteCacheArnsNameList } from './names/remote-cache-arns-name-list.js';
-import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
 import { EpochHeightSource } from './protocol.js';
 
