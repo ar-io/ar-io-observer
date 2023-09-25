@@ -190,7 +190,7 @@ export class Observer {
             resolvedId: null,
             expectedDataHash: null,
             resolvedDataHash: null,
-            errorMessage: errorMessage?.slice(0, 512),
+            failureMessage: errorMessage?.slice(0, 512),
             pass: false,
           };
         }
