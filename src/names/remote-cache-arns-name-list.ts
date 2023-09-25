@@ -112,14 +112,14 @@ export class RemoteCacheArnsNameList implements ArnsNameList {
         const anyRecord = record as any;
         // TODO remove magic number
         if (
-          +anyRecord?.startTimestamp <
+          +anyRecord?.startTimestamp >
           blockTimestamp - AVERAGE_BLOCK_TIME * 50
         ) {
           continue;
         }
         // TODO remove magic number
         if (
-          +anyRecord?.endTimestamp >
+          +anyRecord?.endTimestamp <
           blockTimestamp + AVERAGE_BLOCK_TIME * 6000
         ) {
           continue;
