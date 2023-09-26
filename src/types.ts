@@ -65,7 +65,7 @@ export interface ArnsNameAssessment {
   expectedDataHash: string | null;
   resolvedDataHash: string | null;
   pass: boolean;
-  failureMessage?: string;
+  failureReason?: string;
   timings?: {
     wait?: number;
     dns?: number;
