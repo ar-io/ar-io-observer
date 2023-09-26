@@ -29,6 +29,15 @@ import {
   ObserverReport,
 } from './types.js';
 
+interface ArnsResolution {
+  resolvedId: string | null;
+  ttlSeconds: string | null;
+  contentLength: string | null;
+  contentType: string | null;
+  dataHashDigest: string | null;
+  timings: Timings | null;
+}
+
 // TODO consider moving this into a resolver class
 function getArnsResolution({
   host,
@@ -36,14 +45,7 @@ function getArnsResolution({
 }: {
   host: string;
   arnsName: string;
-}): Promise<{
-  resolvedId: string | null;
-  ttlSeconds: string | null;
-  contentLength: string | null;
-  contentType: string | null;
-  dataHashDigest: string | null;
-  timings: Timings;
-}> {
+}): Promise<ArnsResolution> {
   const url = `https://${arnsName}.${host}/`;
   const stream = got.stream.get(url, {
     timeout: {
@@ -55,14 +57,7 @@ function getArnsResolution({
   });
   const dataHash = crypto.createHash('sha256');
 
-  return new Promise<{
-    resolvedId: string | null;
-    ttlSeconds: string | null;
-    contentType: string | null;
-    contentLength: string | null;
-    dataHashDigest: string | null;
-    timings: any;
-  }>((resolve, reject) => {
+  return new Promise<ArnsResolution>((resolve, reject) => {
     let response: any;
 
     stream.on('error', (error) => {
@@ -154,12 +149,24 @@ export class Observer {
       arnsName,
     });
 
-    const pass =
-      gatewayResolution.resolvedId === referenceResolution.resolvedId &&
-      gatewayResolution.ttlSeconds === referenceResolution.ttlSeconds &&
-      gatewayResolution.contentType === referenceResolution.contentType &&
-      gatewayResolution.contentLength === referenceResolution.contentLength &&
-      gatewayResolution.dataHashDigest === referenceResolution.dataHashDigest;
+    let pass = true;
+    let failureReason: string | undefined = undefined;
+
+    const checkedProperties: Array<keyof ArnsResolution> = [
+      'resolvedId',
+      'ttlSeconds',
+      'contentType',
+      'contentLength',
+      'dataHashDigest',
+    ];
+    for (const property of checkedProperties) {
+      if (referenceResolution[property] !== gatewayResolution[property]) {
+        pass = false;
+        failureReason =
+          (failureReason !== undefined ? failureReason + ', ' : '') +
+          `${property} mismatch`;
+      }
+    }
 
     return {
       assessedAt: +(Date.now() / 1000).toFixed(0),
@@ -167,8 +174,9 @@ export class Observer {
       resolvedId: gatewayResolution.resolvedId ?? null,
       expectedDataHash: referenceResolution.dataHashDigest ?? null,
       resolvedDataHash: gatewayResolution.dataHashDigest ?? null,
+      failureReason,
       pass,
-      timings: gatewayResolution?.timings.phases,
+      timings: gatewayResolution?.timings?.phases,
     };
   }
 
@@ -201,7 +209,7 @@ export class Observer {
             resolvedId: null,
             expectedDataHash: null,
             resolvedDataHash: null,
-            failureMessage: errorMessage?.slice(0, 512),
+            failureReason: errorMessage?.slice(0, 512),
             pass: false,
           };
         }
