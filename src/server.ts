@@ -15,6 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+import { ReadThroughPromiseCache } from '@ardrive/ardrive-promise-cache';
 import express from 'express';
 import * as OpenApiValidator from 'express-openapi-validator';
 import fs from 'node:fs';
@@ -32,6 +33,7 @@ import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
 import { RemoteCacheArnsNameList } from './names/remote-cache-arns-name-list.js';
 import { Observer } from './observer.js';
 import { EpochHeightSource } from './protocol.js';
+import { ObserverReport } from './types.js';
 
 // HTTP server
 const app = express();
@@ -131,9 +133,19 @@ app.get('/healthcheck', async (_req, res) => {
   res.status(200).send(data);
 });
 
+const reportCache = new ReadThroughPromiseCache<string, ObserverReport>({
+  cacheParams: {
+    cacheCapacity: 1,
+    cacheTTL: 1000 * 60 * 10, // 10 minutes
+  },
+  readThroughFunction: async (_: string): Promise<ObserverReport> => {
+    return observer.generateReport();
+  },
+});
+
 app.get('/reports/current', async (_req, res) => {
   try {
-    res.json(await observer.generateReport());
+    res.json(await reportCache.get('current'));
   } catch (error: any) {
     res.status(500).send(error?.message);
   }
