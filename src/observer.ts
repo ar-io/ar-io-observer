@@ -37,11 +37,11 @@ function getArnsResolution({
   host: string;
   arnsName: string;
 }): Promise<{
-  resolvedId: string;
-  ttlSeconds: string;
-  contentLength: string;
-  contentType: string;
-  dataHashDigest: string;
+  resolvedId: string | null;
+  ttlSeconds: string | null;
+  contentLength: string | null;
+  contentType: string | null;
+  dataHashDigest: string | null;
   timings: Timings;
 }> {
   const url = `https://${arnsName}.${host}/`;
@@ -56,17 +56,28 @@ function getArnsResolution({
   const dataHash = crypto.createHash('sha256');
 
   return new Promise<{
-    resolvedId: string;
-    ttlSeconds: string;
-    contentType: string;
-    contentLength: string;
-    dataHashDigest: string;
+    resolvedId: string | null;
+    ttlSeconds: string | null;
+    contentType: string | null;
+    contentLength: string | null;
+    dataHashDigest: string | null;
     timings: any;
   }>((resolve, reject) => {
     let response: any;
 
     stream.on('error', (error) => {
-      reject(error);
+      if ((error as any)?.response?.statusCode === 404) {
+        resolve({
+          resolvedId: null,
+          ttlSeconds: null,
+          contentType: null,
+          contentLength: null,
+          dataHashDigest: null,
+          timings: null,
+        });
+      } else {
+        reject(error);
+      }
     });
 
     stream.on('response', (resp) => {
@@ -157,7 +168,7 @@ export class Observer {
       expectedDataHash: referenceResolution.dataHashDigest ?? null,
       resolvedDataHash: gatewayResolution.dataHashDigest ?? null,
       pass,
-      timings: gatewayResolution.timings.phases,
+      timings: gatewayResolution?.timings.phases,
     };
   }
 
