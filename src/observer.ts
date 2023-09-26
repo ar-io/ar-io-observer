@@ -156,7 +156,6 @@ export class Observer {
       'resolvedId',
       'ttlSeconds',
       'contentType',
-      'contentLength',
       'dataHashDigest',
     ];
     for (const property of checkedProperties) {
