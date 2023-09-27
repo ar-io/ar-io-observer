@@ -38,17 +38,22 @@ import { ObserverReport } from './types.js';
 // HTTP server
 const app = express();
 
+// Redirect root to report
+app.get('/', (_req, res) => {
+  res.redirect('/ar-io/observer/reports/current');
+});
+
 // OpenAPI spec
 const openapiDocument = YAML.parse(
   fs.readFileSync('docs/openapi.yaml', 'utf8'),
 );
-app.get('/openapi.json', (_req, res) => {
+app.get(['/openapi.json', '/ar-io/observer/openapi.json'], (_req, res) => {
   res.json(openapiDocument);
 });
 
 // Swagger UI
 app.use(
-  '/api-docs',
+  ['/api-docs', '/ar-io/observer/api-docs'],
   swaggerUi.serve,
   swaggerUi.setup(openapiDocument, {
     explorer: true,
@@ -123,7 +128,7 @@ const observer = new Observer({
   nameAssessmentConcurrency: config.NAME_ASSESSMENT_CONCURRENCY,
 });
 
-app.get('/healthcheck', async (_req, res) => {
+app.get('/ar-io/observer/healthcheck', async (_req, res) => {
   const data = {
     uptime: process.uptime(),
     date: new Date(),
@@ -143,7 +148,7 @@ const reportCache = new ReadThroughPromiseCache<string, ObserverReport>({
   },
 });
 
-app.get('/reports/current', async (_req, res) => {
+app.get('/ar-io/observer/reports/current', async (_req, res) => {
   try {
     res.json(await reportCache.get('current'));
   } catch (error: any) {
