@@ -71,7 +71,7 @@ components:
         - arnsAssessments
 
 paths:
-  '/healthcheck':
+  '/ar-io/observer/healthcheck':
     get:
       responses:
         '200':
@@ -81,7 +81,7 @@ paths:
             application/json:
               schema:
                 '$ref': '#/components/schemas/HealthCheck'
-  '/reports/current':
+  '/ar-io/observer/reports/current':
     get:
       responses:
         '200':
