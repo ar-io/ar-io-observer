@@ -25,6 +25,7 @@ import {
   ArnsNameAssessment,
   ArnsNameAssessments,
   ArnsNamesSource,
+  HeightSource,
   HostList,
   ObserverReport,
 } from './types.js';
@@ -102,6 +103,7 @@ function getArnsResolution({
 export class Observer {
   private observerAddress: string;
   private referenceGatewayHost: string;
+  private epochHeightSource: HeightSource;
   private observedGatewayHostList: HostList;
   private prescribedNamesSource: ArnsNamesSource;
   private chosenNamesSource: ArnsNamesSource;
@@ -111,6 +113,7 @@ export class Observer {
   constructor({
     observerAddress,
     prescribedNamesSource,
+    epochHeightSource,
     chosenNamesSource,
     referenceGatewayHost,
     observedGatewayHostList,
@@ -119,6 +122,7 @@ export class Observer {
   }: {
     observerAddress: string;
     referenceGatewayHost: string;
+    epochHeightSource: HeightSource;
     observedGatewayHostList: HostList;
     prescribedNamesSource: ArnsNamesSource;
     chosenNamesSource: ArnsNamesSource;
@@ -127,6 +131,7 @@ export class Observer {
   }) {
     this.observerAddress = observerAddress;
     this.referenceGatewayHost = referenceGatewayHost;
+    this.epochHeightSource = epochHeightSource;
     this.observedGatewayHostList = observedGatewayHostList;
     this.prescribedNamesSource = prescribedNamesSource;
     this.chosenNamesSource = chosenNamesSource;
@@ -228,6 +233,7 @@ export class Observer {
   }
 
   async generateReport(): Promise<ObserverReport> {
+    const epochStartHeight = await this.epochHeightSource.getHeight();
     const prescribedNames = await this.prescribedNamesSource.getNames();
     const chosenNames = await this.chosenNamesSource.getNames();
 
@@ -257,6 +263,7 @@ export class Observer {
 
     return {
       observerAddress: this.observerAddress,
+      epochStartHeight,
       generatedAt: +(Date.now() / 1000).toFixed(0),
       arnsAssessments,
     };
