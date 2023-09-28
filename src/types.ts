@@ -60,6 +60,8 @@ export interface HostList {
 
 export interface ArnsNameAssessment {
   assessedAt: number;
+  expectedStatusCode?: number;
+  resolvedStatusCode?: number;
   expectedId: string | null;
   resolvedId: string | null;
   expectedDataHash: string | null;
