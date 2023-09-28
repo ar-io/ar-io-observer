@@ -92,6 +92,7 @@ export interface ArnsAssessments {
 
 export interface ObserverReport {
   observerAddress: string;
+  epochStartHeight: number;
   generatedAt: number;
   arnsAssessments: ArnsAssessments;
 }

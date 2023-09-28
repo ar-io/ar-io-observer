@@ -99,6 +99,7 @@ const chosenNamesSource = new RandomArnsNamesSource({
 const observer = new Observer({
   observerAddress: config.OBSERVER_ADDRESS,
   referenceGatewayHost: args.referenceGateway ?? config.REFERENCE_GATEWAY_HOST,
+  epochHeightSource: epochHeightSelector,
   observedGatewayHostList,
   prescribedNamesSource,
   chosenNamesSource,
