@@ -49,9 +49,9 @@ function getArnsResolution({
   const url = `https://${arnsName}.${host}/`;
   const stream = got.stream.get(url, {
     timeout: {
-      lookup: 500,
-      connect: 200,
-      secureConnect: 200,
+      lookup: 5000,
+      connect: 2000,
+      secureConnect: 2000,
       socket: 1000,
     },
   });
