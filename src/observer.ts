@@ -30,6 +30,7 @@ import {
 } from './types.js';
 
 interface ArnsResolution {
+  statusCode: number;
   resolvedId: string | null;
   ttlSeconds: string | null;
   contentLength: string | null;
@@ -63,6 +64,7 @@ function getArnsResolution({
     stream.on('error', (error) => {
       if ((error as any)?.response?.statusCode === 404) {
         resolve({
+          statusCode: 404,
           resolvedId: null,
           ttlSeconds: null,
           contentType: null,
@@ -85,6 +87,7 @@ function getArnsResolution({
 
     stream.on('end', () => {
       resolve({
+        statusCode: +response.statusCode,
         resolvedId: response.headers['x-arns-resolved-id'],
         ttlSeconds: response.headers['x-arns-ttl-seconds'],
         contentType: response.headers['content-type'],
@@ -169,6 +172,8 @@ export class Observer {
 
     return {
       assessedAt: +(Date.now() / 1000).toFixed(0),
+      expectedStatusCode: referenceResolution.statusCode,
+      resolvedStatusCode: gatewayResolution.statusCode,
       expectedId: referenceResolution.resolvedId ?? null,
       resolvedId: gatewayResolution.resolvedId ?? null,
       expectedDataHash: referenceResolution.dataHashDigest ?? null,
