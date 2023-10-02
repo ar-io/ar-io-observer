@@ -17,9 +17,9 @@
  */
 import got from 'got';
 
-import { HostList } from '../types.js';
+import { GatewayHost, GatewayHostList } from '../types.js';
 
-export class RemoteCacheHostList implements HostList {
+export class RemoteCacheHostList implements GatewayHostList {
   private baseCacheUrl: string;
   private contractId: string;
 
@@ -34,7 +34,7 @@ export class RemoteCacheHostList implements HostList {
     this.contractId = contractId;
   }
 
-  async getHosts(): Promise<string[]> {
+  async getHosts(): Promise<GatewayHost[]> {
     const url = `${this.baseCacheUrl}/v1/contract/${this.contractId}/gateways`;
     const resp = await got.get(url).json<any>();
     const gateways = resp?.gateways;
@@ -42,11 +42,16 @@ export class RemoteCacheHostList implements HostList {
       throw new Error('No gateways found in response');
     }
     const hosts = [];
-    for (const gateway of Object.values(gateways) as any) {
+    for (const [wallet, gateway] of Object.entries(gateways) as any) {
       if (gateway?.settings?.fqdn === undefined) {
         throw new Error('No FQDN found');
       } else {
-        hosts.push(gateway.settings.fqdn);
+        hosts.push({
+          fqdn: gateway?.settings?.fqdn,
+          port: gateway?.settings?.port,
+          protocol: gateway?.settings?.protocol,
+          wallet: wallet,
+        });
       }
     }
     return hosts;

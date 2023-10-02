@@ -21,13 +21,14 @@ import crypto from 'node:crypto';
 import pMap from 'p-map';
 
 import {
-  ArnsAssessments,
   ArnsNameAssessment,
   ArnsNameAssessments,
   ArnsNamesSource,
+  GatewayAssessments,
+  GatewayHostList,
   HeightSource,
-  HostList,
   ObserverReport,
+  OwnershipAssessment,
 } from './types.js';
 
 interface ArnsResolution {
@@ -100,11 +101,62 @@ function getArnsResolution({
   });
 }
 
+async function assessOwnership({
+  host,
+  expectedWallet,
+}: {
+  host: string;
+  expectedWallet: string;
+}): Promise<OwnershipAssessment> {
+  try {
+    const url = `https://${host}/ar-io/info`;
+    const resp = await got
+      .get(url, {
+        timeout: {
+          lookup: 5000,
+          connect: 2000,
+          secureConnect: 2000,
+          socket: 1000,
+        },
+      })
+      .json<any>();
+    if (resp?.wallet) {
+      if (resp.wallet !== expectedWallet) {
+        return {
+          expectedWallet,
+          observedWallet: null,
+          failureReason: `Wallet mismatch: expected ${expectedWallet} but found ${resp.wallet}`,
+          pass: false,
+        };
+      } else {
+        return {
+          expectedWallet,
+          observedWallet: resp.wallet,
+          pass: true,
+        };
+      }
+    }
+    return {
+      expectedWallet,
+      observedWallet: null,
+      failureReason: `No wallet found`,
+      pass: false,
+    };
+  } catch (error: any) {
+    return {
+      expectedWallet,
+      observedWallet: null,
+      failureReason: error?.message as string,
+      pass: false,
+    };
+  }
+}
+
 export class Observer {
   private observerAddress: string;
   private referenceGatewayHost: string;
   private epochHeightSource: HeightSource;
-  private observedGatewayHostList: HostList;
+  private observedGatewayHostList: GatewayHostList;
   private prescribedNamesSource: ArnsNamesSource;
   private chosenNamesSource: ArnsNamesSource;
   private gatewayAsessementConcurrency: number;
@@ -123,7 +175,7 @@ export class Observer {
     observerAddress: string;
     referenceGatewayHost: string;
     epochHeightSource: HeightSource;
-    observedGatewayHostList: HostList;
+    observedGatewayHostList: GatewayHostList;
     prescribedNamesSource: ArnsNamesSource;
     chosenNamesSource: ArnsNamesSource;
     gatewayAssessmentConcurrency: number;
@@ -189,6 +241,7 @@ export class Observer {
     };
   }
 
+  // TODO add port
   async assessArnsNames({
     host,
     names,
@@ -238,24 +291,31 @@ export class Observer {
     const chosenNames = await this.chosenNamesSource.getNames();
 
     // Assess gateway
-    const arnsAssessments: ArnsAssessments = {};
+    const gatewayAssessments: GatewayAssessments = {};
     const gatewayHosts = await this.observedGatewayHostList.getHosts();
     await pMap(
       gatewayHosts,
       async (host) => {
         const [prescribedAssessments, chosenAssessments] = await Promise.all([
           await this.assessArnsNames({
-            host,
+            host: host.fqdn,
             names: prescribedNames,
           }),
           await this.assessArnsNames({
-            host,
+            host: host.fqdn,
             names: chosenNames,
           }),
         ]);
-        arnsAssessments[host] = {
-          prescribedNames: prescribedAssessments,
-          chosenNames: chosenAssessments,
+        const ownershipAssessment = await assessOwnership({
+          host: host.fqdn,
+          expectedWallet: host.wallet,
+        });
+        gatewayAssessments[host.fqdn] = {
+          ownershipAssessment,
+          arnsAssessments: {
+            prescribedNames: prescribedAssessments,
+            chosenNames: chosenAssessments,
+          },
         };
       },
       { concurrency: this.gatewayAsessementConcurrency },
@@ -265,7 +325,7 @@ export class Observer {
       observerAddress: this.observerAddress,
       epochStartHeight,
       generatedAt: +(Date.now() / 1000).toFixed(0),
-      arnsAssessments,
+      gatewayAssessments,
     };
   }
 }
