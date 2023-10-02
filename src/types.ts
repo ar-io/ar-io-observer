@@ -50,13 +50,27 @@ export interface ArnsNamesSource {
 // Hosts
 //
 
-export interface HostList {
-  getHosts(): Promise<string[]>;
+export interface GatewayHost {
+  fqdn: string;
+  port?: number;
+  protocol?: string;
+  wallet: string;
+}
+
+export interface GatewayHostList {
+  getHosts(): Promise<GatewayHost[]>;
 }
 
 //
 // Observer report
 //
+
+export interface OwnershipAssessment {
+  expectedWallet: string;
+  observedWallet: string | null;
+  failureReason?: string;
+  pass: boolean;
+}
 
 export interface ArnsNameAssessment {
   assessedAt: number;
@@ -83,10 +97,15 @@ export interface ArnsNameAssessments {
   [arnsName: string]: ArnsNameAssessment;
 }
 
-export interface ArnsAssessments {
+export interface GatewayArnsAssessments {
+  prescribedNames: ArnsNameAssessments;
+  chosenNames: ArnsNameAssessments;
+}
+
+export interface GatewayAssessments {
   [gatewayHost: string]: {
-    prescribedNames: ArnsNameAssessments;
-    chosenNames: ArnsNameAssessments;
+    ownershipAssessment: OwnershipAssessment;
+    arnsAssessments: GatewayArnsAssessments;
   };
 }
 
@@ -94,5 +113,5 @@ export interface ObserverReport {
   observerAddress: string;
   epochStartHeight: number;
   generatedAt: number;
-  arnsAssessments: ArnsAssessments;
+  gatewayAssessments: GatewayAssessments;
 }

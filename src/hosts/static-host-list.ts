@@ -15,16 +15,16 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { HostList } from '../types.js';
+import { GatewayHost, GatewayHostList } from '../types.js';
 
-export class StaticHostList implements HostList {
-  private hosts: string[];
+export class StaticHostList implements GatewayHostList {
+  private hosts: GatewayHost[];
 
-  constructor({ hosts }: { hosts: string[] }) {
+  constructor({ hosts }: { hosts: GatewayHost[] }) {
     this.hosts = hosts;
   }
 
-  async getHosts(): Promise<string[]> {
+  async getHosts(): Promise<GatewayHost[]> {
     return this.hosts;
   }
 }
