@@ -100,12 +100,14 @@ export interface ArnsNameAssessments {
 export interface GatewayArnsAssessments {
   prescribedNames: ArnsNameAssessments;
   chosenNames: ArnsNameAssessments;
+  pass: boolean;
 }
 
 export interface GatewayAssessments {
   [gatewayHost: string]: {
     ownershipAssessment: OwnershipAssessment;
     arnsAssessments: GatewayArnsAssessments;
+    pass: boolean;
   };
 }
 
