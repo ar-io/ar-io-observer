@@ -68,14 +68,12 @@ const remoteCacheArnsNameList = new RemoteCacheArnsNameList({
 
 const chainEntropySource = new ChainEntropySource({
   arweaveBaseUrl: 'https://arweave.net',
-  heightSource: epochHeightSelector,
 });
 
 const prescribedNamesSource = new RandomArnsNamesSource({
   nameList: remoteCacheArnsNameList,
   entropySource: chainEntropySource,
   numNamesToSource: 1,
-  heightSource: epochHeightSelector,
 });
 
 const randomEntropySource = new RandomEntropySource();
@@ -93,7 +91,6 @@ const chosenNamesSource = new RandomArnsNamesSource({
   nameList: remoteCacheArnsNameList,
   entropySource: compositeEntropySource,
   numNamesToSource: 1,
-  heightSource: epochHeightSelector,
 });
 
 const observer = new Observer({

@@ -33,7 +33,7 @@ export interface HeightSource {
 //
 
 export interface EntropySource {
-  getEntropy(opts?: any): Promise<Buffer>;
+  getEntropy(opts?: { [key: string]: any }): Promise<Buffer>;
 }
 
 export interface ArnsNameList {
@@ -43,7 +43,7 @@ export interface ArnsNameList {
 }
 
 export interface ArnsNamesSource {
-  getNames(): Promise<string[]>;
+  getNames(opts?: { [key: string]: any }): Promise<string[]>;
 }
 
 //

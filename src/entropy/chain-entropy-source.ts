@@ -18,37 +18,33 @@
 import got from 'got';
 import crypto from 'node:crypto';
 
-import { EntropySource, HeightSource } from '../types.js';
+import { EntropySource } from '../types.js';
 
 const DEFAULT_NUM_SAMPLED_BLOCKS = 3;
 const DEFAULT_SAMPLED_BLOCKS_OFFSET = 50;
 
 export class ChainEntropySource implements EntropySource {
   private arweaveBaseUrl: string;
-  private heightSource: HeightSource;
   private numSampledBlocks: number;
   private sampledBlocksOffset: number;
 
   constructor({
     arweaveBaseUrl,
-    heightSource,
     numSampledBlocks = DEFAULT_NUM_SAMPLED_BLOCKS,
     sampledBlocksOffset = DEFAULT_SAMPLED_BLOCKS_OFFSET,
   }: {
     arweaveBaseUrl: string;
-    heightSource: HeightSource;
     numSampledBlocks?: number;
     sampledBlocksOffset?: number;
   }) {
     this.arweaveBaseUrl = arweaveBaseUrl;
-    this.heightSource = heightSource;
     this.numSampledBlocks = numSampledBlocks;
     this.sampledBlocksOffset = sampledBlocksOffset;
   }
 
-  async getEntropy(): Promise<Buffer> {
+  async getEntropy({ height }: { height: number }): Promise<Buffer> {
     const hash = crypto.createHash('sha256');
-    const height = await this.heightSource.getHeight();
+
     // We hash multiples block hashes to reduce the chance that someone will
     // influence the value produced by grinding with excessive hash power.
     for (let i = 0; i < this.numSampledBlocks; i++) {
