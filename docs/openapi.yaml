@@ -9,6 +9,9 @@ components:
   schemas:
     ArweaveAddress:
       type: string
+    ArweaveWallet:
+      type: string
+      nullable: true
     ArweaveId:
       type: string
       nullable: true
@@ -28,6 +31,13 @@ components:
         format: date
        }
        message: { type: string }
+    OwnershipAssessment:
+      type: object
+      properties:
+        expectedWallet: { '$ref': '#/components/schemas/ArweaveWallet' } 
+        observedWallet: { '$ref': '#/components/schemas/ArweaveWallet' } 
+        failureReason: { type: string }
+        pass: { '$ref': '#/components/schemas/Evaluation' } 
     ArnsAssessment:
       type: object
       properties:
@@ -56,19 +66,25 @@ components:
       required:
         - prescribedNames
         - chosenNames
-    GatewayArnsAssessments:
+    GatewayAssessment:
       type: object
-      additionalProperties: { '$ref': '#/components/schemas/GatewayArnsAssessment' }
+      properties:
+        ownershipAssessment: { '$ref': '#/components/schemas/OwnershipAssessment' }
+        arnsAssessments: { '$ref': '#/components/schemas/GatewayArnsAssessment' }
+        pass: { '$ref': '#/components/schemas/Evaluation' }
+    GatewayAssessments:
+      type: object
+      additionalProperties: { '$ref': '#/components/schemas/GatewayAssessment' }
     Report:
       type: object
       properties:
         observerAddress: { '$ref': '#/components/schemas/ArweaveAddress' }
         generatedAt: { '$ref': '#/components/schemas/Timestamp' } 
-        arnsAssessments: { '$ref': '#/components/schemas/GatewayArnsAssessments' }
+        gatewayAssessments: { '$ref': '#/components/schemas/GatewayAssessments' }
       required:
         - observerAddress
         - generatedAt
-        - arnsAssessments
+        - gatewayAssessments
 
 paths:
   '/ar-io/observer/healthcheck':
