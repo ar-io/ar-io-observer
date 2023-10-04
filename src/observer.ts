@@ -318,16 +318,14 @@ export class Observer {
           }),
         ]);
 
-        const nameCount = prescribedNames.length + chosenNames.length;
-        const namePassCount =
-          Object.values(prescribedAssessments).reduce(
-            (count, assessment) => (assessment.pass ? count + 1 : count),
-            0,
-          ) +
-          Object.values(chosenAssessments).reduce(
-            (count, assessment) => (assessment.pass ? count + 1 : count),
-            0,
-          );
+        const nameCount = new Set([...prescribedNames, ...chosenNames]).size;
+        const namePassCount = Object.values({
+          ...prescribedAssessments,
+          ...chosenAssessments,
+        }).reduce(
+          (count, assessment) => (assessment.pass ? count + 1 : count),
+          0,
+        );
         const namesPass = namePassCount >= nameCount * NAME_PASS_THRESHOLD;
 
         gatewayAssessments[host.fqdn] = {
