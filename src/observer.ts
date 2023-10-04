@@ -289,8 +289,12 @@ export class Observer {
 
   async generateReport(): Promise<ObserverReport> {
     const epochStartHeight = await this.epochHeightSource.getHeight();
-    const prescribedNames = await this.prescribedNamesSource.getNames();
-    const chosenNames = await this.chosenNamesSource.getNames();
+    const prescribedNames = await this.prescribedNamesSource.getNames({
+      height: epochStartHeight,
+    });
+    const chosenNames = await this.chosenNamesSource.getNames({
+      height: epochStartHeight,
+    });
 
     // Assess gateway
     const gatewayAssessments: GatewayAssessments = {};
