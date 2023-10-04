@@ -26,11 +26,11 @@ export class CompositeEntropySource implements EntropySource {
     this.sources = sources;
   }
 
-  async getEntropy(): Promise<Buffer> {
+  async getEntropy(opts?: { [key: string]: any }): Promise<Buffer> {
     const hash = crypto.createHash('sha256');
 
     const entropies = await Promise.all(
-      this.sources.map((source) => source.getEntropy()),
+      this.sources.map((source) => source.getEntropy(opts)),
     );
 
     entropies.forEach((entropy) => hash.update(entropy));
