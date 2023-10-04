@@ -139,7 +139,7 @@ app.get('/ar-io/observer/healthcheck', async (_req, res) => {
 const reportCache = new ReadThroughPromiseCache<string, ObserverReport>({
   cacheParams: {
     cacheCapacity: 1,
-    cacheTTL: 1000 * 60 * 10, // 10 minutes
+    cacheTTL: 1000 * 60 * 60, // 1 hour
   },
   readThroughFunction: async (_: string): Promise<ObserverReport> => {
     return observer.generateReport();
