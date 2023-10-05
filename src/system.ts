@@ -28,26 +28,25 @@ import { Observer } from './observer.js';
 import { EpochHeightSource } from './protocol.js';
 
 const observedGatewayHostList = new RemoteCacheHostList({
-  baseCacheUrl: 'https://dev.arns.app',
-  contractId: 'bLAgYxAdX2Ry-nt6aH2ixgvJXbpsEYm28NgJgyqfs-U',
+  baseCacheUrl: config.CONTRACT_CACHE_URL,
+  contractId: config.CONTRACT_ID,
 });
 
 const chainSource = new ChainSource({
-  arweaveBaseUrl: 'https://arweave.net',
+  arweaveBaseUrl: config.ARWEAVE_URL,
 });
 
 const epochHeightSelector = new EpochHeightSource({
   heightSource: chainSource,
 });
 
-// TODO remove hard coded values
 const remoteCacheArnsNameList = new RemoteCacheArnsNameList({
-  baseCacheUrl: 'https://dev.arns.app',
-  contractId: 'bLAgYxAdX2Ry-nt6aH2ixgvJXbpsEYm28NgJgyqfs-U',
+  baseCacheUrl: config.CONTRACT_CACHE_URL,
+  contractId: config.CONTRACT_ID,
 });
 
 const chainEntropySource = new ChainEntropySource({
-  arweaveBaseUrl: 'https://arweave.net',
+  arweaveBaseUrl: config.ARWEAVE_URL,
 });
 
 const prescribedNamesSource = new RandomArnsNamesSource({

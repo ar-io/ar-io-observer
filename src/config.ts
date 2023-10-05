@@ -21,6 +21,21 @@ import * as env from './lib/env.js';
 
 dotenv.config();
 
+export const ARWEAVE_URL = env.varOrDefault(
+  'ARWEAVE_URL',
+  'https://arweave.net',
+);
+
+export const CONTRACT_CACHE_URL = env.varOrDefault(
+  'CONTRACT_CACHE_URL',
+  'https://dev.arns.app',
+);
+
+export const CONTRACT_ID = env.varOrDefault(
+  'CONTRACT_ID',
+  'bLAgYxAdX2Ry-nt6aH2ixgvJXbpsEYm28NgJgyqfs-U',
+);
+
 export const OBSERVER_ADDRESS = env.varOrDefault(
   'OBSERVER_ADDRESS',
   '<example>',
