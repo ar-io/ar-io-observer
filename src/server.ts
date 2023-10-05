@@ -22,12 +22,11 @@ import fs from 'node:fs';
 import swaggerUi from 'swagger-ui-express';
 import YAML from 'yaml';
 
-import * as config from './config.js';
 import { observer } from './system.js';
 import { ObserverReport } from './types.js';
 
 // HTTP server
-const app = express();
+export const app = express();
 
 // Redirect root to report
 app.get('/', (_req, res) => {
@@ -85,8 +84,4 @@ app.get('/ar-io/observer/reports/current', async (_req, res) => {
   } catch (error: any) {
     res.status(500).send(error?.message);
   }
-});
-
-app.listen(config.PORT, () => {
-  console.log(`Listening on port ${config.PORT}`);
 });

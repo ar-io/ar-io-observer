@@ -15,7 +15,7 @@ Starting the service:
 
 - `nvm use`
 - `yarn`
-- `yarn server`
+- `yarn service`
 
 You can check the service is running by running the command:
 

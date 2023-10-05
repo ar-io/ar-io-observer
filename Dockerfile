@@ -38,4 +38,4 @@ HEALTHCHECK CMD curl --fail http://localhost:3000/healthcheck || exit 1
 LABEL org.opencontainers.image.title="ar.io - Observer Service"
 
 # Start the server
-CMD ["./dist/server.js"]
+CMD ["./dist/service.js"]
