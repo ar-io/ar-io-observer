@@ -16,8 +16,25 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import dotenv from 'dotenv';
+import yargs from 'yargs';
+import { hideBin } from 'yargs/helpers';
 
 import * as env from './lib/env.js';
+
+const args = await yargs(hideBin(process.argv))
+  .option('arns-names', {
+    type: 'string',
+    description: 'Comma separated list of ArNS names',
+  })
+  .option('reference-gateway', {
+    type: 'string',
+    description: 'Reference gateway host',
+  })
+  .option('observed-gateway-hosts', {
+    type: 'string',
+    description: 'Comma separated list of gateways hosts to observer',
+  })
+  .parse();
 
 dotenv.config();
 
@@ -43,15 +60,15 @@ export const OBSERVER_ADDRESS = env.varOrDefault(
 
 export const REFERENCE_GATEWAY_HOST = env.varOrDefault(
   'REFERENCE_GATEWAY_HOST',
-  'arweave.dev',
+  args.referenceGateway ?? 'arweave.dev',
 );
 
 export const OBSERVED_GATEWAY_HOSTS = env
-  .varOrDefault('OBSERVED_GATEWAY_HOSTS', 'ar-io.dev')
+  .varOrDefault('OBSERVED_GATEWAY_HOSTS', args.observedGatewayHosts ?? '')
   .split(',');
 
 export const ARNS_NAMES = env
-  .varOrDefault('ARNS_NAMES', 'ardrive,bazar,now,pages')
+  .varOrDefault('ARNS_NAMES', args.arnsNames ?? '')
   .split(',');
 
 export const PORT = +env.varOrDefault('PORT', '3000');

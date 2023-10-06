@@ -22,15 +22,25 @@ import { ChainEntropySource } from './entropy/chain-entropy-source.js';
 import { CompositeEntropySource } from './entropy/composite-entropy-source.js';
 import { RandomEntropySource } from './entropy/random-entropy-source.js';
 import { RemoteCacheHostList } from './hosts/remote-cache-host-list.js';
+import { StaticHostList } from './hosts/static-host-list.js';
 import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
 import { RemoteCacheArnsNameList } from './names/remote-cache-arns-name-list.js';
+import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
 import { EpochHeightSource } from './protocol.js';
 
-const observedGatewayHostList = new RemoteCacheHostList({
-  baseCacheUrl: config.CONTRACT_CACHE_URL,
-  contractId: config.CONTRACT_ID,
-});
+const observedGatewayHostList =
+  config.OBSERVED_GATEWAY_HOSTS.length > 0
+    ? new StaticHostList({
+        hosts: config.OBSERVED_GATEWAY_HOSTS.map((fqdn) => ({
+          fqdn,
+          wallet: '<unknown>',
+        })),
+      })
+    : new RemoteCacheHostList({
+        baseCacheUrl: config.CONTRACT_CACHE_URL,
+        contractId: config.CONTRACT_ID,
+      });
 
 const chainSource = new ChainSource({
   arweaveBaseUrl: config.ARWEAVE_URL,
@@ -40,10 +50,15 @@ const epochHeightSelector = new EpochHeightSource({
   heightSource: chainSource,
 });
 
-const remoteCacheArnsNameList = new RemoteCacheArnsNameList({
-  baseCacheUrl: config.CONTRACT_CACHE_URL,
-  contractId: config.CONTRACT_ID,
-});
+const remoteCacheArnsNameList =
+  config.ARNS_NAMES.length > 0
+    ? new StaticArnsNameList({
+        names: config.ARNS_NAMES,
+      })
+    : new RemoteCacheArnsNameList({
+        baseCacheUrl: config.CONTRACT_CACHE_URL,
+        contractId: config.CONTRACT_ID,
+      });
 
 const chainEntropySource = new ChainEntropySource({
   arweaveBaseUrl: config.ARWEAVE_URL,
