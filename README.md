@@ -20,7 +20,7 @@ Starting the service:
 You can check the service is running by running the command:
 
 ```shell
-curl localhost:3000/healthcheck
+curl localhost:3000/ar-io/observer/healthcheck
 {"uptime":2.555423702,"date":"2023-09-14T21:24:27.677Z","message":"Welcome to the Permaweb."}
 ```
 
