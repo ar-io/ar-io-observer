@@ -70,7 +70,7 @@
     "build": "yarn clean && npx tsc --project ./tsconfig.prod.json",
     "clean": "npx rimraf [ .nyc_output coverage dist ]",
     "observe": "NODE_OPTIONS=\"--no-warnings --loader ts-node/esm\" node src/cli.ts",
-    "service": "NODE_OPTIONS=\"--no-warnings --loader ts-node/esm\" node src/server.ts",
+    "service": "NODE_OPTIONS=\"--no-warnings --loader ts-node/esm\" node src/service.ts",
     "test": "mocha --no-warnings",
     "test:ci": "npx c8 -r lcov mocha --no-warnings --timeout 10000 -R mocha-multi --reporter-options spec=-,json=test-results.json",
     "test:coverage": "npx c8 -r text -r html mocha --no-warnings",
