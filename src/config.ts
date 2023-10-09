@@ -63,7 +63,6 @@ export const REFERENCE_GATEWAY_HOST = env.varOrDefault(
   args.referenceGateway ?? 'arweave.dev',
 );
 
-// TODO remove empty strings
 export const OBSERVED_GATEWAY_HOSTS = env
   .varOrDefault('OBSERVED_GATEWAY_HOSTS', args.observedGatewayHosts ?? '')
   .split(',')
