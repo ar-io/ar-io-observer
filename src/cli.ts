@@ -130,7 +130,11 @@ observer.generateReport().then((report) => {
 const chosenObservers = await chosenObserversSource.getObservers({
   height: await epochHeightSelector.getHeight(),
 });
-console.log('Number of chosen observers: ', chosenObservers.length);
+console.log('Number of randomly chosen observers: ', chosenObservers.length);
+console.log(
+  'Randomly chosen for observation? ',
+  chosenObservers.includes(config.OBSERVER_ADDRESS),
+);
 
 const prescribedObservers = await prescribedObserversSource.getObservers({
   height: await epochHeightSelector.getHeight(),
@@ -138,6 +142,6 @@ const prescribedObservers = await prescribedObserversSource.getObservers({
 
 console.log('Number of prescribed observers: ', prescribedObservers.length);
 console.log(
-  'Selected for observation? ',
+  'Prescribed for observation? ',
   prescribedObservers.includes(config.OBSERVER_ADDRESS),
 );
