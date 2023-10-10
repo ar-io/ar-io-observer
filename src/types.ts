@@ -64,7 +64,7 @@ export interface ObservationPublisher {
   saveObservations(
     observationReportTxId: string,
     observerReport: ObserverReport,
-  ): Promise<boolean>;
+  ): Promise<string>;
 }
 
 //
