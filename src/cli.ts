@@ -127,21 +127,13 @@ observer.generateReport().then((report) => {
   console.log(JSON.stringify(report, null, 2));
 });
 
-console.log(
-  JSON.stringify(
-    chosenObserversSource.getObservers({
-      height: await epochHeightSelector.getHeight(),
-    }),
-    null,
-    2,
-  ),
-);
-console.log(
-  JSON.stringify(
-    prescribedObserversSource.getObservers({
-      height: await epochHeightSelector.getHeight(),
-    }),
-    null,
-    2,
-  ),
-);
+const chosenObservers = await chosenObserversSource.getObservers({
+  height: await epochHeightSelector.getHeight(),
+});
+console.log('Number of chosen observers: ', chosenObservers.length);
+
+const prescribedObservers = await prescribedObserversSource.getObservers({
+  height: await epochHeightSelector.getHeight(),
+});
+
+console.log('Number of prescribed observers: ', prescribedObservers.length);
