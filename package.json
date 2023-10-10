@@ -11,7 +11,7 @@
   "dependencies": {
     "@ardrive/ardrive-promise-cache": "^1.1.4",
     "ajv": "^8.12.0",
-    "arweave": "^1.11.4",
+    "arweave": "1.13.7",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "express-async-handler": "^1.2.0",
@@ -27,7 +27,8 @@
     "wait": "^0.4.2",
     "winston": "^3.7.2",
     "yaml": "^2.3.1",
-    "yargs": "^17.7.2"
+    "yargs": "^17.7.2",
+    "warp-contracts": "^1.4.18"
   },
   "devDependencies": {
     "@swc/core": "^1.2.241",
@@ -64,8 +65,7 @@
     "source-map-support": "^0.5.21",
     "ts-node": "^10.8.1",
     "ts-sinon": "^2.0.2",
-    "typescript": "^4.7.3",
-    "warp-contracts": "^1.4.18"
+    "typescript": "^4.7.3"
   },
   "scripts": {
     "build": "yarn clean && npx tsc --project ./tsconfig.prod.json",
