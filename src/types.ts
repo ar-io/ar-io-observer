@@ -47,6 +47,20 @@ export interface ArnsNamesSource {
 }
 
 //
+// Gateways and Observers
+//
+
+export interface ObserverList {
+  getObserversCount(height: number): Promise<number>;
+  getObserver(height: number, index: number): Promise<string>;
+  getAllObservers(height: number): Promise<string[]>;
+}
+
+export interface ObserversSource {
+  getObservers(opts?: { [key: string]: any }): Promise<string[]>;
+}
+
+//
 // Hosts
 //
 
