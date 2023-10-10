@@ -137,3 +137,7 @@ const prescribedObservers = await prescribedObserversSource.getObservers({
 });
 
 console.log('Number of prescribed observers: ', prescribedObservers.length);
+console.log(
+  'Selected for observation? ',
+  prescribedObservers.includes(config.OBSERVER_ADDRESS),
+);
