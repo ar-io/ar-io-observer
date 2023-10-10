@@ -34,11 +34,11 @@ function hasGatewayRecords(obj: unknown): obj is GatewayRecords {
     return false;
   }
 
-  if (!('records' in obj)) {
+  if (!('gateways' in obj)) {
     return false;
   }
 
-  if ((typeof obj['records'] as any) !== 'object') {
+  if ((typeof obj['gateways'] as any) !== 'object') {
     return false;
   }
 
