@@ -60,6 +60,13 @@ export interface ObserversSource {
   getObservers(opts?: { [key: string]: any }): Promise<string[]>;
 }
 
+export interface ObservationPublisher {
+  saveObservations(
+    observationReportTxId: string,
+    observerReport: ObserverReport,
+  ): Promise<boolean>;
+}
+
 //
 // Hosts
 //
