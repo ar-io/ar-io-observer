@@ -84,3 +84,11 @@ export const NAME_ASSESSMENT_CONCURRENCY = +env.varOrDefault(
   'NAME_ASSESSMENT_CONCURRENCY',
   '5',
 );
+
+// used for posting interactions to the contract
+export const keyfile = env.varOrDefault('KEY_FILE_LOCATION', 'key.json');
+
+export const contractTxId = env.varOrDefault(
+  'CONTRACT_TX_ID',
+  'bLAgYxAdX2Ry-nt6aH2ixgvJXbpsEYm28NgJgyqfs-U',
+);
