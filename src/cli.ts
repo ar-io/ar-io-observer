@@ -29,6 +29,8 @@ import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
 import { RemoteCacheArnsNameList } from './names/remote-cache-arns-name-list.js';
 //import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
+import { RandomObserversSource } from './observers/random-observers-source.js';
+import { RemoteCacheObserverList } from './observers/remote-cache-observers-list.js';
 import { EpochHeightSource } from './protocol.js';
 
 const args = await yargs(hideBin(process.argv))
@@ -66,6 +68,11 @@ const remoteCacheArnsNameList = new RemoteCacheArnsNameList({
   contractId: 'bLAgYxAdX2Ry-nt6aH2ixgvJXbpsEYm28NgJgyqfs-U',
 });
 
+const remoteCacheObserverList = new RemoteCacheObserverList({
+  baseCacheUrl: 'https://dev.arns.app',
+  contractId: 'bLAgYxAdX2Ry-nt6aH2ixgvJXbpsEYm28NgJgyqfs-U',
+});
+
 const chainEntropySource = new ChainEntropySource({
   arweaveBaseUrl: 'https://arweave.net',
 });
@@ -74,6 +81,12 @@ const prescribedNamesSource = new RandomArnsNamesSource({
   nameList: remoteCacheArnsNameList,
   entropySource: chainEntropySource,
   numNamesToSource: 1,
+});
+
+const prescribedObserversSource = new RandomObserversSource({
+  observerList: remoteCacheObserverList,
+  entropySource: chainEntropySource,
+  numObserversToSource: 50,
 });
 
 const randomEntropySource = new RandomEntropySource();
@@ -93,6 +106,12 @@ const chosenNamesSource = new RandomArnsNamesSource({
   numNamesToSource: 1,
 });
 
+const chosenObserversSource = new RandomObserversSource({
+  observerList: remoteCacheObserverList,
+  entropySource: compositeEntropySource,
+  numObserversToSource: 50,
+});
+
 const observer = new Observer({
   observerAddress: config.OBSERVER_ADDRESS,
   referenceGatewayHost: args.referenceGateway ?? config.REFERENCE_GATEWAY_HOST,
@@ -107,3 +126,6 @@ const observer = new Observer({
 observer.generateReport().then((report) => {
   console.log(JSON.stringify(report, null, 2));
 });
+
+console.log(JSON.stringify(chosenObserversSource, null, 2));
+console.log(JSON.stringify(prescribedObserversSource, null, 2));
