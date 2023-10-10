@@ -127,5 +127,21 @@ observer.generateReport().then((report) => {
   console.log(JSON.stringify(report, null, 2));
 });
 
-console.log(JSON.stringify(chosenObserversSource, null, 2));
-console.log(JSON.stringify(prescribedObserversSource, null, 2));
+console.log(
+  JSON.stringify(
+    chosenObserversSource.getObservers({
+      height: await epochHeightSelector.getHeight(),
+    }),
+    null,
+    2,
+  ),
+);
+console.log(
+  JSON.stringify(
+    prescribedObserversSource.getObservers({
+      height: await epochHeightSelector.getHeight(),
+    }),
+    null,
+    2,
+  ),
+);
