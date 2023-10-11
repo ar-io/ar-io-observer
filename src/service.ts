@@ -17,7 +17,23 @@
  */
 import * as config from './config.js';
 import { app } from './server.js';
+import { observer, reportCache } from './system.js';
+
+const REPORT_GENERATION_INTERVAL_MS = 1000 * 60 * 10; // 10 minutes
+
+async function generateReport() {
+  try {
+    const report = await observer.generateReport();
+    reportCache.set('current', report);
+  } catch (error) {
+    console.error('Error generating report', error);
+  }
+}
+
+setInterval(generateReport, REPORT_GENERATION_INTERVAL_MS);
 
 app.listen(config.PORT, () => {
   console.log(`Listening on port ${config.PORT}`);
 });
+
+generateReport();
