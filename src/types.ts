@@ -117,3 +117,13 @@ export interface ObserverReport {
   generatedAt: number;
   gatewayAssessments: GatewayAssessments;
 }
+
+//
+// Report store
+//
+
+export interface ReportStore {
+  saveReport(report: ObserverReport): Promise<void>;
+  getReport(epochStartHeight: number): Promise<ObserverReport | null>;
+  latestReport(): Promise<ObserverReport | null>;
+}
