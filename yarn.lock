@@ -7,13 +7,6 @@
   resolved "https://registry.yarnpkg.com/@aashutoshrathi/word-wrap/-/word-wrap-1.2.6.tgz#bd9154aec9983f77b3a034ecaa015c2e4201f6cf"
   integrity sha512-1Yjs2SvM8TflER/OD3cOjhWWOZb58A2t7wpE2S9XfBYTiIl+XFhQG2bjy4Pu1I+EAlCNUzRDYDdFwFYUKvXcIA==
 
-"@alexsasharegan/simple-cache@^3.3.3":
-  version "3.3.3"
-  resolved "https://registry.yarnpkg.com/@alexsasharegan/simple-cache/-/simple-cache-3.3.3.tgz#6e17ea1caee06e62857c704bc14630735cf0dc16"
-  integrity sha512-SWLaNj75VckhB7tFmfD4vqORVKmwqCYiZTfdTLU87aMF9mkpHp1UeSNKM2axZZDTIDqx45msonjBYeMvhE+amQ==
-  dependencies:
-    safe-types "^4.17.0"
-
 "@ampproject/remapping@^2.1.0":
   version "2.2.1"
   resolved "https://registry.yarnpkg.com/@ampproject/remapping/-/remapping-2.2.1.tgz#99e8e11851128b8702cd57c33684f1d0f260b630"
@@ -31,13 +24,6 @@
     "@types/json-schema" "^7.0.6"
     call-me-maybe "^1.0.1"
     js-yaml "^4.1.0"
-
-"@ardrive/ardrive-promise-cache@^1.1.4":
-  version "1.1.4"
-  resolved "https://registry.yarnpkg.com/@ardrive/ardrive-promise-cache/-/ardrive-promise-cache-1.1.4.tgz#6199aaf4fc861e74a7d355c81321883a9abb3b8b"
-  integrity sha512-8HzOfgY7CVFJNJX/xZSbbZIl7qfO+Mkbp100bNdB/e40YrFFXfy1NXxQR2lc/AJKsMGdcWgSqfI8QOeFYQup1A==
-  dependencies:
-    "@alexsasharegan/simple-cache" "^3.3.3"
 
 "@babel/code-frame@^7.0.0", "@babel/code-frame@^7.16.7", "@babel/code-frame@^7.22.10", "@babel/code-frame@^7.22.5":
   version "7.22.10"
@@ -3510,11 +3496,6 @@ safe-stable-stringify@^2.3.1:
   version "2.4.3"
   resolved "https://registry.yarnpkg.com/safe-stable-stringify/-/safe-stable-stringify-2.4.3.tgz#138c84b6f6edb3db5f8ef3ef7115b8f55ccbf886"
   integrity sha512-e2bDA2WJT0wxseVd4lsDP4+3ONX6HpMXQa1ZhFQ7SU+GjvORCmShbCMltrtIDfkYhVHrOcPtj+KhmDBdPdZD1g==
-
-safe-types@^4.17.0:
-  version "4.27.0"
-  resolved "https://registry.yarnpkg.com/safe-types/-/safe-types-4.27.0.tgz#6016efdf32ddc29b052f77d15ce3fa4c734b8841"
-  integrity sha512-6FY9SBSfWIaLKIi+wHKwdKHQy1rJMUdlsZVleXbMX35bSC2j5Jul4o59Sl7S+argcFCQXLurS0DC+CDFKA9cIw==
 
 "safer-buffer@>= 2.1.2 < 3", safer-buffer@^2.1.0:
   version "2.1.2"

@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { ReadThroughPromiseCache } from '@ardrive/ardrive-promise-cache';
+import { default as NodeCache } from 'node-cache';
 
 import { ChainSource } from './arweave.js';
 import * as config from './config.js';
@@ -30,7 +30,8 @@ import { RemoteCacheArnsNameList } from './names/remote-cache-arns-name-list.js'
 import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
 import { EpochHeightSource } from './protocol.js';
-import { ObserverReport } from './types.js';
+
+const REPORT_CACH_TTL_SECS = 60 * 60; // 1 hour
 
 const observedGatewayHostList =
   config.OBSERVED_GATEWAY_HOSTS.length > 0
@@ -101,12 +102,6 @@ export const observer = new Observer({
   nameAssessmentConcurrency: config.NAME_ASSESSMENT_CONCURRENCY,
 });
 
-export const reportCache = new ReadThroughPromiseCache<string, ObserverReport>({
-  cacheParams: {
-    cacheCapacity: 1,
-    cacheTTL: 1000 * 60 * 60, // 1 hour
-  },
-  readThroughFunction: async (_: string): Promise<ObserverReport> => {
-    return observer.generateReport();
-  },
+export const reportCache = new NodeCache({
+  stdTTL: REPORT_CACH_TTL_SECS,
 });
