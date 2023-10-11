@@ -16,7 +16,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import { default as NodeCache } from 'node-cache';
-import fs from 'node:fs';
 
 import { ChainSource } from './arweave.js';
 import * as config from './config.js';
@@ -30,7 +29,8 @@ import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
 import { RemoteCacheArnsNameList } from './names/remote-cache-arns-name-list.js';
 import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
-import { EpochHeightSource } from './protocol.js';
+import { EPOCH_BLOCK_LENGTH, EpochHeightSource } from './protocol.js';
+import { FsReportStore } from './store/fs-report-store.js';
 
 const REPORT_CACH_TTL_SECS = 60 * 60; // 1 hour
 
@@ -107,17 +107,29 @@ export const reportCache = new NodeCache({
   stdTTL: REPORT_CACH_TTL_SECS,
 });
 
+const reportStore = new FsReportStore({
+  baseDir: './data/reports',
+});
+
 export async function updateCurrentReport() {
   try {
     const report = await observer.generateReport();
     reportCache.set('current', report);
-    if (!fs.existsSync('./data/reports')) {
-      await fs.promises.mkdir('./data/reports', { recursive: true });
+    const entropy = await compositeEntropySource.getEntropy({
+      height: report.epochStartHeight,
+    });
+    // Save the report after a random block between 100 blocks after
+    // the start of the epoch and 100 blocks before the end of the
+    // epoch
+    const saveAfterHeight =
+      report.epochStartHeight +
+      ((entropy.readUInt32BE(0) % EPOCH_BLOCK_LENGTH) - 200);
+    console.log('saveAfterHeight', saveAfterHeight);
+    const currentHeight = await chainSource.getHeight();
+    if (currentHeight >= saveAfterHeight) {
+      console.log('Saving report', report.epochStartHeight);
+      reportStore.saveReport(report);
     }
-    await fs.promises.writeFile(
-      `./data/reports/${report.epochStartHeight}.json`,
-      JSON.stringify(report),
-    );
   } catch (error) {
     console.error('Error generating report', error);
   }

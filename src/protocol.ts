@@ -17,8 +17,8 @@
  */
 import { HeightSource } from './types.js';
 
-const DEFAULT_START_HEIGHT = 0;
-const DEFAULT_EPOCH_BLOCK_LENGTH = 5000;
+export const START_HEIGHT = 0;
+export const EPOCH_BLOCK_LENGTH = 5000;
 
 export function getEpochEnd({
   startHeight,
@@ -64,8 +64,8 @@ export class EpochHeightSource implements HeightSource {
 
   constructor({
     epochParams = {
-      startHeight: DEFAULT_START_HEIGHT,
-      epochBlockLength: DEFAULT_EPOCH_BLOCK_LENGTH,
+      startHeight: START_HEIGHT,
+      epochBlockLength: EPOCH_BLOCK_LENGTH,
     },
     heightSource,
   }: {
