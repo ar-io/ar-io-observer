@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import { default as NodeCache } from 'node-cache';
+import fs from 'node:fs';
 
 import { ChainSource } from './arweave.js';
 import * as config from './config.js';
@@ -105,3 +106,19 @@ export const observer = new Observer({
 export const reportCache = new NodeCache({
   stdTTL: REPORT_CACH_TTL_SECS,
 });
+
+export async function updateCurrentReport() {
+  try {
+    const report = await observer.generateReport();
+    reportCache.set('current', report);
+    if (!fs.existsSync('./data/reports')) {
+      await fs.promises.mkdir('./data/reports', { recursive: true });
+    }
+    await fs.promises.writeFile(
+      `./data/reports/${report.epochStartHeight}.json`,
+      JSON.stringify(report),
+    );
+  } catch (error) {
+    console.error('Error generating report', error);
+  }
+}
