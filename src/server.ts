@@ -68,7 +68,13 @@ app.get('/ar-io/observer/healthcheck', async (_req, res) => {
 
 app.get('/ar-io/observer/reports/current', async (_req, res) => {
   try {
-    res.json(await reportCache.get('current'));
+    const report = await reportCache.get('current');
+    if (report === undefined) {
+      // respond with 202 when report is still being generated
+      res.status(202).json({ message: 'Report pending' });
+    } else {
+      res.json(report);
+    }
   } catch (error: any) {
     res.status(500).send(error?.message);
   }

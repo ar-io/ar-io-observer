@@ -85,6 +85,13 @@ components:
         - observerAddress
         - generatedAt
         - gatewayAssessments
+    PendingReport:
+      type: object
+      properties:
+        message: 
+          type: string
+      required:
+        - message
 
 paths:
   '/ar-io/observer/healthcheck':
@@ -107,3 +114,10 @@ paths:
             application/json:
               schema:
                 '$ref': '#/components/schemas/Report'
+        '202':
+          description: |-
+            202 response
+          content:
+            application/json:
+              schema:
+                '$ref': '#/components/schemas/PendingReport'
