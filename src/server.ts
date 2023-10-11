@@ -15,15 +15,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { ReadThroughPromiseCache } from '@ardrive/ardrive-promise-cache';
 import express from 'express';
 import * as OpenApiValidator from 'express-openapi-validator';
 import fs from 'node:fs';
 import swaggerUi from 'swagger-ui-express';
 import YAML from 'yaml';
 
-import { observer } from './system.js';
-import { ObserverReport } from './types.js';
+import { reportCache } from './system.js';
 
 // HTTP server
 export const app = express();
@@ -66,16 +64,6 @@ app.get('/ar-io/observer/healthcheck', async (_req, res) => {
   };
 
   res.status(200).send(data);
-});
-
-const reportCache = new ReadThroughPromiseCache<string, ObserverReport>({
-  cacheParams: {
-    cacheCapacity: 1,
-    cacheTTL: 1000 * 60 * 60, // 1 hour
-  },
-  readThroughFunction: async (_: string): Promise<ObserverReport> => {
-    return observer.generateReport();
-  },
 });
 
 app.get('/ar-io/observer/reports/current', async (_req, res) => {
