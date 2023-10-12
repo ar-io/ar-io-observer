@@ -47,6 +47,8 @@ export class RemoteCacheHostList implements GatewayHostList {
         throw new Error('No FQDN found');
       } else {
         hosts.push({
+          start: gateway?.start,
+          end: gateway?.end,
           fqdn: gateway?.settings?.fqdn,
           port: gateway?.settings?.port,
           protocol: gateway?.settings?.protocol,
