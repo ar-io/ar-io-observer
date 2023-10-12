@@ -61,7 +61,7 @@ export function tagsToObject(tags: Tag[]): {
   }, {});
 }
 
-export function getFailedGatewaySummary(
+export function getFailedGatewaySummaryFromReport(
   observationReport: ObserverReport,
 ): string[] {
   const failedGatewaySummary: string[] = [];
@@ -132,7 +132,7 @@ export class PublishFromNewObservation implements ObservationPublisher {
     contract.connect(this.wallet).setEvaluationOptions(evaluationOptions);
 
     const failedGatewaySummaries: string[] =
-      getFailedGatewaySummary(observerReport);
+      getFailedGatewaySummaryFromReport(observerReport);
 
     // split up the failed gateway summaries if they are bigger than the max individual summary size
     const splitFailedGatewaySummaries = splitArrayBySize(
@@ -142,6 +142,9 @@ export class PublishFromNewObservation implements ObservationPublisher {
 
     // Processes each failed gateway summary using the same observation report tx id.
     const saveObservationsTxIds: string[] = [];
+    for (const failedGatewaySummary of splitFailedGatewaySummaries) {
+      console.log('Failed Gateway Summary:', failedGatewaySummary);
+    }
     for (const failedGatewaySummary of splitFailedGatewaySummaries) {
       const saveObservationsTxId = await contract.writeInteraction(
         {
@@ -159,7 +162,6 @@ export class PublishFromNewObservation implements ObservationPublisher {
         saveObservationsTxIds.push('invalid');
       }
     }
-
     return saveObservationsTxIds;
   }
 }
