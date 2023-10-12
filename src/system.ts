@@ -105,13 +105,13 @@ export const observer = new Observer({
 });
 
 export const chosenObserversSource = new RandomObserversSource({
-  gatewayHostList: observedGatewayHostList,
+  observedGatewayHostList: observedGatewayHostList,
   entropySource: compositeEntropySource,
   numObserversToSource: 50,
 });
 
 export const prescribedObserversSource = new RandomObserversSource({
-  gatewayHostList: observedGatewayHostList,
+  observedGatewayHostList: observedGatewayHostList,
   entropySource: chainEntropySource,
   numObserversToSource: 50,
 });
