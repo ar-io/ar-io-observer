@@ -17,8 +17,16 @@
  */
 import { HeightSource } from './types.js';
 
-const DEFAULT_START_HEIGHT = 0;
-const DEFAULT_EPOCH_BLOCK_LENGTH = 5000;
+export const DEFAULT_START_HEIGHT = 0;
+export const DEFAULT_EPOCH_BLOCK_LENGTH = 5000;
+export const TESTNET_CONTRACT_SETTINGS = {
+  minLockLength: 5,
+  maxLockLength: 720 * 365 * 3,
+  minNetworkJoinStakeAmount: 5_000,
+  minGatewayJoinLength: 2,
+  gatewayLeaveLength: 2,
+  operatorStakeWithdrawLength: 5,
+};
 
 export function getEpochEnd({
   startHeight,

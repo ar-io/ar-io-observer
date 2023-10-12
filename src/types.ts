@@ -51,6 +51,8 @@ export interface ArnsNamesSource {
 //
 
 export interface GatewayHost {
+  start?: number;
+  end?: number;
   fqdn: string;
   port?: number;
   protocol?: string;
@@ -59,6 +61,21 @@ export interface GatewayHost {
 
 export interface GatewayHostList {
   getHosts(): Promise<GatewayHost[]>;
+}
+
+//
+// Gateways and Observers
+//
+
+export interface ObserversSource {
+  getObservers(opts?: { [key: string]: any }): Promise<string[]>;
+}
+
+export interface ObservationPublisher {
+  saveObservations(
+    observationReportTxId: string,
+    observerReport: ObserverReport,
+  ): Promise<string>;
 }
 
 //

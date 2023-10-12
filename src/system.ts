@@ -27,6 +27,7 @@ import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
 import { RemoteCacheArnsNameList } from './names/remote-cache-arns-name-list.js';
 import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
+import { RandomObserversSource } from './observers/random-observers-source.js';
 import { EpochHeightSource } from './protocol.js';
 
 const observedGatewayHostList =
@@ -46,7 +47,7 @@ const chainSource = new ChainSource({
   arweaveBaseUrl: config.ARWEAVE_URL,
 });
 
-const epochHeightSelector = new EpochHeightSource({
+export const epochHeightSelector = new EpochHeightSource({
   heightSource: chainSource,
 });
 
@@ -96,4 +97,16 @@ export const observer = new Observer({
   chosenNamesSource,
   gatewayAssessmentConcurrency: config.GATEWAY_ASSESSMENT_CONCURRENCY,
   nameAssessmentConcurrency: config.NAME_ASSESSMENT_CONCURRENCY,
+});
+
+export const chosenObserversSource = new RandomObserversSource({
+  gatewayHostList: observedGatewayHostList,
+  entropySource: compositeEntropySource,
+  numObserversToSource: 50,
+});
+
+export const prescribedObserversSource = new RandomObserversSource({
+  gatewayHostList: observedGatewayHostList,
+  entropySource: chainEntropySource,
+  numObserversToSource: 50,
 });
