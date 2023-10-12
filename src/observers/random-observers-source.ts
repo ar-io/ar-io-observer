@@ -26,29 +26,26 @@ import {
 } from '../types.js';
 
 export class RandomObserversSource implements ObserversSource {
-  private gatewayHostList: GatewayHostList;
+  private observedGatewayHostList: GatewayHostList;
   private entropySource: EntropySource;
   private numObserversToSource: number;
   private eligibleObservers: string[];
 
   constructor({
-    gatewayHostList,
+    observedGatewayHostList,
     entropySource,
     numObserversToSource,
   }: {
-    gatewayHostList: GatewayHostList;
+    observedGatewayHostList: GatewayHostList;
     entropySource: EntropySource;
     numObserversToSource: number;
   }) {
-    this.gatewayHostList = gatewayHostList;
+    this.observedGatewayHostList = observedGatewayHostList;
     this.entropySource = entropySource;
     this.numObserversToSource = numObserversToSource;
     this.eligibleObservers = [];
   }
 
-  async getEligibleObserversCount(_: number): Promise<number> {
-    return this.eligibleObservers.length;
-  }
   async getObservers({
     startHeight,
     epochBlockLength,
@@ -66,9 +63,9 @@ export class RandomObserversSource implements ObserversSource {
     });
     const usedIndexes = new Set<number>();
     const entropy = await this.entropySource.getEntropy({ height });
-    const gatewayHosts = await this.gatewayHostList.getHosts();
-    this.eligibleObservers = this.getEligibleObservers(
-      gatewayHosts,
+    const observedGatewayHosts = await this.observedGatewayHostList.getHosts();
+    this.eligibleObservers = await this.getEligibleObservers(
+      observedGatewayHosts,
       currentEpochStartHeight,
     );
 
@@ -96,13 +93,13 @@ export class RandomObserversSource implements ObserversSource {
     return selectedObservers;
   }
 
-  getEligibleObservers(
-    gatewayHosts: GatewayHost[],
+  async getEligibleObservers(
+    observedGatewayHosts: GatewayHost[],
     currentEpochStartHeight: number,
-  ): string[] {
+  ): Promise<string[]> {
     const eligibleObservers = [];
-    for (let i = 0; i < gatewayHosts.length; i++) {
-      const gateway = gatewayHosts[i];
+    for (let i = 0; i < observedGatewayHosts.length; i++) {
+      const gateway = observedGatewayHosts[i];
 
       if (gateway.start === undefined || gateway.end === undefined) {
         // this gateway has invalid start/end date and is not eligible to be an observer
