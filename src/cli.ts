@@ -15,8 +15,41 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { observer } from './system.js';
+import { OBSERVER_ADDRESS } from './config.js';
+import {
+  DEFAULT_EPOCH_BLOCK_LENGTH,
+  DEFAULT_START_HEIGHT,
+} from './protocol.js';
+import {
+  chosenObserversSource,
+  epochHeightSelector,
+  observer,
+  prescribedObserversSource,
+} from './system.js';
 
 observer.generateReport().then((report) => {
   console.log(JSON.stringify(report, null, 2));
 });
+
+const chosenObservers = await chosenObserversSource.getObservers({
+  startHeight: DEFAULT_START_HEIGHT,
+  epochBlockLength: DEFAULT_EPOCH_BLOCK_LENGTH,
+  height: await epochHeightSelector.getHeight(),
+});
+console.log('Number of randomly chosen observers: ', chosenObservers.length);
+console.log(
+  'Randomly chosen for observation? ',
+  chosenObservers.includes(OBSERVER_ADDRESS),
+);
+
+const prescribedObservers = await prescribedObserversSource.getObservers({
+  startHeight: DEFAULT_START_HEIGHT,
+  epochBlockLength: DEFAULT_EPOCH_BLOCK_LENGTH,
+  height: await epochHeightSelector.getHeight(),
+});
+
+console.log('Number of prescribed observers: ', prescribedObservers.length);
+console.log(
+  'Prescribed for observation? ',
+  prescribedObservers.includes(OBSERVER_ADDRESS),
+);
