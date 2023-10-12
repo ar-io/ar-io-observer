@@ -31,6 +31,7 @@ observer.generateReport().then((report) => {
   console.log(JSON.stringify(report, null, 2));
 });
 
+console.log('You are: ', OBSERVER_ADDRESS);
 const chosenObservers = await chosenObserversSource.getObservers({
   startHeight: DEFAULT_START_HEIGHT,
   epochBlockLength: DEFAULT_EPOCH_BLOCK_LENGTH,
@@ -41,6 +42,7 @@ console.log(
   'Randomly chosen for observation? ',
   chosenObservers.includes(OBSERVER_ADDRESS),
 );
+console.log(chosenObservers);
 
 const prescribedObservers = await prescribedObserversSource.getObservers({
   startHeight: DEFAULT_START_HEIGHT,
@@ -53,3 +55,4 @@ console.log(
   'Prescribed for observation? ',
   prescribedObservers.includes(OBSERVER_ADDRESS),
 );
+console.log(prescribedObservers);
