@@ -34,6 +34,7 @@ export const arweave = new Arweave({
   protocol: 'https',
 });
 
+const maxFailedGatewaySummarySizeInBytes = 2048 - 256; // 1792 bytes
 const defaultArweave = arweave;
 export async function getContractManifest({
   arweave = defaultArweave,
@@ -74,6 +75,33 @@ export function getFailedGatewaySummary(
   return failedGatewaySummary;
 }
 
+function splitArrayBySize(array: string[], maxSizeInBytes: number): string[][] {
+  const encoder = new TextEncoder();
+  let currentArray = [];
+  let currentSize = 0;
+  const result = [];
+
+  for (const str of array) {
+    const encodedString = encoder.encode(str);
+    const stringSizeInBytes = encodedString.length;
+
+    if (currentSize + stringSizeInBytes > maxSizeInBytes) {
+      result.push(currentArray);
+      currentArray = [];
+      currentSize = 0;
+    }
+
+    currentArray.push(str);
+    currentSize += stringSizeInBytes;
+  }
+
+  if (currentArray.length > 0) {
+    result.push(currentArray);
+  }
+
+  return result;
+}
+
 export class PublishFromNewObservation implements ObservationPublisher {
   // Get the key file used for the interaction
   private wallet: JWKInterface = JSON.parse(
@@ -91,7 +119,7 @@ export class PublishFromNewObservation implements ObservationPublisher {
   async saveObservations(
     observationReportTxId: string,
     observerReport: ObserverReport,
-  ): Promise<string> {
+  ): Promise<string[]> {
     // get contract manifest
     const { evaluationOptions = {} } = await getContractManifest({
       contractTxId: CONTRACT_ID,
@@ -103,18 +131,35 @@ export class PublishFromNewObservation implements ObservationPublisher {
     // connect to wallet
     contract.connect(this.wallet).setEvaluationOptions(evaluationOptions);
 
-    const failedGateways: string[] = getFailedGatewaySummary(observerReport);
+    const failedGatewaySummaries: string[] =
+      getFailedGatewaySummary(observerReport);
 
-    const saveObservationsTxId = await contract.writeInteraction(
-      {
-        function: 'saveObservations',
-        observationReportTxId,
-        failedGateways,
-      },
-      {
-        disableBundling: true,
-      },
+    // split up the failed gateway summaries if they are bigger than the max individual summary size
+    const splitFailedGatewaySummaries = splitArrayBySize(
+      failedGatewaySummaries,
+      maxFailedGatewaySummarySizeInBytes,
     );
-    return saveObservationsTxId?.originalTxId ?? 'invalid';
+
+    // Processes each failed gateway summary using the same observation report tx id.
+    const saveObservationsTxIds: string[] = [];
+    for (const failedGatewaySummary of splitFailedGatewaySummaries) {
+      const saveObservationsTxId = await contract.writeInteraction(
+        {
+          function: 'saveObservations',
+          observationReportTxId,
+          failedGatewaySummary,
+        },
+        {
+          disableBundling: true,
+        },
+      );
+      if (saveObservationsTxId) {
+        saveObservationsTxIds.push(saveObservationsTxId.originalTxId);
+      } else {
+        saveObservationsTxIds.push('invalid');
+      }
+    }
+
+    return saveObservationsTxIds;
   }
 }
