@@ -4,13 +4,13 @@ ARG NODE_VERSION_SHORT=18
 FROM node:${NODE_VERSION}-bullseye-slim AS builder
 
 # Build
-WORKDIR /usr/src/app
+WORKDIR /app
 COPY . .
 RUN yarn && yarn build
 
 # Extract dist
 FROM gcr.io/distroless/nodejs${NODE_VERSION_SHORT}-debian11
-WORKDIR /usr/src/app
+WORKDIR /app
 
 # Add shell
 COPY --from=busybox:1.35.0-uclibc /bin/sh /bin/sh
@@ -25,10 +25,10 @@ RUN chown -R node ./
 USER node
 
 # Copy build files
-COPY --from=builder /usr/src/app/node_modules ./node_modules/
-COPY --from=builder /usr/src/app/package.json ./package.json
-COPY --from=builder /usr/src/app/docs ./docs/
-COPY --from=builder /usr/src/app/dist ./dist/
+COPY --from=builder /app/node_modules ./node_modules/
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/docs ./docs/
+COPY --from=builder /app/dist ./dist/
 
 # Expose port and add healthcheck
 EXPOSE 3000
