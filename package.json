@@ -11,7 +11,6 @@
   "dependencies": {
     "@ardrive/ardrive-promise-cache": "^1.1.4",
     "ajv": "^8.12.0",
-    "arweave": "1.13.7",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "express-async-handler": "^1.2.0",
@@ -25,7 +24,6 @@
     "prom-client": "^14.0.1",
     "swagger-ui-express": "^5.0.0",
     "wait": "^0.4.2",
-    "warp-contracts": "^1.4.18",
     "winston": "^3.7.2",
     "yaml": "^2.3.1",
     "yargs": "^17.7.2"
@@ -46,6 +44,7 @@
     "@types/yargs": "^17.0.28",
     "@typescript-eslint/eslint-plugin": "^5.26.0",
     "@typescript-eslint/parser": "^5.26.0",
+    "arweave": "1.13.7",
     "c8": "^7.11.3",
     "chai": "^4.3.6",
     "chai-as-promised": "^7.1.1",
@@ -65,7 +64,8 @@
     "source-map-support": "^0.5.21",
     "ts-node": "^10.8.1",
     "ts-sinon": "^2.0.2",
-    "typescript": "^4.7.3"
+    "typescript": "^4.7.3",
+    "warp-contracts": "^1.4.18"
   },
   "scripts": {
     "build": "yarn clean && npx tsc --project ./tsconfig.prod.json",
