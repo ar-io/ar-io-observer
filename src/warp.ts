@@ -102,7 +102,7 @@ function splitArrayBySize(array: string[], maxSizeInBytes: number): string[][] {
   return result;
 }
 
-export class PublishFromNewObservation implements ObservationPublisher {
+export class PublishFromObservation implements ObservationPublisher {
   // Get the key file used for the interaction
   private wallet: JWKInterface = JSON.parse(
     fs.readFileSync(KEY_FILE).toString(),
