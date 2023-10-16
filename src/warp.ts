@@ -26,6 +26,7 @@ import {
 } from 'warp-contracts/mjs';
 
 import { CONTRACT_ID, KEY_FILE } from './config.js';
+import { uploadReportWithTurbo } from './turbo.js';
 import { ObservationPublisher, ObserverReport } from './types.js';
 
 export const arweave = new Arweave({
@@ -165,9 +166,8 @@ export class PublishFromObservation implements ObservationPublisher {
     return saveObservationsTxIds;
   }
 
-  async uploadReport(observerReport: ObserverReport): Promise<string> {
-    const report: string = JSON.stringify(report, null, 5);
-
-    return report;
+  async uploadReport(observerReport: ObserverReport): Promise<string | null> {
+    const reportTxId = await uploadReportWithTurbo(observerReport);
+    return reportTxId;
   }
 }
