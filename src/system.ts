@@ -29,6 +29,7 @@ import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
 import { RandomObserversSource } from './observers/random-observers-source.js';
 import { EpochHeightSource } from './protocol.js';
+import { PublishFromObservation } from './warp.js';
 
 const observedGatewayHostList =
   config.OBSERVED_GATEWAY_HOSTS.length > 0
@@ -110,3 +111,5 @@ export const prescribedObserversSource = new RandomObserversSource({
   entropySource: chainEntropySource,
   numObserversToSource: 50,
 });
+
+export const publishObservation = new PublishFromObservation();
