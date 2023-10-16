@@ -9,6 +9,8 @@
     "url": "https://github.com/ar-io/ar-io-observer"
   },
   "dependencies": {
+    "@ardrive/ardrive-promise-cache": "^1.1.4",
+    "@ardrive/turbo-sdk": "^1.0.1",
     "ajv": "^8.12.0",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
@@ -43,6 +45,7 @@
     "@types/yargs": "^17.0.28",
     "@typescript-eslint/eslint-plugin": "^5.26.0",
     "@typescript-eslint/parser": "^5.26.0",
+    "arbundles": "^0.9.9",
     "arweave": "1.13.7",
     "c8": "^7.11.3",
     "chai": "^4.3.6",
