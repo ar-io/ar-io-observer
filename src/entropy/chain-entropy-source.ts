@@ -44,7 +44,6 @@ export class ChainEntropySource implements EntropySource {
 
   async getEntropy({ height }: { height: number }): Promise<Buffer> {
     const hash = crypto.createHash('sha256');
-
     // We hash multiples block hashes to reduce the chance that someone will
     // influence the value produced by grinding with excessive hash power.
     for (let i = 0; i < this.numSampledBlocks; i++) {
