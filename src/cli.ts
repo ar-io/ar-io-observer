@@ -25,11 +25,11 @@ import {
   epochHeightSelector,
   observer,
   prescribedObserversSource,
+  publishObservation,
 } from './system.js';
 
-observer.generateReport().then((report) => {
-  console.log(JSON.stringify(report, null, 2));
-});
+const report = await observer.generateReport();
+console.log(JSON.stringify(report, null, 2));
 
 console.log('You are: ', OBSERVER_ADDRESS);
 const chosenObservers = await chosenObserversSource.getObservers({
@@ -56,3 +56,8 @@ console.log(
   prescribedObservers.includes(OBSERVER_ADDRESS),
 );
 console.log(prescribedObservers);
+
+publishObservation.saveObservations(
+  'U35xQUnop2Oq1NwhpzRfTeXVSjC0M8H50MVlmo_cTJc',
+  report,
+);
