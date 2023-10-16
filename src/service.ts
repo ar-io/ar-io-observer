@@ -21,10 +21,12 @@ import { updateCurrentReport } from './system.js';
 
 const REPORT_GENERATION_INTERVAL_MS = 1000 * 60 * 10; // 10 minutes
 
-setInterval(updateCurrentReport, REPORT_GENERATION_INTERVAL_MS);
+if (config.RUN_OBSERVER) {
+  setInterval(updateCurrentReport, REPORT_GENERATION_INTERVAL_MS);
 
-app.listen(config.PORT, () => {
-  console.log(`Listening on port ${config.PORT}`);
-});
+  app.listen(config.PORT, () => {
+    console.log(`Listening on port ${config.PORT}`);
+  });
 
-updateCurrentReport();
+  updateCurrentReport();
+}
