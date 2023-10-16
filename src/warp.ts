@@ -164,4 +164,10 @@ export class PublishFromObservation implements ObservationPublisher {
     }
     return saveObservationsTxIds;
   }
+
+  async uploadReport(observerReport: ObserverReport): Promise<string> {
+    const report: string = JSON.stringify(report, null, 5);
+
+    return report;
+  }
 }
