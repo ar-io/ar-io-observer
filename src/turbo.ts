@@ -27,7 +27,9 @@ const jwk: JWKInterface = JSON.parse(fs.readFileSync(KEY_FILE).toString());
 
 const turbo = TurboFactory.authenticated({ privateKey: jwk });
 
-export async function uploadReportViaTurbo(report: any): Promise<string> {
+export async function uploadReportWithTurbo(
+  report: any,
+): Promise<string | null> {
   let reportTxId = '';
   // Convert the JSON object to a JSON string
   const reportString = JSON.stringify(report);
@@ -53,6 +55,7 @@ export async function uploadReportViaTurbo(report: any): Promise<string> {
   } catch (error) {
     // upload failed
     console.error('Failed to upload data item!', error);
+    return null;
   } finally {
     const { winc: newBalance } = await turbo.getBalance();
     console.log('New balance:', newBalance);
