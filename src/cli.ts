@@ -57,7 +57,10 @@ console.log(
 );
 console.log(prescribedObservers);
 
-publishObservation.saveObservations(
+const observationReportTxId = await publishObservation.uploadReport(report);
+const saveObservationTxIds = await publishObservation.saveObservations(
   'U35xQUnop2Oq1NwhpzRfTeXVSjC0M8H50MVlmo_cTJc',
   report,
 );
+
+console.log('Published observation interaction IDs: ', saveObservationTxIds);
