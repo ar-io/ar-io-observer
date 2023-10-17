@@ -27,7 +27,6 @@ import { KEY_FILE } from './config.js';
 
 // load your JWK from a file or generate a new oneW
 const jwk: JWKInterface = JSON.parse(fs.readFileSync(KEY_FILE).toString());
-console.log(defaultTurboConfiguration);
 const turbo = TurboFactory.authenticated({
   privateKey: jwk,
   ...defaultTurboConfiguration,
