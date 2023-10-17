@@ -5,6 +5,7 @@ FROM node:${NODE_VERSION}-bullseye-slim AS builder
 
 # Build
 WORKDIR /app
+RUN apt-get update && apt-get install build-essential python3 -y
 COPY . .
 RUN yarn install \
     && yarn build \
