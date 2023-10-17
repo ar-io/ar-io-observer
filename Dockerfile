@@ -6,7 +6,10 @@ FROM node:${NODE_VERSION}-bullseye-slim AS builder
 # Build
 WORKDIR /app
 COPY . .
-RUN yarn && yarn build
+RUN yarn install \
+    && yarn build \
+    && rm -rf node_modules \
+    && yarn install --production
 
 # Extract dist
 FROM gcr.io/distroless/nodejs${NODE_VERSION_SHORT}-debian11
