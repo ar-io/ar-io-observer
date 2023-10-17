@@ -59,7 +59,7 @@ export async function uploadReportWithTurbo(
       });
 
     // upload complete!
-    console.log('Successfully upload data item from object!', {
+    console.log('Successfully upload report (object) to Turbo!', {
       id,
       owner,
       dataCaches,
@@ -68,7 +68,7 @@ export async function uploadReportWithTurbo(
     reportTxId = id;
   } catch (error) {
     // upload failed
-    console.error('Failed to upload data item from object!', error);
+    console.error('Failed to upload report (object) to Turbo!', error);
     return null;
   } finally {
     const { winc: newBalance } = await turbo.getBalance();
@@ -98,7 +98,7 @@ export async function uploadReportFromDiskWithTurbo(
       });
 
     // upload complete!
-    console.log('Successfully upload data item from disk!', {
+    console.log('Successfully uploaded data item from disk to Turbo!', {
       id,
       owner,
       dataCaches,
@@ -107,7 +107,7 @@ export async function uploadReportFromDiskWithTurbo(
     reportTxId = id;
   } catch (error) {
     // upload failed
-    console.error('Failed to upload data item from disk!', error);
+    console.error('Failed to upload data item from disk to Turbo!', error);
     return null;
   } finally {
     const { winc: newBalance } = await turbo.getBalance();
