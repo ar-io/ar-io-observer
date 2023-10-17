@@ -53,13 +53,3 @@ if (observationReportObjectTxId !== null) {
   );
   console.log('Saved observation interaction IDs: ', saveObservationTxIds);
 }
-
-const saveObservationFromDisk =
-  await publishObservation.uploadAndSaveObservations('current.json');
-if (saveObservationFromDisk.observerReportTxId !== null) {
-  console.log(
-    'Uploaded report from disk with tx id %s and saved observation interaction IDs: %s',
-    saveObservationFromDisk.observerReportTxId,
-    saveObservationFromDisk.saveObservationsTxIds,
-  );
-}
