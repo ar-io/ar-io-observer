@@ -21,7 +21,6 @@ import {
 } from '@ardrive/turbo-sdk/node';
 import { ArweaveSigner, createData } from 'arbundles/node';
 import * as fs from 'node:fs';
-import path from 'node:path';
 import { JWKInterface } from 'warp-contracts/mjs';
 
 import { KEY_FILE } from './config.js';
@@ -80,8 +79,7 @@ export async function uploadReportObjectWithTurbo(
 export async function uploadReportFromDiskWithTurbo(
   fileName: string,
 ): Promise<string | null> {
-  const filePath = path.join(__dirname, fileName);
-  const report = JSON.parse(fs.readFileSync(filePath).toString());
+  const report = JSON.parse(fs.readFileSync(fileName).toString());
   let reportTxId = '';
   // Convert the JSON object to a JSON string
   const reportString = JSON.stringify(report, null, 2);
