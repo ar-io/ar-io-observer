@@ -27,6 +27,10 @@ import {
   prescribedObserversSource,
   publishObservation,
 } from './system.js';
+import {
+  uploadReportFromDiskWithTurbo,
+  uploadReportObjectWithTurbo,
+} from './turbo.js';
 
 const report = await observer.generateReport();
 console.log(JSON.stringify(report, null, 2));
@@ -57,12 +61,17 @@ console.log(
 );
 console.log(prescribedObservers);
 
-const observationReportTxId = await publishObservation.uploadReport(report);
-console.log('uploaded report: ', observationReportTxId);
-if (observationReportTxId) {
+const observationReportObjectTxId = await uploadReportObjectWithTurbo(report);
+console.log('uploaded report from object: ', observationReportObjectTxId);
+if (observationReportObjectTxId) {
   const saveObservationTxIds = await publishObservation.saveObservations(
-    observationReportTxId,
+    observationReportObjectTxId,
     report,
   );
   console.log('Published observation interaction IDs: ', saveObservationTxIds);
 }
+
+const observationRpoertDiskTxId = await uploadReportFromDiskWithTurbo(
+  'current.json',
+);
+console.log('uploaded report from disk: ', observationRpoertDiskTxId);

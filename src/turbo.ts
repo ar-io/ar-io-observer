@@ -21,7 +21,8 @@ import {
 } from '@ardrive/turbo-sdk/node';
 import { ArweaveSigner, createData } from 'arbundles/node';
 import * as fs from 'node:fs';
-import { JWKInterface, Tag } from 'warp-contracts/mjs';
+import path from 'node:path';
+import { JWKInterface } from 'warp-contracts/mjs';
 
 import { KEY_FILE } from './config.js';
 
@@ -38,7 +39,7 @@ const tags = [
   { name: 'Content-Type', value: 'application/json' },
 ];
 
-export async function uploadReportWithTurbo(
+export async function uploadReportObjectWithTurbo(
   report: any,
 ): Promise<string | null> {
   let reportTxId = '';
@@ -58,7 +59,7 @@ export async function uploadReportWithTurbo(
       });
 
     // upload complete!
-    console.log('Successfully upload data item!', {
+    console.log('Successfully upload data item from object!', {
       id,
       owner,
       dataCaches,
@@ -67,7 +68,47 @@ export async function uploadReportWithTurbo(
     reportTxId = id;
   } catch (error) {
     // upload failed
-    console.error('Failed to upload data item!', error);
+    console.error('Failed to upload data item from object!', error);
+    return null;
+  } finally {
+    const { winc: newBalance } = await turbo.getBalance();
+    console.log('New balance:', newBalance);
+  }
+  return reportTxId;
+}
+
+export async function uploadReportFromDiskWithTurbo(
+  fileName: string,
+): Promise<string | null> {
+  const filePath = path.join(__dirname, fileName);
+  const report = JSON.parse(fs.readFileSync(filePath).toString());
+  let reportTxId = '';
+  // Convert the JSON object to a JSON string
+  const reportString = JSON.stringify(report, null, 2);
+  try {
+    const signer = new ArweaveSigner(jwk);
+    const signedDataItem = createData(reportString, signer, {
+      tags,
+    });
+    await signedDataItem.sign(signer);
+
+    const { id, owner, dataCaches, fastFinalityIndexes } =
+      await turbo.uploadSignedDataItem({
+        dataItemStreamFactory: () => signedDataItem.getRaw(),
+        dataItemSizeFactory: () => signedDataItem.getRaw().length,
+      });
+
+    // upload complete!
+    console.log('Successfully upload data item from disk!', {
+      id,
+      owner,
+      dataCaches,
+      fastFinalityIndexes,
+    });
+    reportTxId = id;
+  } catch (error) {
+    // upload failed
+    console.error('Failed to upload data item from disk!', error);
     return null;
   } finally {
     const { winc: newBalance } = await turbo.getBalance();
