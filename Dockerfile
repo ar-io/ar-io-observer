@@ -12,21 +12,12 @@ RUN yarn install \
     && rm -rf node_modules \
     && yarn install --production
 
-# Extract dist
+# Runtime
 FROM gcr.io/distroless/nodejs${NODE_VERSION_SHORT}-debian11
 WORKDIR /app
 
-# Add shell
+# Add sh for healtcheck script
 COPY --from=busybox:1.35.0-uclibc /bin/sh /bin/sh
-COPY --from=busybox:1.35.0-uclibc /bin/addgroup /bin/addgroup
-COPY --from=busybox:1.35.0-uclibc /bin/adduser /bin/adduser
-COPY --from=busybox:1.35.0-uclibc /bin/chown /bin/chown
-
-# Create user
-RUN addgroup -g 1000 node \
-  && adduser -u 1000 -G node -s /bin/sh -D node
-RUN chown -R node ./
-USER node
 
 # Copy build files
 COPY --from=builder /app/node_modules ./node_modules/
