@@ -21,7 +21,7 @@ import {
 } from '@ardrive/turbo-sdk/node';
 import { ArweaveSigner, createData } from 'arbundles/node';
 import * as fs from 'node:fs';
-import { JWKInterface } from 'warp-contracts/mjs';
+import { JWKInterface, Tag } from 'warp-contracts/mjs';
 
 import { KEY_FILE } from './config.js';
 
@@ -32,15 +32,23 @@ const turbo = TurboFactory.authenticated({
   ...defaultTurboConfiguration,
 });
 
+const tags = [
+  { name: 'App-Name', value: 'AR-IO Observer' },
+  { name: 'App-Version', value: '0.0.1' },
+  { name: 'Content-Type', value: 'application/json' },
+];
+
 export async function uploadReportWithTurbo(
   report: any,
 ): Promise<string | null> {
   let reportTxId = '';
   // Convert the JSON object to a JSON string
-  const reportString = JSON.stringify(report);
+  const reportString = JSON.stringify(report, null, 2);
   try {
     const signer = new ArweaveSigner(jwk);
-    const signedDataItem = createData(reportString, signer, {});
+    const signedDataItem = createData(reportString, signer, {
+      tags,
+    });
     await signedDataItem.sign(signer);
 
     const { id, owner, dataCaches, fastFinalityIndexes } =
