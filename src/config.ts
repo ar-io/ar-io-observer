@@ -75,7 +75,7 @@ export const ARNS_NAMES = env
   .split(',')
   .filter((h) => h.length > 0);
 
-export const PORT = +env.varOrDefault('PORT', '3000');
+export const PORT = +env.varOrDefault('PORT', '5000');
 
 export const GATEWAY_ASSESSMENT_CONCURRENCY = +env.varOrDefault(
   'GATEWAY_ASSESSMENT_CONCURRENCY',
