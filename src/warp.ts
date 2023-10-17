@@ -199,12 +199,11 @@ export class PublishFromObservation implements ObservationPublisher {
       failedGatewaySummaries,
       maxFailedGatewaySummarySizeInBytes,
     );
+    console.log('Split into %s summaries: ', failedGatewaySummaries.length);
+    console.log('Summary reports: ', failedGatewaySummaries);
 
     // Processes each failed gateway summary using the same observation report tx id.
     const saveObservationsTxIds: string[] = [];
-    for (const failedGatewaySummary of splitFailedGatewaySummaries) {
-      console.log('Failed Gateway Summary:', failedGatewaySummary);
-    }
     for (const failedGatewaySummary of splitFailedGatewaySummaries) {
       const saveObservationsTxId = await contract.writeInteraction(
         {
