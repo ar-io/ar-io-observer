@@ -35,8 +35,8 @@ COPY --from=builder /app/docs ./docs/
 COPY --from=builder /app/dist ./dist/
 
 # Expose port and add healthcheck
-EXPOSE 3000
-HEALTHCHECK CMD curl --fail http://localhost:3000/healthcheck || exit 1
+EXPOSE 5000
+HEALTHCHECK CMD curl --fail http://localhost:5000/healthcheck || exit 1
 
 # Add labels
 LABEL org.opencontainers.image.title="ar.io - Observer Service"
