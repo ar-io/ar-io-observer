@@ -35,7 +35,7 @@ export const arweave = new Arweave({
   protocol: 'https',
 });
 
-const maxFailedGatewaySummarySizeInBytes = 2048 - 256; // 1792 bytes
+const maxFailedGatewaySummarySizeInBytes = 1280;
 const defaultArweave = arweave;
 export async function getContractManifest({
   arweave = defaultArweave,
@@ -78,7 +78,7 @@ export function getFailedGatewaySummaryFromReport(
 
 function splitArrayBySize(array: string[], maxSizeInBytes: number): string[][] {
   const encoder = new TextEncoder();
-  let currentArray = [];
+  let currentArray: string[] = [];
   let currentSize = 0;
   const result = [];
 
@@ -87,11 +87,11 @@ function splitArrayBySize(array: string[], maxSizeInBytes: number): string[][] {
     const stringSizeInBytes = encodedString.length;
 
     if (currentSize + stringSizeInBytes > maxSizeInBytes) {
+      // Make a copy of currentArray and push it to the result
       result.push(currentArray);
       currentArray = [];
       currentSize = 0;
     }
-
     currentArray.push(str);
     currentSize += stringSizeInBytes;
   }
@@ -144,14 +144,11 @@ export class PublishFromObservation implements ObservationPublisher {
     // Processes each failed gateway summary using the same observation report tx id.
     const saveObservationsTxIds: string[] = [];
     for (const failedGatewaySummary of splitFailedGatewaySummaries) {
-      console.log('Failed Gateway Summary:', failedGatewaySummary);
-    }
-    for (const failedGatewaySummary of splitFailedGatewaySummaries) {
       const saveObservationsTxId = await contract.writeInteraction(
         {
           function: 'saveObservations',
           observerReportTxId,
-          failedGatewaySummary,
+          failedGateways: failedGatewaySummary,
         },
         {
           disableBundling: true,
@@ -175,7 +172,7 @@ export class PublishFromObservation implements ObservationPublisher {
     );
 
     const observerReportTxId = await uploadReportWithTurbo(report);
-    if (!observerReportTxId) {
+    if (observerReportTxId === null) {
       console.log('Error submitting report to turbo.');
       return { observerReportTxId: null, saveObservationsTxIds: [] };
     }
@@ -199,8 +196,6 @@ export class PublishFromObservation implements ObservationPublisher {
       failedGatewaySummaries,
       maxFailedGatewaySummarySizeInBytes,
     );
-    console.log('Split into %s summaries: ', failedGatewaySummaries.length);
-    console.log('Summary reports: ', failedGatewaySummaries);
 
     // Processes each failed gateway summary using the same observation report tx id.
     const saveObservationsTxIds: string[] = [];
@@ -209,7 +204,7 @@ export class PublishFromObservation implements ObservationPublisher {
         {
           function: 'saveObservations',
           observerReportTxId,
-          failedGatewaySummary,
+          failedGateways: failedGatewaySummary,
         },
         {
           disableBundling: true,
