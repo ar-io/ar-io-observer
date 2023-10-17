@@ -26,7 +26,7 @@ import {
 } from 'warp-contracts/mjs';
 
 import { CONTRACT_ID, KEY_FILE } from './config.js';
-import { uploadReportObjectWithTurbo } from './turbo.js';
+import { uploadReportWithTurbo } from './turbo.js';
 import { ObservationPublisher, ObserverReport } from './types.js';
 
 export const arweave = new Arweave({
@@ -63,11 +63,11 @@ export function tagsToObject(tags: Tag[]): {
 }
 
 export function getFailedGatewaySummaryFromReport(
-  observationReport: ObserverReport,
+  observerReport: ObserverReport,
 ): string[] {
   const failedGatewaySummary: string[] = [];
-  for (const gatewayName in observationReport.gatewayAssessments) {
-    const gatewayAssessment = observationReport.gatewayAssessments[gatewayName];
+  for (const gatewayName in observerReport.gatewayAssessments) {
+    const gatewayAssessment = observerReport.gatewayAssessments[gatewayName];
     // Check if the pass property is false
     if (gatewayAssessment.pass === false) {
       failedGatewaySummary.push(gatewayName);
@@ -118,7 +118,7 @@ export class PublishFromObservation implements ObservationPublisher {
   );
 
   async saveObservations(
-    observationReportTxId: string,
+    observerReportTxId: string,
     observerReport: ObserverReport,
   ): Promise<string[]> {
     // get contract manifest
@@ -150,7 +150,7 @@ export class PublishFromObservation implements ObservationPublisher {
       const saveObservationsTxId = await contract.writeInteraction(
         {
           function: 'saveObservations',
-          observationReportTxId,
+          observerReportTxId,
           failedGatewaySummary,
         },
         {
@@ -164,5 +164,64 @@ export class PublishFromObservation implements ObservationPublisher {
       }
     }
     return saveObservationsTxIds;
+  }
+
+  async uploadAndSaveObservations(observerReportFileName: string): Promise<{
+    observerReportTxId: string | null;
+    saveObservationsTxIds: string[];
+  }> {
+    const report: ObserverReport = JSON.parse(
+      fs.readFileSync(observerReportFileName).toString(),
+    );
+
+    const observerReportTxId = await uploadReportWithTurbo(report);
+    if (!observerReportTxId) {
+      console.log('Error submitting report to turbo.');
+      return { observerReportTxId: null, saveObservationsTxIds: [] };
+    }
+
+    // get contract manifest
+    const { evaluationOptions = {} } = await getContractManifest({
+      contractTxId: CONTRACT_ID,
+    });
+
+    // Read the AR.IO Contract
+    const contract = this.warp.pst(CONTRACT_ID);
+
+    // connect to wallet
+    contract.connect(this.wallet).setEvaluationOptions(evaluationOptions);
+
+    const failedGatewaySummaries: string[] =
+      getFailedGatewaySummaryFromReport(report);
+
+    // split up the failed gateway summaries if they are bigger than the max individual summary size
+    const splitFailedGatewaySummaries = splitArrayBySize(
+      failedGatewaySummaries,
+      maxFailedGatewaySummarySizeInBytes,
+    );
+
+    // Processes each failed gateway summary using the same observation report tx id.
+    const saveObservationsTxIds: string[] = [];
+    for (const failedGatewaySummary of splitFailedGatewaySummaries) {
+      console.log('Failed Gateway Summary:', failedGatewaySummary);
+    }
+    for (const failedGatewaySummary of splitFailedGatewaySummaries) {
+      const saveObservationsTxId = await contract.writeInteraction(
+        {
+          function: 'saveObservations',
+          observerReportTxId,
+          failedGatewaySummary,
+        },
+        {
+          disableBundling: true,
+        },
+      );
+      if (saveObservationsTxId) {
+        saveObservationsTxIds.push(saveObservationsTxId.originalTxId);
+      } else {
+        saveObservationsTxIds.push('invalid');
+      }
+    }
+    return { observerReportTxId, saveObservationsTxIds };
   }
 }

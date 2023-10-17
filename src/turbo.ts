@@ -24,6 +24,7 @@ import * as fs from 'node:fs';
 import { JWKInterface } from 'warp-contracts/mjs';
 
 import { KEY_FILE } from './config.js';
+import { ObserverReport } from './types.js';
 
 // load your JWK from a file or generate a new oneW
 const jwk: JWKInterface = JSON.parse(fs.readFileSync(KEY_FILE).toString());
@@ -38,8 +39,8 @@ const tags = [
   { name: 'Content-Type', value: 'application/json' },
 ];
 
-export async function uploadReportObjectWithTurbo(
-  report: any,
+export async function uploadReportWithTurbo(
+  report: ObserverReport,
 ): Promise<string | null> {
   let reportTxId = '';
   // Convert the JSON object to a JSON string
