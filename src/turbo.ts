@@ -15,7 +15,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { TurboFactory } from '@ardrive/turbo-sdk';
+import {
+  TurboFactory,
+  developmentTurboConfiguration,
+} from '@ardrive/turbo-sdk';
 import { ArweaveSigner, createData } from 'arbundles/node';
 import * as fs from 'node:fs';
 import { JWKInterface } from 'warp-contracts/mjs';
@@ -25,7 +28,10 @@ import { KEY_FILE } from './config.js';
 // load your JWK from a file or generate a new oneW
 const jwk: JWKInterface = JSON.parse(fs.readFileSync(KEY_FILE).toString());
 
-const turbo = TurboFactory.authenticated({ privateKey: jwk });
+const turbo = TurboFactory.authenticated({
+  privateKey: jwk,
+  ...defaultTurboConfiguration,
+});
 
 export async function uploadReportWithTurbo(
   report: any,
