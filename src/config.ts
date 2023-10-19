@@ -55,10 +55,7 @@ export const CONTRACT_ID = env.varOrDefault(
   'bLAgYxAdX2Ry-nt6aH2ixgvJXbpsEYm28NgJgyqfs-U',
 );
 
-export const OBSERVER_ADDRESS = env.varOrDefault(
-  'OBSERVER_ADDRESS',
-  '<example>',
-);
+export const OBSERVER_WALLET = env.varOrDefault('OBSERVER_WALLET', '<example>');
 
 export const REFERENCE_GATEWAY_HOST = env.varOrDefault(
   'REFERENCE_GATEWAY_HOST',
@@ -88,4 +85,4 @@ export const NAME_ASSESSMENT_CONCURRENCY = +env.varOrDefault(
 );
 
 // used for posting interactions to the contract
-export const KEY_FILE = './wallets/' + OBSERVER_ADDRESS + '.json';
+export const KEY_FILE = './wallets/' + OBSERVER_WALLET + '.json';
