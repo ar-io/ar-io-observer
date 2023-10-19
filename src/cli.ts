@@ -17,8 +17,7 @@
  */
 import { OBSERVER_ADDRESS } from './config.js';
 import {
-  DEFAULT_EPOCH_BLOCK_LENGTH,
-  DEFAULT_START_HEIGHT,
+  EPOCH_BLOCK_LENGTH, START_HEIGHT,
 } from './protocol.js';
 import {
   epochHeightSelector,
@@ -33,8 +32,8 @@ console.log(JSON.stringify(report, null, 2));
 
 console.log('You are: ', OBSERVER_ADDRESS);
 const prescribedObservers = await prescribedObserversSource.getObservers({
-  startHeight: DEFAULT_START_HEIGHT,
-  epochBlockLength: DEFAULT_EPOCH_BLOCK_LENGTH,
+  startHeight: START_HEIGHT,
+  epochBlockLength: EPOCH_BLOCK_LENGTH,
   height: await epochHeightSelector.getHeight(),
 });
 
