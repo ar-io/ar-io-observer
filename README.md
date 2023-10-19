@@ -1,6 +1,7 @@
 # ar-io-observer
 
-Express microservice that provides REST API to run randomized observation reports against ar.io nodes.
+An Express microservice that provides REST API and CLI tools to run randomized
+observation reports against ar.io nodes.
 
 ## Getting Started
 
@@ -11,11 +12,19 @@ Requirements:
 
 ### Running Locally
 
+#### CLI
+
+Generating a report:
+
+- `nvm use`
+- `yarn observe` 
+
+#### Service
+
 Starting the service:
 
 - `nvm use`
-- `yarn`
-- `yarn service`
+- `yarn service` 
 
 You can check the service is running by running the command:
 
@@ -23,6 +32,9 @@ You can check the service is running by running the command:
 curl localhost:5000/ar-io/observer/healthcheck
 {"uptime":2.555423702,"date":"2023-09-14T21:24:27.677Z","message":"Welcome to the Permaweb."}
 ```
+
+The current report is accessible at the `/ar-io/observer/reports/current`
+endpoint.
 
 ### Docker
 
