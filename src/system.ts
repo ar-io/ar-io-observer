@@ -82,7 +82,7 @@ const randomEntropySource = new RandomEntropySource();
 
 const cachedEntropySource = new CachedEntropySource({
   entropySource: randomEntropySource,
-  cachePath: './tmp/entropy',
+  cachePath: './data/tmp/observer/entropy',
 });
 
 const compositeEntropySource = new CompositeEntropySource({
