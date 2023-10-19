@@ -19,7 +19,7 @@ import * as config from './config.js';
 import { app } from './server.js';
 import { updateCurrentReport } from './system.js';
 
-const REPORT_GENERATION_INTERVAL_MS = 1000 * 60 * 10; // 10 minutes
+const REPORT_GENERATION_INTERVAL_MS = 1000 * 60 * 60 * 2; // 2 hours
 
 if (config.RUN_OBSERVER) {
   setInterval(updateCurrentReport, REPORT_GENERATION_INTERVAL_MS);
