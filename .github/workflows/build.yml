@@ -20,7 +20,7 @@ jobs:
 
   push:
     needs: [build]
-    if: ${{ github.ref == 'refs/heads/main' }}
+    if: ${{ github.ref == 'refs/heads/pe-4749-save-observations-interactions-integration' }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -42,7 +42,6 @@ jobs:
           push: true
           # TODO: add build version node args
           tags: |
-            ghcr.io/ar-io/ar-io-observer:latest
             ghcr.io/ar-io/ar-io-observer:${{ github.sha }}
 
   deploy:
