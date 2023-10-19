@@ -24,10 +24,11 @@ COPY --from=builder /app/node_modules ./node_modules/
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/docs ./docs/
 COPY --from=builder /app/dist ./dist/
+COPY ./healthcheck.sh /app/healthcheck.sh
 
 # Expose port and add healthcheck
 EXPOSE 5000
-HEALTHCHECK CMD curl --fail http://localhost:5000/healthcheck || exit 1
+HEALTHCHECK CMD /bin/sh healthcheck.sh
 
 # Add labels
 LABEL org.opencontainers.image.title="ar.io - Observer Service"
