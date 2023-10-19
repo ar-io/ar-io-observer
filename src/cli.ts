@@ -16,9 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import { OBSERVER_ADDRESS } from './config.js';
-import {
-  EPOCH_BLOCK_LENGTH, START_HEIGHT,
-} from './protocol.js';
+import { EPOCH_BLOCK_LENGTH, START_HEIGHT } from './protocol.js';
 import {
   epochHeightSelector,
   observer,
