@@ -88,4 +88,4 @@ export const NAME_ASSESSMENT_CONCURRENCY = +env.varOrDefault(
 );
 
 // used for posting interactions to the contract
-export const KEY_FILE = env.varOrDefault('KEY_FILE_LOCATION', 'key.json');
+export const KEY_FILE = './wallets/' + OBSERVER_ADDRESS + '.json';
