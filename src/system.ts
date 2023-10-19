@@ -32,6 +32,7 @@ import { Observer } from './observer.js';
 import { RandomObserversSource } from './observers/random-observers-source.js';
 import { EPOCH_BLOCK_LENGTH, EpochHeightSource } from './protocol.js';
 import { FsReportStore } from './store/fs-report-store.js';
+import { uploadReportWithTurbo } from './turbo.js';
 import { PublishFromObservation } from './warp.js';
 
 const REPORT_CACH_TTL_SECS = 60 * 60; // 1 hour
@@ -144,6 +145,7 @@ export async function updateCurrentReport() {
     const currentHeight = await chainSource.getHeight();
     if (currentHeight >= saveAfterHeight) {
       console.log('Saving report', report.epochStartHeight);
+      uploadReportWithTurbo(report);
       reportStore.saveReport(report);
     }
   } catch (error) {
