@@ -95,7 +95,7 @@ const chosenNamesSource = new RandomArnsNamesSource({
 });
 
 export const observer = new Observer({
-  observerAddress: config.OBSERVER_ADDRESS,
+  observerAddress: config.OBSERVER_WALLET,
   referenceGatewayHost: config.REFERENCE_GATEWAY_HOST,
   epochHeightSource: epochHeightSelector,
   observedGatewayHostList,
