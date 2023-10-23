@@ -21,7 +21,6 @@ import {
   epochHeightSelector,
   observer,
   prescribedObserversSource,
-  publishObservation,
 } from './system.js';
 import { uploadReportWithTurbo } from './turbo.js';
 
@@ -42,11 +41,12 @@ console.log(
 );
 console.log(prescribedObservers);
 
-const observationReportObjectTxId = await uploadReportWithTurbo(report);
-if (observationReportObjectTxId !== null) {
-  const saveObservationTxIds = await publishObservation.saveObservations(
-    observationReportObjectTxId,
-    report,
-  );
-  console.log('Saved observation interaction IDs: ', saveObservationTxIds);
-}
+await uploadReportWithTurbo(report);
+//const observationReportObjectTxId = await uploadReportWithTurbo(report);
+//if (observationReportObjectTxId !== null) {
+//  const saveObservationTxIds = await publishObservation.saveObservations(
+//    observationReportObjectTxId,
+//    report,
+//  );
+//  console.log('Saved observation interaction IDs: ', saveObservationTxIds);
+//}

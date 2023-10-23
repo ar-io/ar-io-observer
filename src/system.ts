@@ -33,7 +33,6 @@ import { RandomObserversSource } from './observers/random-observers-source.js';
 import { EPOCH_BLOCK_LENGTH, EpochHeightSource } from './protocol.js';
 import { FsReportStore } from './store/fs-report-store.js';
 import { uploadReportWithTurbo } from './turbo.js';
-import { PublishFromObservation } from './warp.js';
 
 const REPORT_CACH_TTL_SECS = 60 * 60; // 1 hour
 
@@ -117,8 +116,6 @@ export const prescribedObserversSource = new RandomObserversSource({
   entropySource: chainEntropySource,
   numObserversToSource: 50,
 });
-
-export const publishObservation = new PublishFromObservation();
 
 export const reportCache = new NodeCache({
   stdTTL: REPORT_CACH_TTL_SECS,
