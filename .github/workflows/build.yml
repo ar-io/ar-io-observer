@@ -20,7 +20,7 @@ jobs:
 
   push:
     needs: [build]
-    if: ${{ github.ref == 'refs/heads/pe-4749-save-observations-interactions-integration' }}
+    if: ${{ github.ref == 'refs/heads/develop' }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write
