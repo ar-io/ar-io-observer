@@ -20,7 +20,7 @@ jobs:
 
   push:
     needs: [build]
-    if: ${{ github.ref == 'refs/heads/develop' }}
+    if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -45,7 +45,7 @@ jobs:
             ghcr.io/ar-io/ar-io-observer:${{ github.sha }}
 
   deploy:
-    if: ${{ github.ref == 'refs/heads/main' }}
+    if: github.ref == 'refs/heads/main'
     needs: [build, push]
     runs-on: ubuntu-latest
     permissions:
