@@ -31,6 +31,10 @@ components:
         format: date
        }
        message: { type: string }
+    Info:
+     type: object
+     properties: 
+       wallet: { '$ref': '#/components/schemas/ArweaveWallet' } 
     OwnershipAssessment:
       type: object
       properties:
@@ -104,6 +108,16 @@ paths:
             application/json:
               schema:
                 '$ref': '#/components/schemas/HealthCheck'
+  '/ar-io/observer/info':
+    get:
+      responses:
+        '200':
+          description: |-
+            200 response
+          content:
+            application/json:
+              schema:
+                '$ref': '#/components/schemas/Info'
   '/ar-io/observer/reports/current':
     get:
       responses:
