@@ -21,6 +21,7 @@ import fs from 'node:fs';
 import swaggerUi from 'swagger-ui-express';
 import YAML from 'yaml';
 
+import * as config from './config.js';
 import { reportCache } from './system.js';
 
 // HTTP server
@@ -64,6 +65,12 @@ app.get('/ar-io/observer/healthcheck', async (_req, res) => {
   };
 
   res.status(200).send(data);
+});
+
+app.get('/ar-io/observer/info', (_req, res) => {
+  res.status(200).send({
+    wallet: config.OBSERVER_WALLET,
+  });
 });
 
 app.get('/ar-io/observer/reports/current', async (_req, res) => {
