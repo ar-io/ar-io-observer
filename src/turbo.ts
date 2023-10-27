@@ -32,7 +32,7 @@ export async function uploadReportWithTurbo(
   let reportTxId: string | undefined;
   if (walletJwk !== undefined && turboClient !== undefined) {
     // Convert the JSON object to a JSON string
-    const reportString = JSON.stringify(report, null, 2);
+    const reportString = JSON.stringify(report);
     try {
       const signer = new ArweaveSigner(walletJwk);
       const signedDataItem = createData(reportString, signer, {
