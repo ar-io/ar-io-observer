@@ -28,9 +28,9 @@ const tags = [
 
 export async function uploadReportWithTurbo(
   report: ObserverReport,
-): Promise<string | null> {
+): Promise<string | undefined> {
+  let reportTxId: string | undefined;
   if (walletJwk !== undefined && turboClient !== undefined) {
-    let reportTxId = '';
     // Convert the JSON object to a JSON string
     const reportString = JSON.stringify(report, null, 2);
     try {
@@ -45,6 +45,7 @@ export async function uploadReportWithTurbo(
           dataItemStreamFactory: () => signedDataItem.getRaw(),
           dataItemSizeFactory: () => signedDataItem.getRaw().length,
         });
+      reportTxId = id;
 
       // upload complete!
       console.log('Successfully upload report (object) to Turbo!', {
@@ -53,20 +54,17 @@ export async function uploadReportWithTurbo(
         dataCaches,
         fastFinalityIndexes,
       });
-      reportTxId = id;
     } catch (error) {
       // upload failed
       console.error('Failed to upload report (object) to Turbo!', error);
-      return null;
     } finally {
       const { winc: newBalance } = await turboClient.getBalance();
       console.log('New balance:', newBalance);
     }
-    return reportTxId;
   } else {
     console.error('Key missing, skipping upload');
-    return null;
   }
+  return reportTxId;
 }
 
 //export async function uploadReportFromDiskWithTurbo(
