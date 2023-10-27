@@ -15,7 +15,14 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+import {
+  TurboAuthenticatedClient,
+  TurboFactory,
+  defaultTurboConfiguration,
+} from '@ardrive/turbo-sdk/node';
 import { default as NodeCache } from 'node-cache';
+import * as fs from 'node:fs';
+import { JWKInterface } from 'warp-contracts/mjs';
 
 import { ChainSource } from './arweave.js';
 import * as config from './config.js';
@@ -118,6 +125,26 @@ export const reportCache = new NodeCache({
 const reportStore = new FsReportStore({
   baseDir: './data/reports',
 });
+
+export const walletJwk: JWKInterface | undefined = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(config.KEY_FILE).toString());
+  } catch (error: any) {
+    console.error('Failed to load key file:', error?.message);
+    return undefined;
+  }
+})();
+
+export const turboClient: TurboAuthenticatedClient | undefined = (() => {
+  if (walletJwk !== undefined) {
+    return TurboFactory.authenticated({
+      privateKey: walletJwk,
+      ...defaultTurboConfiguration,
+    });
+  } else {
+    return undefined;
+  }
+})();
 
 export async function updateCurrentReport() {
   try {
