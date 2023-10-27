@@ -84,5 +84,5 @@ export const NAME_ASSESSMENT_CONCURRENCY = +env.varOrDefault(
   '5',
 );
 
-// used for posting interactions to the contract
+// Wallet used to upload reports and interact with the contract
 export const KEY_FILE = './wallets/' + OBSERVER_WALLET + '.json';
