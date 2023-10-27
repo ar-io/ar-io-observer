@@ -15,9 +15,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+import { TurboAuthenticatedClient } from '@ardrive/turbo-sdk/node';
 import { ArweaveSigner, createData } from 'arbundles/node';
 
-import { turboClient, walletJwk } from './system.js';
 import { ObserverReport } from './types.js';
 
 async function createReportDataItem(
@@ -36,40 +36,52 @@ async function createReportDataItem(
   return signedDataItem;
 }
 
-export async function uploadReportWithTurbo(
-  report: ObserverReport,
-): Promise<string | undefined> {
-  let reportTxId: string | undefined;
-  if (walletJwk !== undefined && turboClient !== undefined) {
-    try {
-      const signer = new ArweaveSigner(walletJwk);
-      const signedDataItem = await createReportDataItem(signer, report);
+// TODO implement full ReportStore interface
+export class TurboReportStore {
+  private readonly turboClient: TurboAuthenticatedClient;
+  private readonly signer: ArweaveSigner;
 
+  constructor({
+    turboClient,
+    signer,
+  }: {
+    turboClient: TurboAuthenticatedClient;
+    signer: ArweaveSigner;
+  }) {
+    this.turboClient = turboClient;
+    this.signer = signer;
+  }
+
+  async saveReport(report: ObserverReport): Promise<string | undefined> {
+    try {
+      const signedDataItem = await createReportDataItem(this.signer, report);
+
+      // TODO skip uploading if the report already exists
+
+      // Upload report using Turbo
       const { id, owner, dataCaches, fastFinalityIndexes } =
-        await turboClient.uploadSignedDataItem({
+        await this.turboClient.uploadSignedDataItem({
           dataItemStreamFactory: () => signedDataItem.getRaw(),
           dataItemSizeFactory: () => signedDataItem.getRaw().length,
         });
-      reportTxId = id;
 
-      // upload complete!
-      console.log('Successfully upload report (object) to Turbo!', {
+      console.log('Successfully uploaded report to Turbo!', {
         id,
         owner,
         dataCaches,
         fastFinalityIndexes,
       });
+
+      return id;
     } catch (error) {
-      // upload failed
-      console.error('Failed to upload report (object) to Turbo!', error);
+      console.error('Failed to upload report to Turbo!', error);
     } finally {
-      const { winc: newBalance } = await turboClient.getBalance();
+      const { winc: newBalance } = await this.turboClient.getBalance();
       console.log('New balance:', newBalance);
     }
-  } else {
-    console.error('Key missing, skipping upload');
+
+    return undefined;
   }
-  return reportTxId;
 }
 
 //export async function uploadReportFromDiskWithTurbo(

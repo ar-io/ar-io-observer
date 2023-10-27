@@ -20,6 +20,7 @@ import {
   TurboFactory,
   defaultTurboConfiguration,
 } from '@ardrive/turbo-sdk/node';
+import { ArweaveSigner } from 'arbundles/node';
 import { default as NodeCache } from 'node-cache';
 import * as fs from 'node:fs';
 import { JWKInterface } from 'warp-contracts/mjs';
@@ -39,7 +40,7 @@ import { Observer } from './observer.js';
 import { RandomObserversSource } from './observers/random-observers-source.js';
 import { EPOCH_BLOCK_LENGTH, EpochHeightSource } from './protocol.js';
 import { FsReportStore } from './store/fs-report-store.js';
-import { uploadReportWithTurbo } from './turbo.js';
+import { TurboReportStore } from './turbo.js';
 
 const REPORT_CACH_TTL_SECS = 60 * 60; // 1 hour
 
@@ -146,6 +147,17 @@ export const turboClient: TurboAuthenticatedClient | undefined = (() => {
   }
 })();
 
+const signer =
+  walletJwk !== undefined ? new ArweaveSigner(walletJwk) : undefined;
+
+const turboReportStore =
+  turboClient && signer
+    ? new TurboReportStore({
+        turboClient: turboClient,
+        signer,
+      })
+    : undefined;
+
 export async function updateCurrentReport() {
   try {
     const report = await observer.generateReport();
@@ -163,7 +175,11 @@ export async function updateCurrentReport() {
     const currentHeight = await chainSource.getHeight();
     if (currentHeight >= saveAfterHeight) {
       console.log('Saving report', report.epochStartHeight);
-      uploadReportWithTurbo(report);
+      if (turboReportStore !== undefined) {
+        await turboReportStore.saveReport(report);
+      } else {
+        console.log('Turbo client not available, skipping upload');
+      }
       reportStore.saveReport(report);
     }
   } catch (error) {
