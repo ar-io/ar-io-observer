@@ -105,12 +105,6 @@ export const observer = new Observer({
   nameAssessmentConcurrency: config.NAME_ASSESSMENT_CONCURRENCY,
 });
 
-export const chosenObserversSource = new RandomObserversSource({
-  observedGatewayHostList: observedGatewayHostList,
-  entropySource: compositeEntropySource,
-  numObserversToSource: 50,
-});
-
 export const prescribedObserversSource = new RandomObserversSource({
   observedGatewayHostList: observedGatewayHostList,
   entropySource: chainEntropySource,
