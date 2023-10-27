@@ -20,25 +20,30 @@ import { ArweaveSigner, createData } from 'arbundles/node';
 import { turboClient, walletJwk } from './system.js';
 import { ObserverReport } from './types.js';
 
-const tags = [
-  { name: 'App-Name', value: 'AR-IO Observer' },
-  { name: 'App-Version', value: '0.0.1' },
-  { name: 'Content-Type', value: 'application/json' },
-];
+async function createReportDataItem(
+  signer: ArweaveSigner,
+  report: ObserverReport,
+) {
+  const signedDataItem = createData(JSON.stringify(report), signer, {
+    tags: [
+      { name: 'App-Name', value: 'AR-IO Observer' },
+      { name: 'App-Version', value: '0.0.1' },
+      { name: 'Content-Type', value: 'application/json' },
+    ],
+  });
+  await signedDataItem.sign(signer);
+
+  return signedDataItem;
+}
 
 export async function uploadReportWithTurbo(
   report: ObserverReport,
 ): Promise<string | undefined> {
   let reportTxId: string | undefined;
   if (walletJwk !== undefined && turboClient !== undefined) {
-    // Convert the JSON object to a JSON string
-    const reportString = JSON.stringify(report);
     try {
       const signer = new ArweaveSigner(walletJwk);
-      const signedDataItem = createData(reportString, signer, {
-        tags,
-      });
-      await signedDataItem.sign(signer);
+      const signedDataItem = await createReportDataItem(signer, report);
 
       const { id, owner, dataCaches, fastFinalityIndexes } =
         await turboClient.uploadSignedDataItem({
