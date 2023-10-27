@@ -15,33 +15,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import {
-  TurboAuthenticatedClient,
-  TurboFactory,
-  defaultTurboConfiguration,
-} from '@ardrive/turbo-sdk/node';
 import { ArweaveSigner, createData } from 'arbundles/node';
-import * as fs from 'node:fs';
-import { JWKInterface } from 'warp-contracts/mjs';
 
-import { KEY_FILE } from './config.js';
+import { turboClient, walletJwk } from './system.js';
 import { ObserverReport } from './types.js';
-
-// load your JWK from a file or generate a new oneW
-let jwk: JWKInterface | undefined = undefined;
-try {
-  jwk = JSON.parse(fs.readFileSync(KEY_FILE).toString());
-} catch (error: any) {
-  console.error('Failed to load key file:', error?.message);
-}
-
-let turbo: TurboAuthenticatedClient | undefined;
-if (jwk !== undefined) {
-  turbo = TurboFactory.authenticated({
-    privateKey: jwk,
-    ...defaultTurboConfiguration,
-  });
-}
 
 const tags = [
   { name: 'App-Name', value: 'AR-IO Observer' },
@@ -52,19 +29,19 @@ const tags = [
 export async function uploadReportWithTurbo(
   report: ObserverReport,
 ): Promise<string | null> {
-  if (jwk !== undefined && turbo !== undefined) {
+  if (walletJwk !== undefined && turboClient !== undefined) {
     let reportTxId = '';
     // Convert the JSON object to a JSON string
     const reportString = JSON.stringify(report, null, 2);
     try {
-      const signer = new ArweaveSigner(jwk);
+      const signer = new ArweaveSigner(walletJwk);
       const signedDataItem = createData(reportString, signer, {
         tags,
       });
       await signedDataItem.sign(signer);
 
       const { id, owner, dataCaches, fastFinalityIndexes } =
-        await turbo.uploadSignedDataItem({
+        await turboClient.uploadSignedDataItem({
           dataItemStreamFactory: () => signedDataItem.getRaw(),
           dataItemSizeFactory: () => signedDataItem.getRaw().length,
         });
@@ -82,7 +59,7 @@ export async function uploadReportWithTurbo(
       console.error('Failed to upload report (object) to Turbo!', error);
       return null;
     } finally {
-      const { winc: newBalance } = await turbo.getBalance();
+      const { winc: newBalance } = await turboClient.getBalance();
       console.log('New balance:', newBalance);
     }
     return reportTxId;
@@ -92,46 +69,46 @@ export async function uploadReportWithTurbo(
   }
 }
 
-export async function uploadReportFromDiskWithTurbo(
-  fileName: string,
-): Promise<string | null> {
-  if (jwk !== undefined && turbo !== undefined) {
-    const report = JSON.parse(fs.readFileSync(fileName).toString());
-    let reportTxId = '';
-    // Convert the JSON object to a JSON string
-    const reportString = JSON.stringify(report, null, 2);
-    try {
-      const signer = new ArweaveSigner(jwk);
-      const signedDataItem = createData(reportString, signer, {
-        tags,
-      });
-      await signedDataItem.sign(signer);
-
-      const { id, owner, dataCaches, fastFinalityIndexes } =
-        await turbo.uploadSignedDataItem({
-          dataItemStreamFactory: () => signedDataItem.getRaw(),
-          dataItemSizeFactory: () => signedDataItem.getRaw().length,
-        });
-
-      // upload complete!
-      console.log('Successfully uploaded data item from disk to Turbo!', {
-        id,
-        owner,
-        dataCaches,
-        fastFinalityIndexes,
-      });
-      reportTxId = id;
-    } catch (error) {
-      // upload failed
-      console.error('Failed to upload data item from disk to Turbo!', error);
-      return null;
-    } finally {
-      const { winc: newBalance } = await turbo.getBalance();
-      console.log('New balance:', newBalance);
-    }
-    return reportTxId;
-  } else {
-    console.error('Key missing, skipping upload');
-    return null;
-  }
-}
+//export async function uploadReportFromDiskWithTurbo(
+//  fileName: string,
+//): Promise<string | null> {
+//  if (jwk !== undefined && turbo !== undefined) {
+//    const report = JSON.parse(fs.readFileSync(fileName).toString());
+//    let reportTxId = '';
+//    // Convert the JSON object to a JSON string
+//    const reportString = JSON.stringify(report, null, 2);
+//    try {
+//      const signer = new ArweaveSigner(jwk);
+//      const signedDataItem = createData(reportString, signer, {
+//        tags,
+//      });
+//      await signedDataItem.sign(signer);
+//
+//      const { id, owner, dataCaches, fastFinalityIndexes } =
+//        await turbo.uploadSignedDataItem({
+//          dataItemStreamFactory: () => signedDataItem.getRaw(),
+//          dataItemSizeFactory: () => signedDataItem.getRaw().length,
+//        });
+//
+//      // upload complete!
+//      console.log('Successfully uploaded data item from disk to Turbo!', {
+//        id,
+//        owner,
+//        dataCaches,
+//        fastFinalityIndexes,
+//      });
+//      reportTxId = id;
+//    } catch (error) {
+//      // upload failed
+//      console.error('Failed to upload data item from disk to Turbo!', error);
+//      return null;
+//    } finally {
+//      const { winc: newBalance } = await turbo.getBalance();
+//      console.log('New balance:', newBalance);
+//    }
+//    return reportTxId;
+//  } else {
+//    console.error('Key missing, skipping upload');
+//    return null;
+//  }
+//}
