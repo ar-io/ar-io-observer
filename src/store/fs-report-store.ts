@@ -17,9 +17,9 @@
  */
 import fs from 'node:fs';
 
-import { ObserverReport, ReportStore } from '../types.js';
+import { ObserverReport, ReportSink, ReportStore } from '../types.js';
 
-export class FsReportStore implements ReportStore {
+export class FsReportStore implements ReportSink, ReportStore {
   private baseDir: string;
 
   constructor({ baseDir }: { baseDir: string }) {
@@ -30,6 +30,7 @@ export class FsReportStore implements ReportStore {
     if (!fs.existsSync(this.baseDir)) {
       await fs.promises.mkdir(this.baseDir, { recursive: true });
     }
+
     const reportFile = `${this.baseDir}/${report.epochStartHeight}.json`;
     if (!fs.existsSync(reportFile)) {
       await fs.promises.writeFile(
@@ -37,6 +38,8 @@ export class FsReportStore implements ReportStore {
         JSON.stringify(report),
       );
     }
+
+    return undefined;
   }
 
   async getReport(epochStartHeight: number): Promise<ObserverReport | null> {

@@ -143,8 +143,16 @@ export interface ObserverReport {
 // Report store
 //
 
+export interface ReportSaveResult {
+  reportTxId?: string;
+}
+
+export interface ReportSink {
+  saveReport(report: ObserverReport): Promise<ReportSaveResult | undefined>;
+}
+
 export interface ReportStore {
-  saveReport(report: ObserverReport): Promise<void>;
+  saveReport(report: ObserverReport): Promise<ReportSaveResult | undefined>;
   getReport(epochStartHeight: number): Promise<ObserverReport | null>;
   latestReport(): Promise<ObserverReport | null>;
 }
