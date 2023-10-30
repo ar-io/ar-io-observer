@@ -26,7 +26,6 @@ import {
 } from 'warp-contracts/mjs';
 
 import { CONTRACT_ID, KEY_FILE } from './config.js';
-import { uploadReportWithTurbo } from './turbo.js';
 import { ObservationPublisher, ObserverReport } from './types.js';
 
 export const arweave = new Arweave({
@@ -163,59 +162,59 @@ export class PublishFromObservation implements ObservationPublisher {
     return saveObservationsTxIds;
   }
 
-  async uploadAndSaveObservations(observerReportFileName: string): Promise<{
-    observerReportTxId: string | null;
-    saveObservationsTxIds: string[];
-  }> {
-    const report: ObserverReport = JSON.parse(
-      fs.readFileSync(observerReportFileName).toString(),
-    );
+  //async uploadAndSaveObservations(observerReportFileName: string): Promise<{
+  //  observerReportTxId: string | null;
+  //  saveObservationsTxIds: string[];
+  //}> {
+  //  const report: ObserverReport = JSON.parse(
+  //    fs.readFileSync(observerReportFileName).toString(),
+  //  );
 
-    const observerReportTxId = await uploadReportWithTurbo(report);
-    if (observerReportTxId === null) {
-      console.log('Error submitting report to turbo.');
-      return { observerReportTxId: null, saveObservationsTxIds: [] };
-    }
+  //  const observerReportTxId = await uploadReportWithTurbo(report);
+  //  if (observerReportTxId === null) {
+  //    console.log('Error submitting report to turbo.');
+  //    return { observerReportTxId: null, saveObservationsTxIds: [] };
+  //  }
 
-    // get contract manifest
-    const { evaluationOptions = {} } = await getContractManifest({
-      contractTxId: CONTRACT_ID,
-    });
+  //  // get contract manifest
+  //  const { evaluationOptions = {} } = await getContractManifest({
+  //    contractTxId: CONTRACT_ID,
+  //  });
 
-    // Read the AR.IO Contract
-    const contract = this.warp.pst(CONTRACT_ID);
+  //  // Read the AR.IO Contract
+  //  const contract = this.warp.pst(CONTRACT_ID);
 
-    // connect to wallet
-    contract.connect(this.wallet).setEvaluationOptions(evaluationOptions);
+  //  // connect to wallet
+  //  contract.connect(this.wallet).setEvaluationOptions(evaluationOptions);
 
-    const failedGatewaySummaries: string[] =
-      getFailedGatewaySummaryFromReport(report);
+  //  const failedGatewaySummaries: string[] =
+  //    getFailedGatewaySummaryFromReport(report);
 
-    // split up the failed gateway summaries if they are bigger than the max individual summary size
-    const splitFailedGatewaySummaries = splitArrayBySize(
-      failedGatewaySummaries,
-      maxFailedGatewaySummarySizeInBytes,
-    );
+  //  // split up the failed gateway summaries if they are bigger than the max individual summary size
+  //  const splitFailedGatewaySummaries = splitArrayBySize(
+  //    failedGatewaySummaries,
+  //    maxFailedGatewaySummarySizeInBytes,
+  //  );
 
-    // Processes each failed gateway summary using the same observation report tx id.
-    const saveObservationsTxIds: string[] = [];
-    for (const failedGatewaySummary of splitFailedGatewaySummaries) {
-      const saveObservationsTxId = await contract.writeInteraction(
-        {
-          function: 'saveObservations',
-          observerReportTxId,
-          failedGateways: failedGatewaySummary,
-        },
-        {
-          disableBundling: true,
-        },
-      );
-      if (saveObservationsTxId) {
-        saveObservationsTxIds.push(saveObservationsTxId.originalTxId);
-      } else {
-        saveObservationsTxIds.push('invalid');
-      }
-    }
-    return { observerReportTxId, saveObservationsTxIds };
-  }
+  //  // Processes each failed gateway summary using the same observation report tx id.
+  //  const saveObservationsTxIds: string[] = [];
+  //  for (const failedGatewaySummary of splitFailedGatewaySummaries) {
+  //    const saveObservationsTxId = await contract.writeInteraction(
+  //      {
+  //        function: 'saveObservations',
+  //        observerReportTxId,
+  //        failedGateways: failedGatewaySummary,
+  //      },
+  //      {
+  //        disableBundling: true,
+  //      },
+  //    );
+  //    if (saveObservationsTxId) {
+  //      saveObservationsTxIds.push(saveObservationsTxId.originalTxId);
+  //    } else {
+  //      saveObservationsTxIds.push('invalid');
+  //    }
+  //  }
+  //  return { observerReportTxId, saveObservationsTxIds };
+  //}
 }
