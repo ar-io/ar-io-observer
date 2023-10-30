@@ -21,8 +21,8 @@ import {
   epochHeightSelector,
   observer,
   prescribedObserversSource,
+  reportSink,
 } from './system.js';
-import { uploadReportWithTurbo } from './turbo.js';
 
 const report = await observer.generateReport();
 console.log(JSON.stringify(report, null, 2));
@@ -41,7 +41,7 @@ console.log(
 );
 console.log(prescribedObservers);
 
-await uploadReportWithTurbo(report);
+await reportSink.saveReport(report);
 //const observationReportObjectTxId = await uploadReportWithTurbo(report);
 //if (observationReportObjectTxId !== null) {
 //  const saveObservationTxIds = await publishObservation.saveObservations(
