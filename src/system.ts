@@ -41,7 +41,7 @@ import { RandomObserversSource } from './observers/random-observers-source.js';
 import { EPOCH_BLOCK_LENGTH, EpochHeightSource } from './protocol.js';
 import { CompositeReportSink } from './store/composite-report-sink.js';
 import { FsReportStore } from './store/fs-report-store.js';
-import { TurboReportStore } from './turbo.js';
+import { TurboReportSink } from './store/turbo-report-sink.js';
 import { ReportSink } from './types.js';
 
 const REPORT_CACH_TTL_SECS = 60 * 60; // 1 hour
@@ -155,7 +155,7 @@ const signer =
 
 const turboReportSink =
   turboClient && signer
-    ? new TurboReportStore({
+    ? new TurboReportSink({
         turboClient: turboClient,
         signer,
       })
