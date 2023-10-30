@@ -76,10 +76,6 @@ export interface ObservationPublisher {
     observerReportTxId: string,
     observerReport: ObserverReport,
   ): Promise<string[]>;
-  uploadAndSaveObservations(observerReportFileName: string): Promise<{
-    observerReportTxId: string | null;
-    saveObservationsTxIds: string[];
-  }>;
 }
 
 //
