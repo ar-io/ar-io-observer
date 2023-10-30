@@ -167,7 +167,7 @@ if (turboReportSink !== undefined) {
   stores.push(turboReportSink);
 }
 
-const reportSink = new CompositeReportSink({
+export const reportSink = new CompositeReportSink({
   sinks: stores,
 });
 
