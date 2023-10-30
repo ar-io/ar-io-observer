@@ -39,8 +39,10 @@ import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
 import { RandomObserversSource } from './observers/random-observers-source.js';
 import { EPOCH_BLOCK_LENGTH, EpochHeightSource } from './protocol.js';
+import { CompositeReportSink } from './store/composite-report-sink.js';
 import { FsReportStore } from './store/fs-report-store.js';
 import { TurboReportStore } from './turbo.js';
+import { ReportSink } from './types.js';
 
 const REPORT_CACH_TTL_SECS = 60 * 60; // 1 hour
 
@@ -123,7 +125,7 @@ export const reportCache = new NodeCache({
   stdTTL: REPORT_CACH_TTL_SECS,
 });
 
-const reportStore = new FsReportStore({
+const fsReportStore = new FsReportStore({
   baseDir: './data/reports',
 });
 
@@ -132,6 +134,7 @@ export const walletJwk: JWKInterface | undefined = (() => {
     return JSON.parse(fs.readFileSync(config.KEY_FILE).toString());
   } catch (error: any) {
     console.error('Failed to load key file:', error?.message);
+    console.error('Reports will not be published.');
     return undefined;
   }
 })();
@@ -150,13 +153,23 @@ export const turboClient: TurboAuthenticatedClient | undefined = (() => {
 const signer =
   walletJwk !== undefined ? new ArweaveSigner(walletJwk) : undefined;
 
-const turboReportStore =
+const turboReportSink =
   turboClient && signer
     ? new TurboReportStore({
         turboClient: turboClient,
         signer,
       })
     : undefined;
+
+const stores: ReportSink[] = [];
+stores.push(fsReportStore);
+if (turboReportSink !== undefined) {
+  stores.push(turboReportSink);
+}
+
+const reportSink = new CompositeReportSink({
+  sinks: stores,
+});
 
 export async function updateCurrentReport() {
   try {
@@ -175,12 +188,7 @@ export async function updateCurrentReport() {
     const currentHeight = await chainSource.getHeight();
     if (currentHeight >= saveAfterHeight) {
       console.log('Saving report', report.epochStartHeight);
-      if (turboReportStore !== undefined) {
-        await turboReportStore.saveReport(report);
-      } else {
-        console.log('Turbo client not available, skipping upload');
-      }
-      reportStore.saveReport(report);
+      reportSink.saveReport(report);
     }
   } catch (error) {
     console.error('Error generating report', error);
