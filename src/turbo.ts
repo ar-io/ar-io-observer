@@ -18,7 +18,7 @@
 import { TurboAuthenticatedClient } from '@ardrive/turbo-sdk/node';
 import { ArweaveSigner, createData } from 'arbundles/node';
 
-import { ObserverReport } from './types.js';
+import { ObserverReport, ReportSaveResult, ReportSink } from './types.js';
 
 async function createReportDataItem(
   signer: ArweaveSigner,
@@ -37,7 +37,7 @@ async function createReportDataItem(
 }
 
 // TODO implement full ReportStore interface
-export class TurboReportStore {
+export class TurboReportStore implements ReportSink {
   private readonly turboClient: TurboAuthenticatedClient;
   private readonly signer: ArweaveSigner;
 
@@ -52,7 +52,9 @@ export class TurboReportStore {
     this.signer = signer;
   }
 
-  async saveReport(report: ObserverReport): Promise<string | undefined> {
+  async saveReport(
+    report: ObserverReport,
+  ): Promise<ReportSaveResult | undefined> {
     try {
       const signedDataItem = await createReportDataItem(this.signer, report);
 
@@ -72,7 +74,9 @@ export class TurboReportStore {
         fastFinalityIndexes,
       });
 
-      return id;
+      return {
+        reportTxId: id,
+      };
     } catch (error) {
       console.error('Failed to upload report to Turbo!', error);
     } finally {
