@@ -18,7 +18,7 @@
 import { TurboAuthenticatedClient } from '@ardrive/turbo-sdk/node';
 import { ArweaveSigner, createData } from 'arbundles/node';
 
-import { ObserverReport, ReportSaveResult, ReportSink } from './types.js';
+import { ObserverReport, ReportSaveResult, ReportSink } from '../types.js';
 
 async function createReportDataItem(
   signer: ArweaveSigner,
@@ -37,7 +37,7 @@ async function createReportDataItem(
 }
 
 // TODO implement full ReportStore interface
-export class TurboReportStore implements ReportSink {
+export class TurboReportSink implements ReportSink {
   private readonly turboClient: TurboAuthenticatedClient;
   private readonly signer: ArweaveSigner;
 
