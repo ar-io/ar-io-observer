@@ -33,12 +33,17 @@ import { CompositeEntropySource } from './entropy/composite-entropy-source.js';
 import { RandomEntropySource } from './entropy/random-entropy-source.js';
 import { RemoteCacheHostList } from './hosts/remote-cache-host-list.js';
 import { StaticHostList } from './hosts/static-host-list.js';
+import log from './log.js';
 import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
 import { RemoteCacheArnsNameList } from './names/remote-cache-arns-name-list.js';
 import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
 import { RandomObserversSource } from './observers/random-observers-source.js';
-import { EPOCH_BLOCK_LENGTH, EpochHeightSource } from './protocol.js';
+import {
+  EPOCH_BLOCK_LENGTH,
+  EpochHeightSource,
+  START_HEIGHT,
+} from './protocol.js';
 import { CompositeReportSink } from './store/composite-report-sink.js';
 import { FsReportStore } from './store/fs-report-store.js';
 import { TurboReportSink } from './store/turbo-report-sink.js';
@@ -126,15 +131,26 @@ export const reportCache = new NodeCache({
 });
 
 const fsReportStore = new FsReportStore({
+  log,
   baseDir: './data/reports',
 });
 
+log.info(`Using wallet ${config.OBSERVER_WALLET}`);
 export const walletJwk: JWKInterface | undefined = (() => {
   try {
-    return JSON.parse(fs.readFileSync(config.KEY_FILE).toString());
+    log.info('Loading key file...', {
+      keyFile: config.KEY_FILE,
+    });
+    const jwk = JSON.parse(fs.readFileSync(config.KEY_FILE).toString());
+    log.info('Key file loaded', {
+      keyFile: config.KEY_FILE,
+    });
+    return jwk;
   } catch (error: any) {
-    console.error('Failed to load key file:', error?.message);
-    console.error('Reports will not be published.');
+    log.error('Unable to load key file:', {
+      message: error.message,
+    });
+    log.warn('Reports will not be published to Arweave');
     return undefined;
   }
 })();
@@ -156,6 +172,7 @@ const signer =
 const turboReportSink =
   turboClient && signer
     ? new TurboReportSink({
+        log,
         turboClient: turboClient,
         signer,
       })
@@ -168,6 +185,7 @@ if (turboReportSink !== undefined) {
 }
 
 export const reportSink = new CompositeReportSink({
+  log,
   sinks: stores,
 });
 
@@ -187,10 +205,19 @@ export async function updateCurrentReport() {
     console.log('saveAfterHeight', saveAfterHeight);
     const currentHeight = await chainSource.getHeight();
     if (currentHeight >= saveAfterHeight) {
-      console.log('Saving report', report.epochStartHeight);
       reportSink.saveReport(report);
     }
   } catch (error) {
-    console.error('Error generating report', error);
+    log.error('Error generating report', error);
   }
+}
+
+export const observers = await prescribedObserversSource.getObservers({
+  startHeight: START_HEIGHT,
+  epochBlockLength: EPOCH_BLOCK_LENGTH,
+  height: await epochHeightSelector.getHeight(),
+});
+
+if (observers.includes(config.OBSERVER_WALLET)) {
+  log.info('You have been selected as an observer');
 }
