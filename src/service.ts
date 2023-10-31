@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import * as config from './config.js';
+import log from './log.js';
 import { app } from './server.js';
 import { updateCurrentReport } from './system.js';
 
@@ -25,7 +26,7 @@ if (config.RUN_OBSERVER) {
   setInterval(updateCurrentReport, REPORT_GENERATION_INTERVAL_MS);
 
   app.listen(config.PORT, () => {
-    console.log(`Listening on port ${config.PORT}`);
+    log.info(`Listening on port ${config.PORT}`);
   });
 
   updateCurrentReport();

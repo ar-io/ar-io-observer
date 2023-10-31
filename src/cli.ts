@@ -15,33 +15,12 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { OBSERVER_WALLET } from './config.js';
-import { EPOCH_BLOCK_LENGTH, START_HEIGHT } from './protocol.js';
-import {
-  epochHeightSelector,
-  observer,
-  prescribedObserversSource,
-  reportSink,
-} from './system.js';
+import { observer, reportSink } from './system.js';
 
 const report = await observer.generateReport();
 console.log(JSON.stringify(report, null, 2));
-
-console.log('You are: ', OBSERVER_WALLET);
-const prescribedObservers = await prescribedObserversSource.getObservers({
-  startHeight: START_HEIGHT,
-  epochBlockLength: EPOCH_BLOCK_LENGTH,
-  height: await epochHeightSelector.getHeight(),
-});
-
-console.log('Number of prescribed observers: ', prescribedObservers.length);
-console.log(
-  'Prescribed for observation? ',
-  prescribedObservers.includes(OBSERVER_WALLET),
-);
-console.log(prescribedObservers);
-
 await reportSink.saveReport(report);
+
 //const observationReportObjectTxId = await uploadReportWithTurbo(report);
 //if (observationReportObjectTxId !== null) {
 //  const saveObservationTxIds = await publishObservation.saveObservations(

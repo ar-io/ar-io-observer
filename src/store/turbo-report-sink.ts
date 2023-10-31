@@ -17,6 +17,7 @@
  */
 import { TurboAuthenticatedClient } from '@ardrive/turbo-sdk/node';
 import { ArweaveSigner, createData } from 'arbundles/node';
+import * as winston from 'winston';
 
 import { ObserverReport, ReportSaveResult, ReportSink } from '../types.js';
 
@@ -42,16 +43,21 @@ async function createReportDataItem(
 
 // TODO implement full ReportStore interface
 export class TurboReportSink implements ReportSink {
+  // Dependencies
+  private log: winston.Logger;
   private readonly turboClient: TurboAuthenticatedClient;
   private readonly signer: ArweaveSigner;
 
   constructor({
+    log,
     turboClient,
     signer,
   }: {
+    log: winston.Logger;
     turboClient: TurboAuthenticatedClient;
     signer: ArweaveSigner;
   }) {
+    this.log = log.child({ class: this.constructor.name });
     this.turboClient = turboClient;
     this.signer = signer;
   }
@@ -59,7 +65,11 @@ export class TurboReportSink implements ReportSink {
   async saveReport(
     report: ObserverReport,
   ): Promise<ReportSaveResult | undefined> {
+    const log = this.log.child({
+      epochStartHeight: report.epochStartHeight,
+    });
     try {
+      log.debug('Saving report...');
       const signedDataItem = await createReportDataItem(this.signer, report);
 
       // TODO skip uploading if the report already exists
@@ -71,7 +81,7 @@ export class TurboReportSink implements ReportSink {
           dataItemSizeFactory: () => signedDataItem.getRaw().length,
         });
 
-      console.log('Successfully uploaded report to Turbo!', {
+      log.info('Report saved using Turbo', {
         id,
         owner,
         dataCaches,
@@ -82,10 +92,12 @@ export class TurboReportSink implements ReportSink {
         reportTxId: id,
       };
     } catch (error) {
-      console.error('Failed to upload report to Turbo!', error);
+      log.error('Error saving report', error);
     } finally {
       const { winc: newBalance } = await this.turboClient.getBalance();
-      console.log('New balance:', newBalance);
+      log.info(`New Turbo balance: ${newBalance}`, {
+        newBalance,
+      });
     }
 
     return undefined;

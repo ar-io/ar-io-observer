@@ -16,13 +16,17 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import fs from 'node:fs';
+import * as winston from 'winston';
 
 import { ObserverReport, ReportSink, ReportStore } from '../types.js';
 
 export class FsReportStore implements ReportSink, ReportStore {
+  // Dependencies
+  private log: winston.Logger;
   private baseDir: string;
 
-  constructor({ baseDir }: { baseDir: string }) {
+  constructor({ log, baseDir }: { log: winston.Logger; baseDir: string }) {
+    this.log = log.child({ class: this.constructor.name });
     this.baseDir = baseDir;
   }
 
@@ -32,12 +36,21 @@ export class FsReportStore implements ReportSink, ReportStore {
     }
 
     const reportFile = `${this.baseDir}/${report.epochStartHeight}.json`;
+    const log = this.log.child({
+      epochStartHeight: report.epochStartHeight,
+    });
+    log.debug('Saving report...', {
+      reportFile,
+    });
     if (!fs.existsSync(reportFile)) {
       await fs.promises.writeFile(
         `./data/reports/${report.epochStartHeight}.json`,
         JSON.stringify(report),
       );
     }
+    log.debug('Report saved', {
+      reportFile,
+    });
 
     return undefined;
   }
