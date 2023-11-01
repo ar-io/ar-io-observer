@@ -24,7 +24,11 @@ import { ArweaveSigner } from 'arbundles/node';
 import Arweave from 'arweave';
 import { default as NodeCache } from 'node-cache';
 import * as fs from 'node:fs';
-import { JWKInterface } from 'warp-contracts/mjs';
+import {
+  JWKInterface,
+  WarpFactory,
+  defaultCacheOptions,
+} from 'warp-contracts/mjs';
 
 import { ChainSource } from './arweave.js';
 import * as config from './config.js';
@@ -228,3 +232,11 @@ export const arweave = new Arweave({
   port: 443,
   protocol: 'https',
 });
+
+export const warp = WarpFactory.forMainnet(
+  {
+    ...defaultCacheOptions,
+  },
+  true,
+  arweave,
+);
