@@ -29,8 +29,7 @@ import { CONTRACT_ID, KEY_FILE } from './config.js';
 import { arweave } from './system.js';
 import { ObservationPublisher, ObserverReport } from './types.js';
 
-// TODO all caps
-const maxFailedGatewaySummarySizeInBytes = 1280;
+const MAX_FAILED_GATEWAY_SUMMARY_BYTES = 1280;
 
 export async function getContractManifest({
   arweave,
@@ -135,7 +134,7 @@ export class PublishFromObservation implements ObservationPublisher {
     // split up the failed gateway summaries if they are bigger than the max individual summary size
     const splitFailedGatewaySummaries = splitArrayBySize(
       failedGatewaySummaries,
-      maxFailedGatewaySummarySizeInBytes,
+      MAX_FAILED_GATEWAY_SUMMARY_BYTES,
     );
 
     // TODO add epoch and observation report ID tags
