@@ -26,26 +26,23 @@ import {
 } from 'warp-contracts/mjs';
 
 import { CONTRACT_ID, KEY_FILE } from './config.js';
+import { arweave } from './system.js';
 import { ObservationPublisher, ObserverReport } from './types.js';
 
-export const arweave = new Arweave({
-  host: 'ar-io.dev',
-  port: 443,
-  protocol: 'https',
-});
-
+// TODO all caps
 const maxFailedGatewaySummarySizeInBytes = 1280;
-const defaultArweave = arweave;
+
 export async function getContractManifest({
-  arweave = defaultArweave,
+  arweave,
   contractTxId,
 }: {
-  arweave?: Arweave;
+  arweave: Arweave;
   contractTxId: string;
 }): Promise<EvaluationManifest> {
   const { tags: encodedTags } = await arweave.transactions.get(contractTxId);
   const decodedTags = tagsToObject(encodedTags);
   const contractManifestString = decodedTags['Contract-Manifest'] ?? '{}';
+  // TODO throw if manifest is missing
   const contractManifest = JSON.parse(contractManifestString);
   return contractManifest;
 }
@@ -122,6 +119,7 @@ export class PublishFromObservation implements ObservationPublisher {
   ): Promise<string[]> {
     // get contract manifest
     const { evaluationOptions = {} } = await getContractManifest({
+      arweave,
       contractTxId: CONTRACT_ID,
     });
 
@@ -140,6 +138,7 @@ export class PublishFromObservation implements ObservationPublisher {
       maxFailedGatewaySummarySizeInBytes,
     );
 
+    // TODO add epoch and observation report ID tags
     // Processes each failed gateway summary using the same observation report tx id.
     const saveObservationsTxIds: string[] = [];
     for (const failedGatewaySummary of splitFailedGatewaySummaries) {
