@@ -47,7 +47,7 @@ export interface ArnsNamesSource {
 }
 
 //
-// Hosts
+// Gateways
 //
 
 export interface GatewayHost {
@@ -64,18 +64,11 @@ export interface GatewayHostList {
 }
 
 //
-// Gateways and Observers
+// Observers
 //
 
 export interface ObserversSource {
   getObservers(opts?: { [key: string]: any }): Promise<string[]>;
-}
-
-export interface ObservationPublisher {
-  saveObservations(
-    observerReportTxId: string,
-    observerReport: ObserverReport,
-  ): Promise<string[]>;
 }
 
 //
@@ -141,10 +134,14 @@ export interface ObserverReport {
 
 export interface ReportSaveResult {
   reportTxId?: string;
+  interactionTxIds?: string[];
 }
 
 export interface ReportSink {
-  saveReport(report: ObserverReport): Promise<ReportSaveResult | undefined>;
+  saveReport(
+    report: ObserverReport,
+    reportSaveResult?: ReportSaveResult,
+  ): Promise<ReportSaveResult | undefined>;
 }
 
 export interface ReportStore {
