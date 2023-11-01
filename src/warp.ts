@@ -18,15 +18,10 @@
 import Arweave from 'arweave';
 import { JWKInterface } from 'arweave/node/lib/wallet.js';
 import * as fs from 'node:fs';
-import {
-  EvaluationManifest,
-  Tag,
-  WarpFactory,
-  defaultCacheOptions,
-} from 'warp-contracts/mjs';
+import { EvaluationManifest, Tag } from 'warp-contracts/mjs';
 
 import { CONTRACT_ID, KEY_FILE } from './config.js';
-import { arweave } from './system.js';
+import { arweave, warp } from './system.js';
 import { ObservationPublisher, ObserverReport } from './types.js';
 
 const MAX_FAILED_GATEWAY_SUMMARY_BYTES = 1280;
@@ -104,14 +99,6 @@ export class PublishFromObservation implements ObservationPublisher {
     fs.readFileSync(KEY_FILE).toString(),
   );
 
-  private warp = WarpFactory.forMainnet(
-    {
-      ...defaultCacheOptions,
-    },
-    true,
-    arweave,
-  );
-
   async saveObservations(
     observerReportTxId: string,
     observerReport: ObserverReport,
@@ -123,7 +110,7 @@ export class PublishFromObservation implements ObservationPublisher {
     });
 
     // Read the AR.IO Contract
-    const contract = this.warp.pst(CONTRACT_ID);
+    const contract = warp.pst(CONTRACT_ID);
 
     // connect to wallet
     contract.connect(this.wallet).setEvaluationOptions(evaluationOptions);
