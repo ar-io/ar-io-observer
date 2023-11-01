@@ -21,6 +21,7 @@ import {
   defaultTurboConfiguration,
 } from '@ardrive/turbo-sdk/node';
 import { ArweaveSigner } from 'arbundles/node';
+import Arweave from 'arweave';
 import { default as NodeCache } from 'node-cache';
 import * as fs from 'node:fs';
 import { JWKInterface } from 'warp-contracts/mjs';
@@ -221,3 +222,9 @@ export const observers = await prescribedObserversSource.getObservers({
 if (observers.includes(config.OBSERVER_WALLET)) {
   log.info('You have been selected as an observer');
 }
+
+export const arweave = new Arweave({
+  host: 'ar-io.dev',
+  port: 443,
+  protocol: 'https',
+});
