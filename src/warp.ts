@@ -17,11 +17,10 @@
  */
 import Arweave from 'arweave';
 import { JWKInterface } from 'arweave/node/lib/wallet.js';
-import * as fs from 'node:fs';
-import { EvaluationManifest, Tag } from 'warp-contracts/mjs';
+import { Contract, EvaluationManifest, Tag, Warp } from 'warp-contracts/mjs';
+import * as winston from 'winston';
 
-import { CONTRACT_ID, KEY_FILE } from './config.js';
-import { arweave, warp } from './system.js';
+import { arweave } from './system.js';
 import { ObservationPublisher, ObserverReport } from './types.js';
 
 const MAX_FAILED_GATEWAY_SUMMARY_BYTES = 1280;
@@ -94,10 +93,33 @@ function splitArrayBySize(array: string[], maxSizeInBytes: number): string[][] {
 }
 
 export class PublishFromObservation implements ObservationPublisher {
-  // Get the key file used for the interaction
-  private wallet: JWKInterface = JSON.parse(
-    fs.readFileSync(KEY_FILE).toString(),
-  );
+  // Dependencies
+  private log: winston.Logger;
+  private wallet: JWKInterface;
+  private warp: Warp;
+  private contractId: string;
+
+  private contract: Contract;
+
+  constructor({
+    log,
+    wallet,
+    warp,
+    contractId,
+  }: {
+    log: winston.Logger;
+    wallet: JWKInterface;
+    warp: Warp;
+    contractId: string;
+  }) {
+    this.log = log;
+    this.wallet = wallet;
+    this.warp = warp;
+    this.contractId = contractId;
+
+    // Initialize the AR.IO contract
+    this.contract = this.warp.pst(contractId);
+  }
 
   async saveObservations(
     observerReportTxId: string,
@@ -106,14 +128,11 @@ export class PublishFromObservation implements ObservationPublisher {
     // get contract manifest
     const { evaluationOptions = {} } = await getContractManifest({
       arweave,
-      contractTxId: CONTRACT_ID,
+      contractTxId: this.contractId,
     });
 
-    // Read the AR.IO Contract
-    const contract = warp.pst(CONTRACT_ID);
-
     // connect to wallet
-    contract.connect(this.wallet).setEvaluationOptions(evaluationOptions);
+    this.contract.connect(this.wallet).setEvaluationOptions(evaluationOptions);
 
     const failedGatewaySummaries: string[] =
       getFailedGatewaySummaryFromReport(observerReport);
@@ -126,9 +145,10 @@ export class PublishFromObservation implements ObservationPublisher {
 
     // TODO add epoch and observation report ID tags
     // Processes each failed gateway summary using the same observation report tx id.
+    this.log.info('Saving observation interactions...');
     const saveObservationsTxIds: string[] = [];
     for (const failedGatewaySummary of splitFailedGatewaySummaries) {
-      const saveObservationsTxId = await contract.writeInteraction(
+      const saveObservationsTxId = await this.contract.writeInteraction(
         {
           function: 'saveObservations',
           observerReportTxId,
@@ -144,6 +164,8 @@ export class PublishFromObservation implements ObservationPublisher {
         saveObservationsTxIds.push('invalid');
       }
     }
+    this.log.info('Observation interactions saved');
+
     return saveObservationsTxIds;
   }
 
