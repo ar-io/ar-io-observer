@@ -20,8 +20,8 @@ import { JWKInterface } from 'arweave/node/lib/wallet.js';
 import { Contract, EvaluationManifest, Tag, Warp } from 'warp-contracts/mjs';
 import * as winston from 'winston';
 
-import { arweave } from './system.js';
-import { ObservationPublisher, ObserverReport } from './types.js';
+import { arweave } from '../system.js';
+import { ObserverReport, ReportSaveResult, ReportSink } from '../types.js';
 
 const MAX_FAILED_GATEWAY_SUMMARY_BYTES = 1280;
 
@@ -92,7 +92,7 @@ function splitArrayBySize(array: string[], maxSizeInBytes: number): string[][] {
   return result;
 }
 
-export class PublishFromObservation implements ObservationPublisher {
+export class WarpReportSink implements ReportSink {
   // Dependencies
   private log: winston.Logger;
   private wallet: JWKInterface;
@@ -121,10 +121,10 @@ export class PublishFromObservation implements ObservationPublisher {
     this.contract = this.warp.pst(contractId);
   }
 
-  async saveObservations(
-    observerReportTxId: string,
+  async saveReport(
     observerReport: ObserverReport,
-  ): Promise<string[]> {
+    reportSaveResult: ReportSaveResult,
+  ): Promise<ReportSaveResult> {
     // get contract manifest
     const { evaluationOptions = {} } = await getContractManifest({
       arweave,
@@ -151,7 +151,7 @@ export class PublishFromObservation implements ObservationPublisher {
       const saveObservationsTxId = await this.contract.writeInteraction(
         {
           function: 'saveObservations',
-          observerReportTxId,
+          observerReportTxId: reportSaveResult.reportTxId,
           failedGateways: failedGatewaySummary,
         },
         {
@@ -166,7 +166,9 @@ export class PublishFromObservation implements ObservationPublisher {
     }
     this.log.info('Observation interactions saved');
 
-    return saveObservationsTxIds;
+    return {
+      interactionTxIds: saveObservationsTxIds,
+    };
   }
 
   //async uploadAndSaveObservations(observerReportFileName: string): Promise<{
