@@ -44,7 +44,7 @@ import { FsReportStore } from './store/fs-report-store.js';
 import { TurboReportSink } from './store/turbo-report-sink.js';
 import { ReportSink } from './types.js';
 
-const REPORT_CACH_TTL_SECS = 60 * 60; // 1 hour
+const REPORT_CACHE_TTL_SECONDS = 60 * 60 * 2.5; // 2.5 hours
 
 const observedGatewayHostList =
   config.OBSERVED_GATEWAY_HOSTS.length > 0
@@ -122,7 +122,7 @@ export const prescribedObserversSource = new RandomObserversSource({
 });
 
 export const reportCache = new NodeCache({
-  stdTTL: REPORT_CACH_TTL_SECS,
+  stdTTL: REPORT_CACHE_TTL_SECONDS,
 });
 
 const fsReportStore = new FsReportStore({
