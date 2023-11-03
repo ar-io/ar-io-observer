@@ -32,6 +32,7 @@ import {
 
 import { ChainSource } from './arweave.js';
 import * as config from './config.js';
+import { WarpContract } from './contract/warp-contract.js';
 import { CachedEntropySource } from './entropy/cached-entropy-source.js';
 import { ChainEntropySource } from './entropy/chain-entropy-source.js';
 import { CompositeEntropySource } from './entropy/composite-entropy-source.js';
@@ -50,6 +51,7 @@ import {
   START_HEIGHT,
 } from './protocol.js';
 import { CompositeReportSink } from './store/composite-report-sink.js';
+import { ContractReportSink } from './store/contract-report-sink.js';
 import { FsReportStore } from './store/fs-report-store.js';
 import { TurboReportSink } from './store/turbo-report-sink.js';
 import { ReportSink } from './types.js';
@@ -240,3 +242,21 @@ export const warp = WarpFactory.forMainnet(
   true,
   arweave,
 );
+
+export const contract =
+  walletJwk !== undefined
+    ? new WarpContract({
+        log,
+        wallet: walletJwk,
+        warp,
+        contractId: config.CONTRACT_ID,
+      })
+    : undefined;
+
+export const warpReportSink =
+  contract !== undefined
+    ? new ContractReportSink({
+        log,
+        contract,
+      })
+    : undefined;
