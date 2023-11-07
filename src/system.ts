@@ -176,11 +176,19 @@ export const turboClient: TurboAuthenticatedClient | undefined = (() => {
 const signer =
   walletJwk !== undefined ? new ArweaveSigner(walletJwk) : undefined;
 
+export const arweave = new Arweave({
+  host: 'arweave.net',
+  port: 443,
+  protocol: 'https',
+});
+
 const turboReportSink =
   turboClient && signer
     ? new TurboReportSink({
         log,
+        arweave,
         turboClient: turboClient,
+        walletAddress: config.OBSERVER_WALLET,
         signer,
       })
     : undefined;
@@ -228,12 +236,6 @@ export const observers = await prescribedObserversSource.getObservers({
 if (observers.includes(config.OBSERVER_WALLET)) {
   log.info('You have been selected as an observer');
 }
-
-export const arweave = new Arweave({
-  host: 'ar-io.dev',
-  port: 443,
-  protocol: 'https',
-});
 
 export const warp = WarpFactory.forMainnet(
   {
