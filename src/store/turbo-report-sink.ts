@@ -17,6 +17,7 @@
  */
 import { TurboAuthenticatedClient } from '@ardrive/turbo-sdk/node';
 import { ArweaveSigner, createData } from 'arbundles/node';
+import Arweave from 'arweave';
 import * as winston from 'winston';
 
 import { ObserverReport, ReportSaveResult, ReportSink } from '../types.js';
@@ -45,20 +46,28 @@ async function createReportDataItem(
 export class TurboReportSink implements ReportSink {
   // Dependencies
   private log: winston.Logger;
+  private arweave: Arweave;
   private readonly turboClient: TurboAuthenticatedClient;
+  private readonly walletAddress: string;
   private readonly signer: ArweaveSigner;
 
   constructor({
     log,
+    arweave,
     turboClient,
+    walletAddress,
     signer,
   }: {
     log: winston.Logger;
+    arweave: Arweave;
     turboClient: TurboAuthenticatedClient;
+    walletAddress: string;
     signer: ArweaveSigner;
   }) {
     this.log = log.child({ class: this.constructor.name });
+    this.arweave = arweave;
     this.turboClient = turboClient;
+    this.walletAddress = walletAddress;
     this.signer = signer;
   }
 
@@ -68,13 +77,26 @@ export class TurboReportSink implements ReportSink {
     const log = this.log.child({
       epochStartHeight: report.epochStartHeight,
     });
+
+    // Check if the report has already been saved
+    try {
+      if (await this.hasReport(report)) {
+        log.info('Report already saved, skipping upload');
+        // TODO return TX ID instead of undefined
+        return undefined;
+      }
+    } catch (error) {
+      log.error('Error checking for existing report', error);
+    }
+
+    // Upload the report using Turbo
     try {
       log.debug('Saving report...');
       const signedDataItem = await createReportDataItem(this.signer, report);
 
       // TODO skip uploading if the report already exists
 
-      // Upload report using Turbo
+      // Upload the data item
       const { id, owner, dataCaches, fastFinalityIndexes } =
         await this.turboClient.uploadSignedDataItem({
           dataItemStreamFactory: () => signedDataItem.getRaw(),
@@ -101,6 +123,37 @@ export class TurboReportSink implements ReportSink {
     }
 
     return undefined;
+  }
+
+  async hasReport(report: ObserverReport): Promise<boolean> {
+    const epochStartHeight = report.epochStartHeight;
+    const queryObject = {
+      query: `{
+  transactions(
+    first:1,
+    owners: [ "${this.walletAddress}" ],
+    tags: [
+      {
+        name: "AR-IO-Epoch-Start-Height",
+        values: [ "${epochStartHeight}" ]
+      },
+      {
+        name: "App-Name",
+        values: ["AR-IO Observer"]
+      }
+    ]
+  ) 
+  {
+    edges {
+      node {
+        id
+      }
+    }
+  }
+}`,
+    };
+    const response = await this.arweave.api.post('/graphql', queryObject);
+    return (response?.data?.data?.transactions?.edges?.length ?? 0) > 0;
   }
 }
 
