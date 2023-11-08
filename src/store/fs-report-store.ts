@@ -18,7 +18,12 @@
 import fs from 'node:fs';
 import * as winston from 'winston';
 
-import { ObserverReport, ReportSink, ReportStore } from '../types.js';
+import {
+  ObserverReport,
+  ReportInfo,
+  ReportSink,
+  ReportStore,
+} from '../types.js';
 
 export class FsReportStore implements ReportSink, ReportStore {
   // Dependencies
@@ -30,7 +35,8 @@ export class FsReportStore implements ReportSink, ReportStore {
     this.baseDir = baseDir;
   }
 
-  async saveReport(report: ObserverReport) {
+  async saveReport(reportInfo: ReportInfo): Promise<ReportInfo | undefined> {
+    const { report } = reportInfo;
     if (!fs.existsSync(this.baseDir)) {
       await fs.promises.mkdir(this.baseDir, { recursive: true });
     }
@@ -52,7 +58,7 @@ export class FsReportStore implements ReportSink, ReportStore {
       reportFile,
     });
 
-    return undefined;
+    return reportInfo;
   }
 
   async getReport(epochStartHeight: number): Promise<ObserverReport | null> {
