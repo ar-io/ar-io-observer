@@ -22,7 +22,7 @@ import { promisify } from 'node:util';
 import zlib from 'node:zlib';
 import * as winston from 'winston';
 
-import { ObserverReport, ReportSaveResult, ReportSink } from '../types.js';
+import { ObserverReport, ReportInfo, ReportSink } from '../types.js';
 
 const gzip = promisify(zlib.gzip);
 
@@ -78,9 +78,8 @@ export class TurboReportSink implements ReportSink {
     this.signer = signer;
   }
 
-  async saveReport(
-    report: ObserverReport,
-  ): Promise<ReportSaveResult | undefined> {
+  async saveReport(reportInfo: ReportInfo): Promise<ReportInfo | undefined> {
+    const { report } = reportInfo;
     const log = this.log.child({
       epochStartHeight: report.epochStartHeight,
     });
@@ -90,7 +89,7 @@ export class TurboReportSink implements ReportSink {
       if (await this.hasReport(report)) {
         log.info('Report already saved, skipping upload');
         // TODO return TX ID instead of undefined
-        return undefined;
+        return reportInfo;
       }
     } catch (error) {
       log.error('Error checking for existing report', error);
@@ -118,6 +117,7 @@ export class TurboReportSink implements ReportSink {
       });
 
       return {
+        ...reportInfo,
         reportTxId: id,
       };
     } catch (error) {

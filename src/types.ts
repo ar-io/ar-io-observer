@@ -133,20 +133,18 @@ export interface ObserverReport {
 // Report store
 //
 
-export interface ReportSaveResult {
+export interface ReportInfo {
+  report: ObserverReport;
   reportTxId?: string;
   interactionTxIds?: string[];
 }
 
 export interface ReportSink {
-  saveReport(
-    report: ObserverReport,
-    reportSaveResult?: ReportSaveResult,
-  ): Promise<ReportSaveResult | undefined>;
+  saveReport(reportInfo: ReportInfo): Promise<ReportInfo | undefined>;
 }
 
 export interface ReportStore {
-  saveReport(report: ObserverReport): Promise<ReportSaveResult | undefined>;
+  saveReport(reportInfo: ReportInfo): Promise<ReportInfo | undefined>;
   getReport(epochStartHeight: number): Promise<ObserverReport | null>;
   latestReport(): Promise<ObserverReport | null>;
 }

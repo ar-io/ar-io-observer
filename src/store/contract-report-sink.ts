@@ -20,7 +20,7 @@ import * as winston from 'winston';
 import {
   ObserverContract,
   ObserverReport,
-  ReportSaveResult,
+  ReportInfo,
   ReportSink,
 } from '../types.js';
 
@@ -83,12 +83,10 @@ export class ContractReportSink implements ReportSink {
     this.contract = contract;
   }
 
-  async saveReport(
-    observerReport: ObserverReport,
-    reportSaveResult: ReportSaveResult,
-  ): Promise<ReportSaveResult> {
+  async saveReport(reportInfo: ReportInfo): Promise<ReportInfo | undefined> {
+    const { report, reportTxId } = reportInfo;
     const failedGatewaySummaries: string[] =
-      getFailedGatewaySummaryFromReport(observerReport);
+      getFailedGatewaySummaryFromReport(report);
 
     // split up the failed gateway summaries if they are bigger than the max individual summary size
     const splitFailedGatewaySummaries = splitArrayBySize(
@@ -101,12 +99,12 @@ export class ContractReportSink implements ReportSink {
     this.log.info('Saving observation interactions...');
     const saveObservationsTxIds: string[] = [];
     for (const failedGatewaySummary of splitFailedGatewaySummaries) {
-      if (reportSaveResult.reportTxId === undefined) {
+      if (reportTxId === undefined) {
         throw new Error('Report TX ID is undefined');
       }
       const saveObservationsTxId = await this.contract.writeInteraction({
         function: 'saveObservations',
-        observerReportTxId: reportSaveResult.reportTxId,
+        observerReportTxId: reportTxId,
         failedGateways: failedGatewaySummary,
       });
       if (saveObservationsTxId) {
@@ -118,6 +116,7 @@ export class ContractReportSink implements ReportSink {
     this.log.info('Observation interactions saved');
 
     return {
+      ...reportInfo,
       interactionTxIds: saveObservationsTxIds,
     };
   }

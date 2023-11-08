@@ -17,7 +17,7 @@
  */
 import * as winston from 'winston';
 
-import { ObserverReport, ReportSaveResult, ReportSink } from '../types.js';
+import { ReportInfo, ReportSink } from '../types.js';
 
 export class CompositeReportSink implements ReportSink {
   // Dependencies
@@ -29,15 +29,22 @@ export class CompositeReportSink implements ReportSink {
     this.sinks = sinks;
   }
 
-  async saveReport(
-    report: ObserverReport,
-  ): Promise<ReportSaveResult | undefined> {
+  async saveReport(reportInfo: ReportInfo): Promise<ReportInfo | undefined> {
+    const report = reportInfo.report;
     const log = this.log.child({
       epochStartHeight: report.epochStartHeight,
     });
     log.debug('Saving report...');
-    // TODO decide how to handle errors
-    await Promise.allSettled(this.sinks.map((sink) => sink.saveReport(report)));
+    // TODO this needs to be a loop to pass ids, reports, etc. through
+    await Promise.allSettled(
+      this.sinks.map(async (sink) => {
+        try {
+          await sink.saveReport({ report });
+        } catch (error) {
+          log.error('Error saving report', { error });
+        }
+      }),
+    );
     log.debug('Report saved');
 
     // TODO decide if/how to return IDs

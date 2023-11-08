@@ -19,7 +19,7 @@ import { observer, reportSink } from './system.js';
 
 const report = await observer.generateReport();
 console.log(JSON.stringify(report, null, 2));
-await reportSink.saveReport(report);
+await reportSink.saveReport({ report });
 
 //const observationReportObjectTxId = await uploadReportWithTurbo(report);
 //if (observationReportObjectTxId !== null) {
