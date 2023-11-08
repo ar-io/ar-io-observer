@@ -220,7 +220,7 @@ export async function updateCurrentReport() {
     console.log('saveAfterHeight', saveAfterHeight);
     const currentHeight = await chainSource.getHeight();
     if (currentHeight >= saveAfterHeight) {
-      reportSink.saveReport(report);
+      reportSink.saveReport({ report });
     }
   } catch (error) {
     log.error('Error generating report', error);
