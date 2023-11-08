@@ -19,7 +19,7 @@ import * as winston from 'winston';
 
 import { ReportInfo, ReportSink } from '../types.js';
 
-export class CompositeReportSink implements ReportSink {
+export class PipelineReportSink implements ReportSink {
   // Dependencies
   private log: winston.Logger;
   private sinks: ReportSink[];
@@ -34,20 +34,21 @@ export class CompositeReportSink implements ReportSink {
     const log = this.log.child({
       epochStartHeight: report.epochStartHeight,
     });
+
     log.debug('Saving report...');
-    // TODO this needs to be a loop to pass ids, reports, etc. through
-    await Promise.allSettled(
-      this.sinks.map(async (sink) => {
-        try {
-          await sink.saveReport({ report });
-        } catch (error) {
-          log.error('Error saving report', { error });
+    let lastReportInfo = reportInfo;
+    for (const sink of this.sinks) {
+      try {
+        const ret = await sink.saveReport(lastReportInfo);
+        if (ret !== undefined) {
+          lastReportInfo = ret;
         }
-      }),
-    );
+      } catch (error) {
+        log.error('Error saving report', { error });
+      }
+    }
     log.debug('Report saved');
 
-    // TODO decide if/how to return IDs
-    return undefined;
+    return lastReportInfo;
   }
 }
