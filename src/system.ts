@@ -50,9 +50,9 @@ import {
   EpochHeightSource,
   START_HEIGHT,
 } from './protocol.js';
-import { CompositeReportSink } from './store/composite-report-sink.js';
 import { ContractReportSink } from './store/contract-report-sink.js';
 import { FsReportStore } from './store/fs-report-store.js';
+import { PipelineReportSink } from './store/pipeline-report-sink.js';
 import { TurboReportSink } from './store/turbo-report-sink.js';
 import { ReportSink } from './types.js';
 
@@ -199,7 +199,7 @@ if (turboReportSink !== undefined) {
   stores.push(turboReportSink);
 }
 
-export const reportSink = new CompositeReportSink({
+export const reportSink = new PipelineReportSink({
   log,
   sinks: stores,
 });
