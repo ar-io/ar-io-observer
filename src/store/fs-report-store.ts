@@ -36,16 +36,27 @@ export class FsReportStore implements ReportSink, ReportStore {
   }
 
   async saveReport(reportInfo: ReportInfo): Promise<ReportInfo | undefined> {
-    const { report } = reportInfo;
     if (!fs.existsSync(this.baseDir)) {
       await fs.promises.mkdir(this.baseDir, { recursive: true });
     }
 
-    const reportFile = `${this.baseDir}/${report.epochStartHeight}.json`;
+    let report = reportInfo.report;
     const log = this.log.child({
       epochStartHeight: report.epochStartHeight,
     });
-    log.debug('Saving report...', {
+
+    const savedReport = await this.getReport(report.epochStartHeight);
+    if (savedReport !== null) {
+      log.info('Using previously saved report');
+      report = savedReport;
+      return {
+        ...reportInfo,
+        report,
+      };
+    }
+
+    const reportFile = `${this.baseDir}/${report.epochStartHeight}.json`;
+    log.info('Saving report...', {
       reportFile,
     });
     if (!fs.existsSync(reportFile)) {
@@ -54,7 +65,7 @@ export class FsReportStore implements ReportSink, ReportStore {
         JSON.stringify(report),
       );
     }
-    log.debug('Report saved', {
+    log.info('Report saved', {
       reportFile,
     });
 
