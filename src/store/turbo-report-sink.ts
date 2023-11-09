@@ -18,19 +18,26 @@
 import { TurboAuthenticatedClient } from '@ardrive/turbo-sdk/node';
 import { ArweaveSigner, createData } from 'arbundles/node';
 import Arweave from 'arweave';
+import { promisify } from 'node:util';
+import zlib from 'node:zlib';
 import * as winston from 'winston';
 
 import { ObserverReport, ReportSaveResult, ReportSink } from '../types.js';
+
+const gzip = promisify(zlib.gzip);
 
 async function createReportDataItem(
   signer: ArweaveSigner,
   report: ObserverReport,
 ) {
-  const signedDataItem = createData(JSON.stringify(report), signer, {
+  const reportBuffer = Buffer.from(JSON.stringify(report), 'utf-8');
+  const gzipReportBuffer = await gzip(reportBuffer);
+  const signedDataItem = createData(gzipReportBuffer, signer, {
     tags: [
       { name: 'App-Name', value: 'AR-IO Observer' },
       { name: 'App-Version', value: '0.0.1' },
       { name: 'Content-Type', value: 'application/json' },
+      { name: 'Content-Encoding', value: 'gzip' },
       {
         name: 'AR-IO-Epoch-Start-Height',
         value: report.epochStartHeight.toString(),
