@@ -259,6 +259,8 @@ export const warpReportSink =
   contract !== undefined
     ? new ContractReportSink({
         log,
+        arweave,
         contract,
+        walletAddress: config.OBSERVER_WALLET,
       })
     : undefined;
