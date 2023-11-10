@@ -15,6 +15,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+import Arweave from 'arweave';
+import { Tag } from 'warp-contracts/mjs';
 import * as winston from 'winston';
 
 import {
@@ -70,17 +72,25 @@ function splitArrayBySize(array: string[], maxSizeInBytes: number): string[][] {
 export class ContractReportSink implements ReportSink {
   // Dependencies
   private log: winston.Logger;
+  private arweave: Arweave;
   private contract: ObserverContract;
+  private readonly walletAddress: string;
 
   constructor({
     log,
+    arweave,
     contract,
+    walletAddress,
   }: {
     log: winston.Logger;
+    arweave: Arweave;
     contract: ObserverContract;
+    walletAddress: string;
   }) {
     this.log = log;
+    this.arweave = arweave;
     this.contract = contract;
+    this.walletAddress = walletAddress;
   }
 
   async saveReport(reportInfo: ReportInfo): Promise<ReportInfo | undefined> {
@@ -94,6 +104,12 @@ export class ContractReportSink implements ReportSink {
       MAX_FAILED_GATEWAY_SUMMARY_BYTES,
     );
 
+    const interactionCount = await this.interactionCount(report);
+    if (interactionCount >= splitFailedGatewaySummaries.length) {
+      this.log.info('All interactions have already been saved');
+      return reportInfo;
+    }
+
     // TODO add epoch and observation report ID tags
     // Processes each failed gateway summary using the same observation report tx id.
     this.log.info('Saving observation interactions...');
@@ -102,11 +118,22 @@ export class ContractReportSink implements ReportSink {
       if (reportTxId === undefined) {
         throw new Error('Report TX ID is undefined');
       }
-      const saveObservationsTxId = await this.contract.writeInteraction({
-        function: 'saveObservations',
-        observerReportTxId: reportTxId,
-        failedGateways: failedGatewaySummary,
-      });
+      const saveObservationsTxId = await this.contract.writeInteraction(
+        {
+          function: 'saveObservations',
+          observerReportTxId: reportTxId,
+          failedGateways: failedGatewaySummary,
+        },
+        {
+          tags: [
+            new Tag('AR-IO-Component', 'observer'),
+            new Tag(
+              'AR-IO-Epoch-Start-Height',
+              report.epochStartHeight.toString(),
+            ),
+          ],
+        },
+      );
       if (saveObservationsTxId) {
         saveObservationsTxIds.push(saveObservationsTxId.originalTxId);
       } else {
@@ -119,6 +146,42 @@ export class ContractReportSink implements ReportSink {
       ...reportInfo,
       interactionTxIds: saveObservationsTxIds,
     };
+  }
+
+  async interactionCount(report: ObserverReport): Promise<number> {
+    const epochStartHeight = report.epochStartHeight;
+    // TODO handle more than 100 interactions
+    const queryObject = {
+      query: `{
+  transactions(
+    first:100,
+    owners: [ "${this.walletAddress}" ],
+    tags: [
+      {
+        name: "AR-IO-Epoch-Start-Height",
+        values: [ "${epochStartHeight}" ]
+      },
+      {
+        name: "AR-IO-Component",
+        values: [ "observer" ]
+      },
+      {
+        name: "App-Name",
+        values: ["SmartWeaveAction"]
+      }
+    ]
+  ) 
+  {
+    edges {
+      node {
+        id
+      }
+    }
+  }
+}`,
+    };
+    const response = await this.arweave.api.post('/graphql', queryObject);
+    return response?.data?.data?.transactions?.edges?.length ?? 0;
   }
 
   //async uploadAndSaveObservations(observerReportFileName: string): Promise<{

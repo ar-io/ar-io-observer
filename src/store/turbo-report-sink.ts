@@ -39,6 +39,10 @@ async function createReportDataItem(
       { name: 'Content-Type', value: 'application/json' },
       { name: 'Content-Encoding', value: 'gzip' },
       {
+        name: 'AR-IO-Component',
+        value: 'observer',
+      },
+      {
         name: 'AR-IO-Epoch-Start-Height',
         value: report.epochStartHeight.toString(),
       },
