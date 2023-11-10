@@ -23,6 +23,7 @@ import {
   EvaluationOptions,
   Tag,
   Warp,
+  WriteInteractionOptions,
   WriteInteractionResponse,
 } from 'warp-contracts/mjs';
 import * as winston from 'winston';
@@ -87,6 +88,7 @@ export class WarpContract implements ObserverContract {
 
   async writeInteraction(
     interaction: ObservationInteraction,
+    options?: WriteInteractionOptions,
   ): Promise<WriteInteractionResponse | null> {
     // get contract manifest
     if (this.evaluationOptions === undefined) {
@@ -105,6 +107,7 @@ export class WarpContract implements ObserverContract {
     this.log.debug('Writing contract interaction...', { interaction });
     return this.contract.writeInteraction(interaction, {
       disableBundling: true,
+      ...options,
     });
   }
 }
