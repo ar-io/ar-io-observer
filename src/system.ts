@@ -52,9 +52,11 @@ import {
 } from './protocol.js';
 import { ContractReportSink } from './store/contract-report-sink.js';
 import { FsReportStore } from './store/fs-report-store.js';
-import { PipelineReportSink } from './store/pipeline-report-sink.js';
+import {
+  PipelineReportSink,
+  ReportSinkEntry,
+} from './store/pipeline-report-sink.js';
 import { TurboReportSink } from './store/turbo-report-sink.js';
-import { ReportSink } from './types.js';
 
 const REPORT_CACHE_TTL_SECONDS = 60 * 60 * 2.5; // 2.5 hours
 
@@ -193,10 +195,16 @@ const turboReportSink =
       })
     : undefined;
 
-const stores: ReportSink[] = [];
-stores.push(fsReportStore);
+const stores: ReportSinkEntry[] = [];
+stores.push({
+  name: 'FsReportStore',
+  sink: fsReportStore,
+});
 if (turboReportSink !== undefined) {
-  stores.push(turboReportSink);
+  stores.push({
+    name: 'TurboReportSink',
+    sink: turboReportSink,
+  });
 }
 
 export const reportSink = new PipelineReportSink({
