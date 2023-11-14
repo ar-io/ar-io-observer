@@ -133,7 +133,7 @@ export interface ObserverReport {
 }
 
 //
-// Report store
+// Report store and sink
 //
 
 export interface ReportInfo {

@@ -88,25 +88,26 @@ export class TurboReportSink implements ReportSink {
       epochStartHeight: report.epochStartHeight,
     });
 
-    // Check if the report has already been saved
+    // Return existing TX ID if the report was already saved
     try {
-      if (await this.hasReport(report)) {
+      const reportTxId = await this.getReportTxId(report);
+      if (reportTxId !== undefined) {
         log.info('Report already saved, skipping upload');
-        // TODO return TX ID instead of undefined
-        return reportInfo;
+        return {
+          ...reportInfo,
+          reportTxId,
+        };
       }
     } catch (error) {
       log.error('Error checking for existing report', error);
     }
 
-    // Upload the report using Turbo
+    // Upload the report as a data item using Turbo
     try {
       log.debug('Saving report...');
+
+      // Sign and upload data item
       const signedDataItem = await createReportDataItem(this.signer, report);
-
-      // TODO skip uploading if the report already exists
-
-      // Upload the data item
       const { id, owner, dataCaches, fastFinalityIndexes } =
         await this.turboClient.uploadSignedDataItem({
           dataItemStreamFactory: () => signedDataItem.getRaw(),
@@ -120,6 +121,7 @@ export class TurboReportSink implements ReportSink {
         fastFinalityIndexes,
       });
 
+      // Return the report info with TX ID added
       return {
         ...reportInfo,
         reportTxId: id,
@@ -136,11 +138,14 @@ export class TurboReportSink implements ReportSink {
     return undefined;
   }
 
-  async hasReport(report: ObserverReport): Promise<boolean> {
+  async getReportTxId(report: ObserverReport): Promise<string | undefined> {
     const epochStartHeight = report.epochStartHeight;
+
+    // Find the first report TX ID for the given epoch start height
     const queryObject = {
       query: `{
   transactions(
+    sort: HEIGHT_ASC,
     first:1,
     owners: [ "${this.walletAddress}" ],
     tags: [
@@ -164,7 +169,14 @@ export class TurboReportSink implements ReportSink {
 }`,
     };
     const response = await this.arweave.api.post('/graphql', queryObject);
-    return (response?.data?.data?.transactions?.edges?.length ?? 0) > 0;
+
+    // Return the first report TX ID if it exists
+    const edges = response?.data?.data?.transactions?.edges;
+    if (Array.isArray(edges)) {
+      return edges[0]?.node?.id;
+    } else {
+      return undefined;
+    }
   }
 }
 
