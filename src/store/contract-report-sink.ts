@@ -106,7 +106,7 @@ export class ContractReportSink implements ReportSink {
 
     const interactionCount = await this.interactionCount(report);
     if (interactionCount >= splitFailedGatewaySummaries.length) {
-      this.log.info('All interactions have already been saved');
+      this.log.info('Interactions already saved');
       return reportInfo;
     }
 

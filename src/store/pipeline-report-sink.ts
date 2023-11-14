@@ -19,12 +19,23 @@ import * as winston from 'winston';
 
 import { ReportInfo, ReportSink } from '../types.js';
 
+export interface ReportSinkEntry {
+  name: string;
+  sink: ReportSink;
+}
+
 export class PipelineReportSink implements ReportSink {
   // Dependencies
   private log: winston.Logger;
-  private sinks: ReportSink[];
+  private sinks: ReportSinkEntry[];
 
-  constructor({ log, sinks }: { log: winston.Logger; sinks: ReportSink[] }) {
+  constructor({
+    log,
+    sinks,
+  }: {
+    log: winston.Logger;
+    sinks: ReportSinkEntry[];
+  }) {
     this.log = log.child({ class: this.constructor.name });
     this.sinks = sinks;
   }
@@ -35,19 +46,26 @@ export class PipelineReportSink implements ReportSink {
       epochStartHeight: report.epochStartHeight,
     });
 
-    log.debug('Saving report...');
+    log.info('Saving report...');
     let lastReportInfo = reportInfo;
-    for (const sink of this.sinks) {
+    for (const { name, sink } of this.sinks) {
       try {
-        const ret = await sink.saveReport(lastReportInfo);
-        if (ret !== undefined) {
-          lastReportInfo = ret;
+        log.info(`Saving report using ${name}...`);
+        const maybeReportInfo = await sink.saveReport(lastReportInfo);
+
+        // Pass returned report info to the next sink
+        if (maybeReportInfo !== undefined) {
+          lastReportInfo = maybeReportInfo;
+          log.info(`Report saved using ${name}`, {
+            ...lastReportInfo,
+            report: undefined,
+          });
         }
       } catch (error) {
         log.error('Error saving report', { error });
       }
     }
-    log.debug('Report saved');
+    log.info('Report saved');
 
     return lastReportInfo;
   }
