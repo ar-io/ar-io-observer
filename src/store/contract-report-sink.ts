@@ -106,11 +106,10 @@ export class ContractReportSink implements ReportSink {
 
     const interactionCount = await this.interactionCount(report);
     if (interactionCount >= splitFailedGatewaySummaries.length) {
-      this.log.info('Interactions already saved');
+      this.log.info('Observation interactions already saved');
       return reportInfo;
     }
 
-    // TODO add epoch and observation report ID tags
     // Processes each failed gateway summary using the same observation report tx id.
     this.log.info('Saving observation interactions...');
     const saveObservationsTxIds: string[] = [];
@@ -131,6 +130,7 @@ export class ContractReportSink implements ReportSink {
               'AR-IO-Epoch-Start-Height',
               report.epochStartHeight.toString(),
             ),
+            new Tag('AR-IO-Observation-Report-Tx-Id', reportTxId),
           ],
         },
       );
@@ -183,60 +183,4 @@ export class ContractReportSink implements ReportSink {
     const response = await this.arweave.api.post('/graphql', queryObject);
     return response?.data?.data?.transactions?.edges?.length ?? 0;
   }
-
-  //async uploadAndSaveObservations(observerReportFileName: string): Promise<{
-  //  observerReportTxId: string | null;
-  //  saveObservationsTxIds: string[];
-  //}> {
-  //  const report: ObserverReport = JSON.parse(
-  //    fs.readFileSync(observerReportFileName).toString(),
-  //  );
-
-  //  const observerReportTxId = await uploadReportWithTurbo(report);
-  //  if (observerReportTxId === null) {
-  //    console.log('Error submitting report to turbo.');
-  //    return { observerReportTxId: null, saveObservationsTxIds: [] };
-  //  }
-
-  //  // get contract manifest
-  //  const { evaluationOptions = {} } = await getContractManifest({
-  //    contractTxId: CONTRACT_ID,
-  //  });
-
-  //  // Read the AR.IO Contract
-  //  const contract = this.warp.pst(CONTRACT_ID);
-
-  //  // connect to wallet
-  //  contract.connect(this.wallet).setEvaluationOptions(evaluationOptions);
-
-  //  const failedGatewaySummaries: string[] =
-  //    getFailedGatewaySummaryFromReport(report);
-
-  //  // split up the failed gateway summaries if they are bigger than the max individual summary size
-  //  const splitFailedGatewaySummaries = splitArrayBySize(
-  //    failedGatewaySummaries,
-  //    maxFailedGatewaySummarySizeInBytes,
-  //  );
-
-  //  // Processes each failed gateway summary using the same observation report tx id.
-  //  const saveObservationsTxIds: string[] = [];
-  //  for (const failedGatewaySummary of splitFailedGatewaySummaries) {
-  //    const saveObservationsTxId = await contract.writeInteraction(
-  //      {
-  //        function: 'saveObservations',
-  //        observerReportTxId,
-  //        failedGateways: failedGatewaySummary,
-  //      },
-  //      {
-  //        disableBundling: true,
-  //      },
-  //    );
-  //    if (saveObservationsTxId) {
-  //      saveObservationsTxIds.push(saveObservationsTxId.originalTxId);
-  //    } else {
-  //      saveObservationsTxIds.push('invalid');
-  //    }
-  //  }
-  //  return { observerReportTxId, saveObservationsTxIds };
-  //}
 }
