@@ -15,6 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+import cors from 'cors';
 import express from 'express';
 import * as OpenApiValidator from 'express-openapi-validator';
 import fs from 'node:fs';
@@ -26,6 +27,14 @@ import { reportCache } from './system.js';
 
 // HTTP server
 export const app = express();
+
+// CORS
+app.use(
+  cors({
+    origin: '*',
+    methods: ['GET'],
+  }),
+);
 
 // Redirect root to report
 app.get('/', (_req, res) => {
