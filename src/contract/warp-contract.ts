@@ -21,6 +21,7 @@ import {
   Contract,
   EvaluationManifest,
   EvaluationOptions,
+  InteractionResult,
   Tag,
   Warp,
   WriteInteractionResponse,
@@ -60,6 +61,7 @@ export class WarpContract implements ObserverContract {
   // Dependencies
   private log: winston.Logger;
   private warp: Warp;
+  private cacheUrl: string;
   private contractId: string;
 
   private contract: Contract;
@@ -69,15 +71,18 @@ export class WarpContract implements ObserverContract {
     log,
     wallet,
     warp,
+    cacheUrl,
     contractId,
   }: {
     log: winston.Logger;
     wallet: JWKInterface;
     warp: Warp;
+    cacheUrl: string;
     contractId: string;
   }) {
     this.log = log;
     this.warp = warp;
+    this.cacheUrl = cacheUrl;
     this.contractId = contractId;
 
     // Initialize the AR.IO contract
@@ -85,10 +90,8 @@ export class WarpContract implements ObserverContract {
     this.contract.connect(wallet);
   }
 
-  async writeInteraction(
-    interaction: ObservationInteraction,
-  ): Promise<WriteInteractionResponse | null> {
-    // get contract manifest
+  async ensureContractInit(): Promise<void> {
+    // Get contact manifest and sync state
     if (this.evaluationOptions === undefined) {
       const { evaluationOptions = {} } = await getContractManifest({
         arweave,
@@ -100,7 +103,32 @@ export class WarpContract implements ObserverContract {
       );
       this.contract.setEvaluationOptions(evaluationOptions);
       this.evaluationOptions = evaluationOptions;
+      this.contract.syncState(
+        `${this.cacheUrl}/v1/contract/${this.contractId}`,
+      );
     }
+  }
+
+  async readInteraction(
+    functionName: string,
+    input?: object,
+  ): Promise<InteractionResult<unknown, unknown>> {
+    await this.ensureContractInit();
+
+    this.log.debug('Reading contract interaction...', {
+      functionName,
+      ...input,
+    });
+    return this.contract.viewState({
+      function: functionName,
+      ...input,
+    });
+  }
+
+  async writeInteraction(
+    interaction: ObservationInteraction,
+  ): Promise<WriteInteractionResponse | null> {
+    await this.ensureContractInit();
 
     this.log.debug('Writing contract interaction...', { interaction });
     return this.contract.writeInteraction(interaction, {

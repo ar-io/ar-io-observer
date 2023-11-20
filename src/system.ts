@@ -44,12 +44,8 @@ import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
 import { RemoteCacheArnsNameList } from './names/remote-cache-arns-name-list.js';
 import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
-import { RandomObserversSource } from './observers/random-observers-source.js';
-import {
-  EPOCH_BLOCK_LENGTH,
-  EpochHeightSource,
-  START_HEIGHT,
-} from './protocol.js';
+import { ContractObserversSource } from './observers/contract-observers-source.js';
+import { EPOCH_BLOCK_LENGTH, EpochHeightSource } from './protocol.js';
 import { CompositeReportSink } from './store/composite-report-sink.js';
 import { ContractReportSink } from './store/contract-report-sink.js';
 import { FsReportStore } from './store/fs-report-store.js';
@@ -127,12 +123,6 @@ export const observer = new Observer({
   nameAssessmentConcurrency: config.NAME_ASSESSMENT_CONCURRENCY,
 });
 
-export const prescribedObserversSource = new RandomObserversSource({
-  observedGatewayHostList: observedGatewayHostList,
-  entropySource: chainEntropySource,
-  numObserversToSource: 50,
-});
-
 export const reportCache = new NodeCache({
   stdTTL: REPORT_CACHE_TTL_SECONDS,
 });
@@ -204,39 +194,6 @@ export const reportSink = new CompositeReportSink({
   sinks: stores,
 });
 
-export async function updateCurrentReport() {
-  try {
-    const report = await observer.generateReport();
-    reportCache.set('current', report);
-    const entropy = await compositeEntropySource.getEntropy({
-      height: report.epochStartHeight,
-    });
-    // Save the report after a random block between 100 blocks after
-    // the start of the epoch and 100 blocks before the end of the
-    // epoch
-    const saveAfterHeight =
-      report.epochStartHeight +
-      ((entropy.readUInt32BE(0) % EPOCH_BLOCK_LENGTH) - 200);
-    console.log('saveAfterHeight', saveAfterHeight);
-    const currentHeight = await chainSource.getHeight();
-    if (currentHeight >= saveAfterHeight) {
-      reportSink.saveReport(report);
-    }
-  } catch (error) {
-    log.error('Error generating report', error);
-  }
-}
-
-export const observers = await prescribedObserversSource.getObservers({
-  startHeight: START_HEIGHT,
-  epochBlockLength: EPOCH_BLOCK_LENGTH,
-  height: await epochHeightSelector.getHeight(),
-});
-
-if (observers.includes(config.OBSERVER_WALLET)) {
-  log.info('You have been selected as an observer');
-}
-
 export const warp = WarpFactory.forMainnet(
   {
     ...defaultCacheOptions,
@@ -251,6 +208,7 @@ export const contract =
         log,
         wallet: walletJwk,
         warp,
+        cacheUrl: config.CONTRACT_CACHE_URL,
         contractId: config.CONTRACT_ID,
       })
     : undefined;
@@ -262,3 +220,50 @@ export const warpReportSink =
         contract,
       })
     : undefined;
+
+export const prescribedObserversSource =
+  contract !== undefined
+    ? new ContractObserversSource({
+        log,
+        contract,
+      })
+    : undefined;
+
+export async function updateCurrentReport() {
+  try {
+    // Retrieve selected observers from the contract
+    const observers = await prescribedObserversSource?.getObservers();
+    if (observers === undefined) {
+      log.error('Unable to get observers');
+      return;
+    }
+
+    log.info('Generating report...');
+    const report = await observer.generateReport();
+    reportCache.set('current', report);
+    log.info('Report generated');
+
+    // Save the report after a random block between 100 blocks after
+    // the start of the epoch and 100 blocks before the end of the
+    // epoch
+    const entropy = await compositeEntropySource.getEntropy({
+      height: report.epochStartHeight,
+    });
+    const saveAfterHeight =
+      report.epochStartHeight +
+      ((entropy.readUInt32BE(0) % EPOCH_BLOCK_LENGTH) - 200);
+    const currentHeight = await chainSource.getHeight();
+
+    if (!observers.includes(config.OBSERVER_WALLET)) {
+      log.info('You have not been selected as an observer; not saving report');
+    } else if (currentHeight < saveAfterHeight) {
+      log.info('Report save height not reached; not saving report');
+    } else {
+      log.info('Saving report...');
+      reportSink.saveReport(report);
+      log.info('Report saved');
+    }
+  } catch (error) {
+    log.error('Error generating report', error);
+  }
+}

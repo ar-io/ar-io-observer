@@ -15,7 +15,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { WriteInteractionResponse } from 'warp-contracts/mjs';
+import {
+  InteractionResult,
+  WriteInteractionResponse,
+} from 'warp-contracts/mjs';
 
 //
 // Arweave
@@ -162,6 +165,11 @@ export interface ObservationInteraction {
 }
 
 export interface ObserverContract {
+  readInteraction(
+    functionName: string,
+    input?: object,
+  ): Promise<InteractionResult<unknown, unknown>>;
+
   writeInteraction(
     interaction: ObservationInteraction,
   ): Promise<WriteInteractionResponse | null>;
