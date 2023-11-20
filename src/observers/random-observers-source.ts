@@ -85,7 +85,7 @@ export class RandomObserversSource implements ObserversSource {
       }
 
       usedIndexes.add(index);
-      selectedObservers.push(await this.eligibleObservers[index]);
+      selectedObservers.push(this.eligibleObservers[index]);
 
       hash = crypto.createHash('sha256').update(hash).digest();
     }

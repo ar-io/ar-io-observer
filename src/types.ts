@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import {
+  InteractionResult,
   WriteInteractionOptions,
   WriteInteractionResponse,
 } from 'warp-contracts/mjs';
@@ -163,6 +164,11 @@ export interface ObservationInteraction {
 }
 
 export interface ObserverContract {
+  readInteraction(
+    functionName: string,
+    input?: object,
+  ): Promise<InteractionResult<unknown, unknown>>;
+
   writeInteraction(
     interaction: ObservationInteraction,
     options?: WriteInteractionOptions,

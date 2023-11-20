@@ -44,12 +44,8 @@ import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
 import { RemoteCacheArnsNameList } from './names/remote-cache-arns-name-list.js';
 import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
-import { RandomObserversSource } from './observers/random-observers-source.js';
-import {
-  EPOCH_BLOCK_LENGTH,
-  EpochHeightSource,
-  START_HEIGHT,
-} from './protocol.js';
+import { ContractObserversSource } from './observers/contract-observers-source.js';
+import { EPOCH_BLOCK_LENGTH, EpochHeightSource } from './protocol.js';
 import { ContractReportSink } from './store/contract-report-sink.js';
 import { FsReportStore } from './store/fs-report-store.js';
 import {
@@ -127,12 +123,6 @@ export const observer = new Observer({
   chosenNamesSource,
   gatewayAssessmentConcurrency: config.GATEWAY_ASSESSMENT_CONCURRENCY,
   nameAssessmentConcurrency: config.NAME_ASSESSMENT_CONCURRENCY,
-});
-
-export const prescribedObserversSource = new RandomObserversSource({
-  observedGatewayHostList: observedGatewayHostList,
-  entropySource: chainEntropySource,
-  numObserversToSource: 50,
 });
 
 export const reportCache = new NodeCache({
@@ -221,6 +211,7 @@ export const contract =
         log,
         wallet: walletJwk,
         warp,
+        cacheUrl: config.CONTRACT_CACHE_URL,
         contractId: config.CONTRACT_ID,
       })
     : undefined;
@@ -251,11 +242,15 @@ export const reportSink = new PipelineReportSink({
   sinks: stores,
 });
 
-export let observers = await prescribedObserversSource.getObservers({
-  startHeight: START_HEIGHT,
-  epochBlockLength: EPOCH_BLOCK_LENGTH,
-  height: await epochHeightSelector.getHeight(),
-});
+export const prescribedObserversSource =
+  contract !== undefined
+    ? new ContractObserversSource({
+        log,
+        contract,
+      })
+    : undefined;
+
+export let observers = await prescribedObserversSource?.getObservers() ?? [];
 
 if (observers.includes(config.OBSERVER_WALLET)) {
   log.info('You have been selected as an observer in the current epoch');
@@ -278,11 +273,7 @@ export async function updateCurrentReport() {
       ((entropy.readUInt32BE(0) % EPOCH_BLOCK_LENGTH) - 200);
 
     // Update the list of observers
-    observers = await prescribedObserversSource.getObservers({
-      startHeight: START_HEIGHT,
-      epochBlockLength: EPOCH_BLOCK_LENGTH,
-      height: report.epochStartHeight,
-    });
+    observers = await prescribedObserversSource?.getObservers() ?? [];
 
     const currentHeight = await chainSource.getHeight();
 
