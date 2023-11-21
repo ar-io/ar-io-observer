@@ -30,7 +30,7 @@ import {
   defaultCacheOptions,
 } from 'warp-contracts/mjs';
 
-import { ChainSource } from './arweave.js';
+import { ChainSource, MAX_FORK_DEPTH } from './arweave.js';
 import * as config from './config.js';
 import { WarpContract } from './contract/warp-contract.js';
 import { CachedEntropySource } from './entropy/cached-entropy-source.js';
@@ -231,17 +231,26 @@ export const prescribedObserversSource =
 
 export async function updateCurrentReport() {
   try {
-    // Retrieve selected observers from the contract
-    const observers = await prescribedObserversSource?.getObservers();
-    if (observers === undefined) {
-      log.error('Unable to get observers');
-      return;
-    }
-
     log.info('Generating report...');
     const report = await observer.generateReport();
     reportCache.set('current', report);
     log.info('Report generated');
+
+    // Retrieve selected observers from the contract
+    let observers: string[] = [];
+    try {
+      observers = (await prescribedObserversSource?.getObservers()) ?? [];
+      if (observers.length === 0) {
+        log.error('No observers found');
+        return;
+      }
+    } catch (error: any) {
+      log.error('Unable to get observers from contract state:', {
+        message: error.message,
+        stack: error.stack,
+      });
+      return;
+    }
 
     // Save the report after a random block between 100 blocks after
     // the start of the epoch and 100 blocks before the end of the
@@ -255,9 +264,11 @@ export async function updateCurrentReport() {
     const currentHeight = await chainSource.getHeight();
 
     if (!observers.includes(config.OBSERVER_WALLET)) {
-      log.info('You have not been selected as an observer; not saving report');
+      log.info('Not saving report - not selected as an observer');
     } else if (currentHeight < saveAfterHeight) {
-      log.info('Report save height not reached; not saving report');
+      log.info('Not saving report - save height not reached');
+    } else if (currentHeight > report.epochEndHeight - MAX_FORK_DEPTH) {
+      log.info('Not saving report - too close to end of epoch');
     } else {
       log.info('Saving report...');
       reportSink.saveReport(report);
