@@ -23,20 +23,25 @@ export class ContractObserversSource implements ObserversSource {
   private log: winston.Logger;
   private contract: ObserverContract;
 
+  private functionName;
+
   constructor({
     log,
     contract,
+    functionName = 'prescribedObservers',
   }: {
     log: winston.Logger;
     contract: ObserverContract;
+    functionName?: string;
   }) {
     this.log = log;
     this.contract = contract;
+    this.functionName = functionName;
   }
 
   async getObservers(): Promise<string[]> {
     this.log.info('Reading observers from contract...');
-    const result = (await this.contract.readInteraction('prescribedObservers'))
+    const result = (await this.contract.readInteraction(this.functionName))
       .result;
     if (result !== undefined) {
       return Object.values(result as object).map(
