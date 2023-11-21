@@ -20,6 +20,7 @@ import got from 'got';
 import crypto from 'node:crypto';
 import pMap from 'p-map';
 
+import * as protocol from './protocol.js';
 import {
   ArnsNameAssessment,
   ArnsNameAssessments,
@@ -289,6 +290,7 @@ export class Observer {
 
   async generateReport(): Promise<ObserverReport> {
     const epochStartHeight = await this.epochHeightSource.getHeight();
+    const epochEndHeight = epochStartHeight + protocol.EPOCH_BLOCK_LENGTH - 1;
     const prescribedNames = await this.prescribedNamesSource.getNames({
       height: epochStartHeight,
     });
@@ -344,6 +346,7 @@ export class Observer {
     return {
       observerAddress: this.observerAddress,
       epochStartHeight,
+      epochEndHeight,
       generatedAt: +(Date.now() / 1000).toFixed(0),
       gatewayAssessments,
     };
