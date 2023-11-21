@@ -31,6 +31,9 @@ import * as winston from 'winston';
 import { arweave } from '../system.js';
 import { ObservationInteraction, ObserverContract } from '../types.js';
 
+const MAX_INTERACTION_RETRIES = 5;
+const RETRY_INTERVAL_MS = 1000;
+
 export function tagsToObject(tags: Tag[]): {
   [x: string]: string;
 } {
@@ -113,16 +116,35 @@ export class WarpContract implements ObserverContract {
     functionName: string,
     input?: object,
   ): Promise<InteractionResult<unknown, unknown>> {
+    const log = this.log.child({ functionName });
     await this.ensureContractInit();
 
-    this.log.debug('Reading contract interaction...', {
-      functionName,
-      ...input,
+    log.debug('Reading contract interaction...', {
+      input,
     });
-    return this.contract.viewState({
-      function: functionName,
-      ...input,
-    });
+    let result: InteractionResult<unknown, unknown> | undefined = undefined;
+    for (let i = 0; i < MAX_INTERACTION_RETRIES; i++) {
+      try {
+        result = await this.contract.viewState({
+          function: functionName,
+          ...input,
+        });
+        if (result !== undefined) {
+          break;
+        }
+      } catch (error: any) {
+        log.error('Error reading interaction:', {
+          message: error?.message,
+          stack: error?.stack,
+        });
+        log.info('Retrying read interaction...');
+        await new Promise((resolve) => setTimeout(resolve, RETRY_INTERVAL_MS));
+      }
+    }
+    if (result === undefined) {
+      throw new Error('Max interaction retries exceeded');
+    }
+    return result;
   }
 
   async writeInteraction(
@@ -131,8 +153,20 @@ export class WarpContract implements ObserverContract {
     await this.ensureContractInit();
 
     this.log.debug('Writing contract interaction...', { interaction });
-    return this.contract.writeInteraction(interaction, {
-      disableBundling: true,
-    });
+    for (let i = 0; i < MAX_INTERACTION_RETRIES; i++) {
+      try {
+        return await this.contract.writeInteraction(interaction, {
+          disableBundling: true,
+        });
+      } catch (error: any) {
+        this.log.error('Error writing interaction:', {
+          message: error?.message,
+          stack: error?.stack,
+        });
+        this.log.info('Retrying write interaction...');
+        await new Promise((resolve) => setTimeout(resolve, RETRY_INTERVAL_MS));
+      }
+    }
+    throw new Error('Max interaction retries exceeded');
   }
 }
