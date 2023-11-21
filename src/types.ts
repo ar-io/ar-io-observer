@@ -128,6 +128,7 @@ export interface GatewayAssessments {
 export interface ObserverReport {
   observerAddress: string;
   epochStartHeight: number;
+  epochEndHeight: number;
   generatedAt: number;
   gatewayAssessments: GatewayAssessments;
 }
