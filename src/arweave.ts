@@ -20,6 +20,7 @@ import got from 'got';
 import { HeightSource } from './types.js';
 
 export const AVERAGE_BLOCK_TIME = 120;
+export const MAX_FORK_DEPTH = 50;
 
 export class FixedHeightSource implements HeightSource {
   private height: number;
