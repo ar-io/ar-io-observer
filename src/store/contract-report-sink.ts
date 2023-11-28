@@ -140,7 +140,9 @@ export class ContractReportSink implements ReportSink {
         saveObservationsTxIds.push('invalid');
       }
     }
-    this.log.info('Observation interactions saved');
+    this.log.info('Observation interactions saved', {
+      interactionIds: saveObservationsTxIds,
+    });
 
     return {
       ...reportInfo,
