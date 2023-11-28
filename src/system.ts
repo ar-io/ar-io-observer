@@ -251,14 +251,16 @@ export const reportSink = new PipelineReportSink({
   sinks: stores,
 });
 
-export const observers = await prescribedObserversSource.getObservers({
+export let observers = await prescribedObserversSource.getObservers({
   startHeight: START_HEIGHT,
   epochBlockLength: EPOCH_BLOCK_LENGTH,
   height: await epochHeightSelector.getHeight(),
 });
 
 if (observers.includes(config.OBSERVER_WALLET)) {
-  log.info('You have been selected as an observer');
+  log.info('You have been selected as an observer in the current epoch');
+} else {
+  log.info('You have not been selected as an observer in the current epoch');
 }
 
 export async function updateCurrentReport() {
@@ -274,7 +276,16 @@ export async function updateCurrentReport() {
     const saveAfterHeight =
       report.epochStartHeight +
       ((entropy.readUInt32BE(0) % EPOCH_BLOCK_LENGTH) - 200);
+
+    // Update the list of observers
+    observers = await prescribedObserversSource.getObservers({
+      startHeight: START_HEIGHT,
+      epochBlockLength: EPOCH_BLOCK_LENGTH,
+      height: report.epochStartHeight,
+    });
+
     const currentHeight = await chainSource.getHeight();
+
     if (!observers.includes(config.OBSERVER_WALLET)) {
       log.info('Skipping save - you have not been selected as an observer');
     } else if (currentHeight < saveAfterHeight) {
