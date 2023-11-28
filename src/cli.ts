@@ -15,17 +15,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+import { args } from './config.js';
 import { observer, reportSink } from './system.js';
 
 const report = await observer.generateReport();
+console.log('Report: ');
 console.log(JSON.stringify(report, null, 2));
-await reportSink.saveReport({ report });
 
-//const observationReportObjectTxId = await uploadReportWithTurbo(report);
-//if (observationReportObjectTxId !== null) {
-//  const saveObservationTxIds = await publishObservation.saveObservations(
-//    observationReportObjectTxId,
-//    report,
-//  );
-//  console.log('Saved observation interaction IDs: ', saveObservationTxIds);
-//}
+if (args.saveReport) {
+  await reportSink.saveReport({ report });
+}

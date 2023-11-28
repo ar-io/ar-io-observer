@@ -21,7 +21,7 @@ import { hideBin } from 'yargs/helpers';
 
 import * as env from './lib/env.js';
 
-const args = await yargs(hideBin(process.argv))
+export const args = await yargs(hideBin(process.argv))
   .option('arns-names', {
     type: 'string',
     description: 'Comma separated list of ArNS names',
@@ -33,6 +33,10 @@ const args = await yargs(hideBin(process.argv))
   .option('observed-gateway-hosts', {
     type: 'string',
     description: 'Comma separated list of gateways hosts to observer',
+  })
+  .option('save-report', {
+    type: 'boolean',
+    description: 'Whether or not to save the report',
   })
   .parse();
 
