@@ -207,44 +207,6 @@ if (turboReportSink !== undefined) {
   });
 }
 
-export const reportSink = new PipelineReportSink({
-  log,
-  sinks: stores,
-});
-
-export async function updateCurrentReport() {
-  try {
-    const report = await observer.generateReport();
-    reportCache.set('current', report);
-    const entropy = await compositeEntropySource.getEntropy({
-      height: report.epochStartHeight,
-    });
-    // Save the report after a random block between 100 blocks after
-    // the start of the epoch and 100 blocks before the end of the
-    // epoch
-    const saveAfterHeight =
-      report.epochStartHeight +
-      ((entropy.readUInt32BE(0) % EPOCH_BLOCK_LENGTH) - 200);
-    console.log('saveAfterHeight', saveAfterHeight);
-    const currentHeight = await chainSource.getHeight();
-    if (currentHeight >= saveAfterHeight) {
-      reportSink.saveReport({ report });
-    }
-  } catch (error) {
-    log.error('Error generating report', error);
-  }
-}
-
-export const observers = await prescribedObserversSource.getObservers({
-  startHeight: START_HEIGHT,
-  epochBlockLength: EPOCH_BLOCK_LENGTH,
-  height: await epochHeightSelector.getHeight(),
-});
-
-if (observers.includes(config.OBSERVER_WALLET)) {
-  log.info('You have been selected as an observer');
-}
-
 export const warp = WarpFactory.forMainnet(
   {
     ...defaultCacheOptions,
@@ -272,3 +234,55 @@ export const warpReportSink =
         walletAddress: config.OBSERVER_WALLET,
       })
     : undefined;
+
+if (!config.SAVE_INTERACTIIONS) {
+  log.info('SAVE_INTERACTIONS is false - interactions will not be saved');
+} else if (warpReportSink === undefined) {
+  log.info('Wallet not configured - interactions will not be saved');
+} else {
+  stores.push({
+    name: 'WarpReportSink',
+    sink: warpReportSink,
+  });
+}
+
+export const reportSink = new PipelineReportSink({
+  log,
+  sinks: stores,
+});
+
+export const observers = await prescribedObserversSource.getObservers({
+  startHeight: START_HEIGHT,
+  epochBlockLength: EPOCH_BLOCK_LENGTH,
+  height: await epochHeightSelector.getHeight(),
+});
+
+if (observers.includes(config.OBSERVER_WALLET)) {
+  log.info('You have been selected as an observer');
+}
+
+export async function updateCurrentReport() {
+  try {
+    const report = await observer.generateReport();
+    reportCache.set('current', report);
+    const entropy = await compositeEntropySource.getEntropy({
+      height: report.epochStartHeight,
+    });
+    // Save the report after a random block between 100 blocks after
+    // the start of the epoch and 100 blocks before the end of the
+    // epoch
+    const saveAfterHeight =
+      report.epochStartHeight +
+      ((entropy.readUInt32BE(0) % EPOCH_BLOCK_LENGTH) - 200);
+    const currentHeight = await chainSource.getHeight();
+    if (!observers.includes(config.OBSERVER_WALLET)) {
+      log.info('Skipping save - you have not been selected as an observer');
+    } else if (currentHeight < saveAfterHeight) {
+      log.info('Skipping save - save after height not yet reached');
+    } else {
+      reportSink.saveReport({ report });
+    }
+  } catch (error) {
+    log.error('Error generating report', error);
+  }
+}
