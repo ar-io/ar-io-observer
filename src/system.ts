@@ -292,6 +292,12 @@ export async function updateAndSaveCurrentReport() {
     if (!observers.includes(config.OBSERVER_WALLET)) {
       log.info('Not saving report - not selected as an observer');
     } else if (currentHeight > report.epochEndHeight - MAX_FORK_DEPTH) {
+      // Contract state is based on the current height so to avoid potential
+      // inconsistencies where we generate a report for one epoch, but get
+      // contract state from the next one, we don't save the report if we're
+      // within MAX_FORK_DEPTH blocks of the end of the epoch. If users ever
+      // need to override this they can use the CLI to manually save the
+      // report.
       log.info('Not saving report - too close to end of epoch');
     } else if (currentHeight < saveAfterHeight) {
       log.info('Not saving report - save height not reached');
