@@ -253,20 +253,20 @@ export const prescribedObserversSource =
 export async function updateAndSaveCurrentReport() {
   try {
     log.info('Generating report...');
+    const reportStartTime = Date.now();
     const report = await observer.generateReport();
+    log.info(`Report generated in ${Date.now() - reportStartTime}ms`);
     reportCache.set('current', report);
-    log.info('Report generated');
+    log.info('Report cached');
 
-    // Retrieve selected observers from the contract
+    // Get selected observers for the current epoch from the contract
     let observers: string[] = [];
     try {
       log.info('Getting observers from contract state...');
       observers = (await prescribedObserversSource?.getObservers()) ?? [];
-      log.info('Observers retrieved', {
-        observers,
-      });
+      log.info(`Retreived ${observers.length} observers from contract state`);
       if (observers.length === 0) {
-        log.error('No observers found');
+        log.error('No observers found in contract state');
         return;
       }
     } catch (error: any) {
@@ -277,9 +277,8 @@ export async function updateAndSaveCurrentReport() {
       return;
     }
 
-    // Save the report after a random block between 100 blocks after
-    // the start of the epoch and 100 blocks before the end of the
-    // epoch
+    // Save the report after a random block between 50 blocks after the start
+    // of the epoch and 100 blocks before the end of the epoch
     const entropy = await compositeEntropySource.getEntropy({
       height: report.epochStartHeight,
     });
