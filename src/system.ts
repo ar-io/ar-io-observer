@@ -226,7 +226,7 @@ export const warpReportSink =
       })
     : undefined;
 
-if (!config.SAVE_INTERACTIIONS) {
+if (!config.SUBMIT_CONTRACT_INTERACTIONS) {
   log.info('SAVE_INTERACTIONS is false - interactions will not be saved');
 } else if (warpReportSink === undefined) {
   log.info('Wallet not configured - interactions will not be saved');
