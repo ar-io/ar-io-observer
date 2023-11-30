@@ -20,7 +20,7 @@ import log from './log.js';
 import { app } from './server.js';
 import { updateAndSaveCurrentReport } from './system.js';
 
-const REPORT_GENERATION_INTERVAL_MS = 1000 * 60 * 60 * 2; // 2 hours
+const REPORT_GENERATION_INTERVAL_MS = 1000 * 60 * 60; // 1 hour
 
 if (config.RUN_OBSERVER) {
   setInterval(updateAndSaveCurrentReport, REPORT_GENERATION_INTERVAL_MS);
