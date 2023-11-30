@@ -125,6 +125,7 @@ export class ContractReportSink implements ReportSink {
         },
         {
           tags: [
+            new Tag('App-Name', 'AR-IO Observer'),
             new Tag('AR-IO-Component', 'observer'),
             new Tag(
               'AR-IO-Epoch-Start-Height',
