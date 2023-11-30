@@ -250,7 +250,7 @@ export const prescribedObserversSource =
       })
     : undefined;
 
-export async function updateCurrentReport() {
+export async function updateAndSaveCurrentReport() {
   try {
     log.info('Generating report...');
     const report = await observer.generateReport();
