@@ -18,16 +18,16 @@
 import * as config from './config.js';
 import log from './log.js';
 import { app } from './server.js';
-import { updateCurrentReport } from './system.js';
+import { updateAndSaveCurrentReport } from './system.js';
 
 const REPORT_GENERATION_INTERVAL_MS = 1000 * 60 * 60 * 2; // 2 hours
 
 if (config.RUN_OBSERVER) {
-  setInterval(updateCurrentReport, REPORT_GENERATION_INTERVAL_MS);
+  setInterval(updateAndSaveCurrentReport, REPORT_GENERATION_INTERVAL_MS);
 
   app.listen(config.PORT, () => {
     log.info(`Listening on port ${config.PORT}`);
   });
 
-  updateCurrentReport();
+  updateAndSaveCurrentReport();
 }
