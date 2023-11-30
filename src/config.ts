@@ -91,5 +91,5 @@ export const NAME_ASSESSMENT_CONCURRENCY = +env.varOrDefault(
 // Wallet used to upload reports and interact with the contract
 export const KEY_FILE = './wallets/' + OBSERVER_WALLET + '.json';
 
-export const SAVE_INTERACTIIONS =
-  env.varOrDefault('SAVE_INTERACTIONS', 'false') === 'true';
+export const SUBMIT_CONTRACT_INTERACTIONS =
+  env.varOrDefault('SUBMIT_CONTRACT_INTERACTIONS', 'false') === 'true';
