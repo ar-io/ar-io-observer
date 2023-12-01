@@ -44,6 +44,9 @@ dotenv.config();
 
 export const RUN_OBSERVER = env.varOrDefault('RUN_OBSERVER', 'true') === 'true';
 
+export const ENABLE_OPENAPI_VALIDATION =
+  env.varOrDefault('ENABLE_OPENAPI_VALIDATION', 'true') === 'true';
+
 export const ARWEAVE_URL = env.varOrDefault(
   'ARWEAVE_URL',
   'https://arweave.net',
