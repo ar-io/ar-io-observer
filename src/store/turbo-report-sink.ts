@@ -82,7 +82,13 @@ export class TurboReportSink implements ReportSink {
     this.signer = signer;
   }
 
-  async saveReport(reportInfo: ReportInfo): Promise<ReportInfo | undefined> {
+  async saveReport(reportInfo: ReportInfo): Promise<
+    | {
+        report: ObserverReport;
+        reportTxId: string;
+      }
+    | undefined
+  > {
     const { report } = reportInfo;
     const log = this.log.child({
       epochStartHeight: report.epochStartHeight,

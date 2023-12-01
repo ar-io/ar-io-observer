@@ -93,7 +93,13 @@ export class ContractReportSink implements ReportSink {
     this.walletAddress = walletAddress;
   }
 
-  async saveReport(reportInfo: ReportInfo): Promise<ReportInfo | undefined> {
+  async saveReport(reportInfo: ReportInfo): Promise<
+    | {
+        report: ObserverReport;
+        interactionTxIds?: string[];
+      }
+    | undefined
+  > {
     const { report, reportTxId } = reportInfo;
     const failedGatewaySummaries: string[] =
       getFailedGatewaySummaryFromReport(report);
