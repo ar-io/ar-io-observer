@@ -227,9 +227,11 @@ export const warpReportSink =
     : undefined;
 
 if (!config.SUBMIT_CONTRACT_INTERACTIONS) {
-  log.info('SAVE_INTERACTIONS is false - interactions will not be saved');
+  log.info(
+    'SUBMIT_CONTRACT_INTERACTIONS is false - contract interactions will not be saved',
+  );
 } else if (warpReportSink === undefined) {
-  log.info('Wallet not configured - interactions will not be saved');
+  log.info('Wallet not configured - contract interactions will not be saved');
 } else {
   stores.push({
     name: 'WarpReportSink',
