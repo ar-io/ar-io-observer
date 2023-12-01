@@ -94,7 +94,7 @@ const chainEntropySource = new ChainEntropySource({
 const prescribedNamesSource = new RandomArnsNamesSource({
   nameList: remoteCacheArnsNameList,
   entropySource: chainEntropySource,
-  numNamesToSource: 1,
+  numNamesToSource: config.NUM_ARNS_NAMES_TO_OBSERVE_PER_GROUP,
 });
 
 const randomEntropySource = new RandomEntropySource();
@@ -111,7 +111,7 @@ const compositeEntropySource = new CompositeEntropySource({
 const chosenNamesSource = new RandomArnsNamesSource({
   nameList: remoteCacheArnsNameList,
   entropySource: compositeEntropySource,
-  numNamesToSource: 1,
+  numNamesToSource: config.NUM_ARNS_NAMES_TO_OBSERVE_PER_GROUP,
 });
 
 export const observer = new Observer({

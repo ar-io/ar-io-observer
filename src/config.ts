@@ -79,6 +79,11 @@ export const ARNS_NAMES = env
   .split(',')
   .filter((h) => h.length > 0);
 
+export const NUM_ARNS_NAMES_TO_OBSERVE_PER_GROUP = +env.varOrDefault(
+  'NUM_ARNS_NAMES_TO_OBSERVE_PER_GROUP',
+  '1',
+);
+
 export const PORT = +env.varOrDefault('PORT', '5000');
 
 export const GATEWAY_ASSESSMENT_CONCURRENCY = +env.varOrDefault(
