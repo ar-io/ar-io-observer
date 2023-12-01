@@ -26,7 +26,7 @@ import {
   ArnsNameAssessments,
   ArnsNamesSource,
   GatewayAssessments,
-  GatewayHostList,
+  GatewayHostsSource,
   HeightSource,
   ObserverReport,
   OwnershipAssessment,
@@ -159,7 +159,7 @@ export class Observer {
   private observerAddress: string;
   private referenceGatewayHost: string;
   private epochHeightSource: HeightSource;
-  private observedGatewayHostList: GatewayHostList;
+  private observedGatewayHostList: GatewayHostsSource;
   private prescribedNamesSource: ArnsNamesSource;
   private chosenNamesSource: ArnsNamesSource;
   private gatewayAsessementConcurrency: number;
@@ -178,7 +178,7 @@ export class Observer {
     observerAddress: string;
     referenceGatewayHost: string;
     epochHeightSource: HeightSource;
-    observedGatewayHostList: GatewayHostList;
+    observedGatewayHostList: GatewayHostsSource;
     prescribedNamesSource: ArnsNamesSource;
     chosenNamesSource: ArnsNamesSource;
     gatewayAssessmentConcurrency: number;

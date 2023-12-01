@@ -17,9 +17,9 @@
  */
 import got from 'got';
 
-import { GatewayHost, GatewayHostList } from '../types.js';
+import { GatewayHost, GatewayHostsSource } from '../types.js';
 
-export class RemoteCacheHostList implements GatewayHostList {
+export class RemoteCacheHostsSource implements GatewayHostsSource {
   private baseCacheUrl: string;
   private contractId: string;
 

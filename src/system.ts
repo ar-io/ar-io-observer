@@ -37,8 +37,8 @@ import { CachedEntropySource } from './entropy/cached-entropy-source.js';
 import { ChainEntropySource } from './entropy/chain-entropy-source.js';
 import { CompositeEntropySource } from './entropy/composite-entropy-source.js';
 import { RandomEntropySource } from './entropy/random-entropy-source.js';
-import { RemoteCacheHostList } from './hosts/remote-cache-host-list.js';
-import { StaticHostList } from './hosts/static-host-list.js';
+import { RemoteCacheHostsSource } from './hosts/remote-cache-hosts-source.js';
+import { StaticHostsSource } from './hosts/static-hosts-source.js';
 import log from './log.js';
 import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
 import { RemoteCacheArnsNameList } from './names/remote-cache-arns-name-list.js';
@@ -58,13 +58,13 @@ const REPORT_CACHE_TTL_SECONDS = 60 * 60 * 2.5; // 2.5 hours
 
 const observedGatewayHostList =
   config.OBSERVED_GATEWAY_HOSTS.length > 0
-    ? new StaticHostList({
+    ? new StaticHostsSource({
         hosts: config.OBSERVED_GATEWAY_HOSTS.map((fqdn) => ({
           fqdn,
           wallet: '<unknown>',
         })),
       })
-    : new RemoteCacheHostList({
+    : new RemoteCacheHostsSource({
         baseCacheUrl: config.CONTRACT_CACHE_URL,
         contractId: config.CONTRACT_ID,
       });
@@ -284,7 +284,8 @@ export async function updateAndSaveCurrentReport() {
     });
     const saveAfterHeight =
       report.epochStartHeight +
-      ((entropy.readUInt32BE(0) % EPOCH_BLOCK_LENGTH) - 200);
+      50 +
+      (entropy.readUInt32BE(0) % (EPOCH_BLOCK_LENGTH - 150));
 
     const currentHeight = await chainSource.getHeight();
 
