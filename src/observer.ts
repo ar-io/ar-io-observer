@@ -32,6 +32,8 @@ import {
   OwnershipAssessment,
 } from './types.js';
 
+const REPORT_FORMAT_VERSION = 1;
+
 const NAME_PASS_THRESHOLD = 0.8;
 
 interface ArnsResolution {
@@ -344,6 +346,7 @@ export class Observer {
     );
 
     return {
+      formatVersion: REPORT_FORMAT_VERSION,
       observerAddress: this.observerAddress,
       epochStartHeight,
       epochEndHeight,

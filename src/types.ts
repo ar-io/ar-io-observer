@@ -127,6 +127,7 @@ export interface GatewayAssessments {
 }
 
 export interface ObserverReport {
+  formatVersion: number;
   observerAddress: string;
   epochStartHeight: number;
   epochEndHeight: number;
