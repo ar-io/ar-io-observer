@@ -252,6 +252,15 @@ export const prescribedObserversSource =
       })
     : undefined;
 
+// Wait for chain stability before saving reports
+const START_HEIGHT_START_OFFSET = MAX_FORK_DEPTH;
+
+// Ensure there is enough time to save the report at the end of the epoch. We
+// use 2 * MAX_FORK_DEPTH because it allows MAX_FORK_DEPTH blocks (somewhat
+// arbitrary but pleasingly symmetric) before we stop attempting to save
+// altogether for consistency reasons at the end of the epoch.
+const START_HEIGHT_END_OFFSET = 2 * MAX_FORK_DEPTH;
+
 export async function updateAndSaveCurrentReport() {
   try {
     log.info('Generating report...');
@@ -286,8 +295,11 @@ export async function updateAndSaveCurrentReport() {
     });
     const saveAfterHeight =
       report.epochStartHeight +
-      50 +
-      (entropy.readUInt32BE(0) % (EPOCH_BLOCK_LENGTH - 150));
+      START_HEIGHT_START_OFFSET +
+      (entropy.readUInt32BE(0) %
+        (EPOCH_BLOCK_LENGTH -
+          START_HEIGHT_START_OFFSET -
+          START_HEIGHT_END_OFFSET));
 
     const currentHeight = await chainSource.getHeight();
 
