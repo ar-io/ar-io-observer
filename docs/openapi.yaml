@@ -83,6 +83,7 @@ components:
     Report:
       type: object
       properties:
+        formatVersion: { type: integer }
         observerAddress: { '$ref': '#/components/schemas/ArweaveAddress' }
         generatedAt: { '$ref': '#/components/schemas/Timestamp' } 
         gatewayAssessments: { '$ref': '#/components/schemas/GatewayAssessments' }
