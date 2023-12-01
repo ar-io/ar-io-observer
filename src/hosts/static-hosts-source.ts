@@ -15,9 +15,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { GatewayHost, GatewayHostList } from '../types.js';
+import { GatewayHost, GatewayHostsSource } from '../types.js';
 
-export class StaticHostList implements GatewayHostList {
+export class StaticHostsSource implements GatewayHostsSource {
   private hosts: GatewayHost[];
 
   constructor({ hosts }: { hosts: GatewayHost[] }) {

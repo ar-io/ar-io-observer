@@ -21,12 +21,12 @@ import { TESTNET_CONTRACT_SETTINGS, getEpochStart } from '../protocol.js';
 import {
   EntropySource,
   GatewayHost,
-  GatewayHostList,
+  GatewayHostsSource,
   ObserversSource,
 } from '../types.js';
 
 export class RandomObserversSource implements ObserversSource {
-  private observedGatewayHostList: GatewayHostList;
+  private observedGatewayHostList: GatewayHostsSource;
   private entropySource: EntropySource;
   private numObserversToSource: number;
   private eligibleObservers: string[];
@@ -36,7 +36,7 @@ export class RandomObserversSource implements ObserversSource {
     entropySource,
     numObserversToSource,
   }: {
-    observedGatewayHostList: GatewayHostList;
+    observedGatewayHostList: GatewayHostsSource;
     entropySource: EntropySource;
     numObserversToSource: number;
   }) {

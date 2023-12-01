@@ -64,7 +64,7 @@ export interface GatewayHost {
   wallet: string;
 }
 
-export interface GatewayHostList {
+export interface GatewayHostsSource {
   getHosts(): Promise<GatewayHost[]>;
 }
 
