@@ -58,13 +58,15 @@ app.use(
   }),
 );
 
-app.use(
-  OpenApiValidator.middleware({
-    apiSpec: './docs/openapi.yaml',
-    validateRequests: true, // (default)
-    validateResponses: true, // false by default
-  }),
-);
+if (config.ENABLE_OPENAPI_VALIDATION) {
+  app.use(
+    OpenApiValidator.middleware({
+      apiSpec: './docs/openapi.yaml',
+      validateRequests: true, // (default)
+      validateResponses: true, // false by default
+    }),
+  );
+}
 
 app.get('/ar-io/observer/healthcheck', async (_req, res) => {
   const data = {
