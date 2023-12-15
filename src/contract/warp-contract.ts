@@ -22,7 +22,6 @@ import {
   EvaluationManifest,
   EvaluationOptions,
   InteractionResult,
-  LoggerFactory,
   Tag,
   Warp,
   WriteInteractionOptions,
@@ -89,9 +88,6 @@ export class WarpContract implements ObserverContract {
     this.warp = warp;
     this.cacheUrl = cacheUrl;
     this.contractId = contractId;
-
-    // Warp logger
-    LoggerFactory.INST.logLevel('fatal');
 
     // Initialize the AR.IO contract
     this.contract = this.warp.pst(contractId);
