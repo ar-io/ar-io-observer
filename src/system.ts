@@ -316,9 +316,15 @@ export async function updateAndSaveCurrentReport() {
       // within MAX_FORK_DEPTH blocks of the end of the epoch. If users ever
       // need to override this they can use the CLI to manually save the
       // report.
-      log.info('Not saving report - too close to end of epoch');
+      log.info('Not saving report - too close to end of epoch', {
+        currentHeight,
+        epochEndHeight: report.epochEndHeight,
+      });
     } else if (currentHeight < saveAfterHeight) {
-      log.info('Not saving report - save height not reached');
+      log.info('Not saving report - save height not reached', {
+        currentHeight,
+        saveAfterHeight,
+      });
     } else {
       reportSink.saveReport({ report });
     }
