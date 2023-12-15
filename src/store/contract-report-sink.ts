@@ -31,15 +31,18 @@ const MAX_FAILED_GATEWAY_SUMMARY_BYTES = 1280;
 export function getFailedGatewaySummaryFromReport(
   observerReport: ObserverReport,
 ): string[] {
-  const failedGatewaySummary: string[] = [];
-  for (const gatewayName in observerReport.gatewayAssessments) {
-    const gatewayAssessment = observerReport.gatewayAssessments[gatewayName];
-    // Check if the pass property is false
-    if (gatewayAssessment.pass === false) {
-      failedGatewaySummary.push(gatewayName);
-    }
-  }
-  return failedGatewaySummary;
+  const failedGatewaySummary: Set<string> = new Set();
+  Object.values(observerReport.gatewayAssessments).forEach(
+    (gatewayAssessment) => {
+      // Check if the pass property is false
+      if (gatewayAssessment.pass === false) {
+        failedGatewaySummary.add(
+          gatewayAssessment.ownershipAssessment.expectedWallet,
+        );
+      }
+    },
+  );
+  return [...failedGatewaySummary];
 }
 
 function splitArrayBySize(array: string[], maxSizeInBytes: number): string[][] {
