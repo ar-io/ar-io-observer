@@ -26,6 +26,8 @@ import { default as NodeCache } from 'node-cache';
 import * as fs from 'node:fs';
 import {
   JWKInterface,
+  LogLevel,
+  LoggerFactory,
   WarpFactory,
   defaultCacheOptions,
 } from 'warp-contracts/mjs';
@@ -197,6 +199,8 @@ if (turboReportSink !== undefined) {
   });
 }
 
+// Set our warp log level
+LoggerFactory.INST.logLevel(config.WARP_LOG_LEVEL as LogLevel);
 export const warp = WarpFactory.forMainnet(
   {
     ...defaultCacheOptions,

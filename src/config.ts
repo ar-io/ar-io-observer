@@ -101,3 +101,5 @@ export const KEY_FILE = './wallets/' + OBSERVER_WALLET + '.json';
 
 export const SUBMIT_CONTRACT_INTERACTIONS =
   env.varOrDefault('SUBMIT_CONTRACT_INTERACTIONS', 'false') === 'true';
+
+export const WARP_LOG_LEVEL = env.varOrDefault('WARP_LOG_LEVEL', 'fatal');
