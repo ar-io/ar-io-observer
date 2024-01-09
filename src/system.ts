@@ -22,6 +22,7 @@ import {
 } from '@ardrive/turbo-sdk/node';
 import { ArweaveSigner } from 'arbundles/node';
 import Arweave from 'arweave';
+import got from 'got';
 import { default as NodeCache } from 'node-cache';
 import * as fs from 'node:fs';
 import {
@@ -47,7 +48,11 @@ import { RemoteCacheArnsNameList } from './names/remote-cache-arns-name-list.js'
 import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
 import { ContractObserversSource } from './observers/contract-observers-source.js';
-import { EPOCH_BLOCK_LENGTH, EpochHeightSource } from './protocol.js';
+import {
+  EPOCH_BLOCK_LENGTH,
+  EpochHeightSource,
+  START_HEIGHT,
+} from './protocol.js';
 import { ContractReportSink } from './store/contract-report-sink.js';
 import { FsReportStore } from './store/fs-report-store.js';
 import {
@@ -75,8 +80,41 @@ const chainSource = new ChainSource({
   arweaveBaseUrl: config.ARWEAVE_URL,
 });
 
+// Attempt to read the start height and epoch block length from the contract
+let epochZeroStartHeigth = START_HEIGHT;
+let epochBlockLength = EPOCH_BLOCK_LENGTH;
+try {
+  const resp = await got
+    .get(
+      `${config.CONTRACT_CACHE_URL}/v1/contract/${config.CONTRACT_ID}/read/epoch`,
+    )
+    .json<any>();
+  epochZeroStartHeigth = +(resp?.result?.epochZeroStartHeight ?? START_HEIGHT);
+  log.info(
+    `Got epoch zero start height from contract: ${epochZeroStartHeigth}`,
+    {
+      epochZeroStartHeigth,
+    },
+  );
+  epochBlockLength = +(resp?.result?.epochBlockLength ?? EPOCH_BLOCK_LENGTH);
+  log.info(`Got epoch block length from contract: ${epochBlockLength}`, {
+    epochBlockLength,
+  });
+} catch (error: any) {
+  log.error(
+    `Unable to get start height from contract cache: ${error.message}; defaulting to ${START_HEIGHT}`,
+  );
+  log.error(
+    `Unable to get epoch block length from contract cache: ${error.message}; defaulting to ${EPOCH_BLOCK_LENGTH}`,
+  );
+}
+
 export const epochHeightSelector = new EpochHeightSource({
   heightSource: chainSource,
+  epochParams: {
+    startHeight: epochZeroStartHeigth,
+    epochBlockLength,
+  },
 });
 
 const remoteCacheArnsNameList =
@@ -301,7 +339,7 @@ export async function updateAndSaveCurrentReport() {
       report.epochStartHeight +
       START_HEIGHT_START_OFFSET +
       (entropy.readUInt32BE(0) %
-        (EPOCH_BLOCK_LENGTH -
+        (epochBlockLength -
           START_HEIGHT_START_OFFSET -
           START_HEIGHT_END_OFFSET));
 
