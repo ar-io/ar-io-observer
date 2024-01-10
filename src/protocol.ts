@@ -15,7 +15,10 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { HeightSource } from './types.js';
+import {
+  HeightSource,
+  EpochHeightSource as IEpochHeightSource,
+} from './types.js';
 
 export const START_HEIGHT = 0;
 export const EPOCH_BLOCK_LENGTH = 5000;
@@ -66,7 +69,7 @@ interface EpochParams {
   epochBlockLength: number;
 }
 
-export class EpochHeightSource implements HeightSource {
+export class EpochHeightSource implements IEpochHeightSource {
   private heightSource: HeightSource;
   private epochParams: EpochParams;
 
@@ -84,9 +87,17 @@ export class EpochHeightSource implements HeightSource {
     this.epochParams = epochParams;
   }
 
-  async getHeight(): Promise<number> {
+  async getEpochStartHeight(): Promise<number> {
     const height = await this.heightSource.getHeight();
     return getEpochStart({
+      ...this.epochParams,
+      height,
+    });
+  }
+
+  async getEpochEndHeight(): Promise<number> {
+    const height = await this.heightSource.getHeight();
+    return getEpochEnd({
       ...this.epochParams,
       height,
     });
