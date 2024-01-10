@@ -33,6 +33,11 @@ export interface HeightSource {
   getHeight(): Promise<number>;
 }
 
+export interface EpochHeightSource {
+  getEpochStartHeight(): Promise<number>;
+  getEpochEndHeight(): Promise<number>;
+}
+
 //
 // Name selection
 //

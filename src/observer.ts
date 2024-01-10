@@ -20,14 +20,13 @@ import got from 'got';
 import crypto from 'node:crypto';
 import pMap from 'p-map';
 
-import * as protocol from './protocol.js';
 import {
   ArnsNameAssessment,
   ArnsNameAssessments,
   ArnsNamesSource,
+  EpochHeightSource,
   GatewayAssessments,
   GatewayHostsSource,
-  HeightSource,
   ObserverReport,
   OwnershipAssessment,
 } from './types.js';
@@ -160,7 +159,7 @@ async function assessOwnership({
 export class Observer {
   private observerAddress: string;
   private referenceGatewayHost: string;
-  private epochHeightSource: HeightSource;
+  private epochHeightSource: EpochHeightSource;
   private observedGatewayHostList: GatewayHostsSource;
   private prescribedNamesSource: ArnsNamesSource;
   private chosenNamesSource: ArnsNamesSource;
@@ -179,7 +178,7 @@ export class Observer {
   }: {
     observerAddress: string;
     referenceGatewayHost: string;
-    epochHeightSource: HeightSource;
+    epochHeightSource: EpochHeightSource;
     observedGatewayHostList: GatewayHostsSource;
     prescribedNamesSource: ArnsNamesSource;
     chosenNamesSource: ArnsNamesSource;
@@ -291,8 +290,8 @@ export class Observer {
   }
 
   async generateReport(): Promise<ObserverReport> {
-    const epochStartHeight = await this.epochHeightSource.getHeight();
-    const epochEndHeight = epochStartHeight + protocol.EPOCH_BLOCK_LENGTH - 1;
+    const epochStartHeight = await this.epochHeightSource.getEpochStartHeight();
+    const epochEndHeight = await this.epochHeightSource.getEpochEndHeight();
     const prescribedNames = await this.prescribedNamesSource.getNames({
       height: epochStartHeight,
     });
