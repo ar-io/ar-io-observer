@@ -103,3 +103,8 @@ export const SUBMIT_CONTRACT_INTERACTIONS =
   env.varOrDefault('SUBMIT_CONTRACT_INTERACTIONS', 'false') === 'true';
 
 export const WARP_LOG_LEVEL = env.varOrDefault('WARP_LOG_LEVEL', 'fatal');
+
+export const REPORT_GENERATION_INTERVAL_MS = +env.varOrDefault(
+  'REPORT_GENERATION_INTERVAL_MS',
+  `${1000 * 60 * 60}`, // 1 hour
+);
