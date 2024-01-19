@@ -5205,10 +5205,10 @@ warp-arbundles@^1.0.4:
     buffer "^6.0.3"
     warp-isomorphic "^1.0.7"
 
-warp-contracts@1.4.28:
-  version "1.4.28"
-  resolved "https://registry.yarnpkg.com/warp-contracts/-/warp-contracts-1.4.28.tgz#ee8d5331acff3031d2813a8e2372e47daa580cf2"
-  integrity sha512-l6n2Ph2eWVWFHh+ivi6UvZt7RVYIZc07m1FrvkC9L6MZzMoOFeQDPNOinPy1Z7dNZRjlq3q0NI9zgGtgZZFtYA==
+warp-contracts@1.4.33:
+  version "1.4.33"
+  resolved "https://registry.yarnpkg.com/warp-contracts/-/warp-contracts-1.4.33.tgz#06091eddd92cba75b6ded6c9a97e4d574fe00127"
+  integrity sha512-MYmjhfgvzYSD8OCxt2ZGyHfn90aHBzdjB3JmtkThYpzs0OFhIO+CAFue67v+gbIAP9TPBrMu4S8l9lL0dRXl2g==
   dependencies:
     archiver "^5.3.0"
     arweave "1.13.7"
