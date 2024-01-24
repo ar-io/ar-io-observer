@@ -34,15 +34,17 @@ components:
     Info:
      type: object
      properties: 
-       wallet: { '$ref': '#/components/schemas/ArweaveWallet' } 
-       contractId: { '$ref': '#/components/schemas/ArweaveId' } 
+       wallet: { '$ref': '#/components/schemas/ArweaveWallet' }
+       contractId: { '$ref': '#/components/schemas/ArweaveId' }
     OwnershipAssessment:
       type: object
       properties:
-        expectedWallet: { '$ref': '#/components/schemas/ArweaveWallet' } 
-        observedWallet: { '$ref': '#/components/schemas/ArweaveWallet' } 
+        expectedWallets:
+          type: array
+          items: { '$ref': '#/components/schemas/ArweaveWallet' }
+        observedWallet: { '$ref': '#/components/schemas/ArweaveWallet' }
         failureReason: { type: string }
-        pass: { '$ref': '#/components/schemas/Evaluation' } 
+        pass: { '$ref': '#/components/schemas/Evaluation' }
     ArnsAssessment:
       type: object
       properties:
@@ -85,7 +87,7 @@ components:
       properties:
         formatVersion: { type: integer }
         observerAddress: { '$ref': '#/components/schemas/ArweaveAddress' }
-        generatedAt: { '$ref': '#/components/schemas/Timestamp' } 
+        generatedAt: { '$ref': '#/components/schemas/Timestamp' }
         gatewayAssessments: { '$ref': '#/components/schemas/GatewayAssessments' }
       required:
         - observerAddress
