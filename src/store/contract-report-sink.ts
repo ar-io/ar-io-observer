@@ -34,15 +34,17 @@ export function getFailedGatewaySummaryFromReport(
   const failedGatewaySummary: Set<string> = new Set();
   Object.values(observerReport.gatewayAssessments).forEach(
     (gatewayAssessment) => {
-      // Check if the pass property is false
-      if (gatewayAssessment.pass === false) {
-        failedGatewaySummary.add(
-          gatewayAssessment.ownershipAssessment.expectedWallet,
-        );
-      }
+      // Add expected wallets that do not match the observed wallet to the failed set
+      gatewayAssessment.ownershipAssessment.expectedWallets.forEach(
+        (wallet) => {
+          if (gatewayAssessment.ownershipAssessment.observedWallet !== wallet) {
+            failedGatewaySummary.add(wallet);
+          }
+        },
+      );
     },
   );
-  return [...failedGatewaySummary];
+  return [...failedGatewaySummary].sort();
 }
 
 function splitArrayBySize(array: string[], maxSizeInBytes: number): string[][] {

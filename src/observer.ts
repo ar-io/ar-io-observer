@@ -107,10 +107,10 @@ function getArnsResolution({
 
 async function assessOwnership({
   host,
-  expectedWallet,
+  expectedWallets,
 }: {
   host: string;
-  expectedWallet: string;
+  expectedWallets: string[];
 }): Promise<OwnershipAssessment> {
   try {
     const url = `https://${host}/ar-io/info`;
@@ -125,30 +125,32 @@ async function assessOwnership({
       })
       .json<any>();
     if (resp?.wallet) {
-      if (resp.wallet !== expectedWallet) {
+      if (!expectedWallets.includes(resp.wallet)) {
         return {
-          expectedWallet,
+          expectedWallets,
           observedWallet: null,
-          failureReason: `Wallet mismatch: expected ${expectedWallet} but found ${resp.wallet}`,
+          failureReason: `Wallet mismatch: expected one of ${expectedWallets.join(
+            ', ',
+          )} but found ${resp.wallet}`,
           pass: false,
         };
       } else {
         return {
-          expectedWallet,
+          expectedWallets,
           observedWallet: resp.wallet,
           pass: true,
         };
       }
     }
     return {
-      expectedWallet,
+      expectedWallets,
       observedWallet: null,
       failureReason: `No wallet found`,
       pass: false,
     };
   } catch (error: any) {
     return {
-      expectedWallet,
+      expectedWallets,
       observedWallet: null,
       failureReason: error?.message as string,
       pass: false,
@@ -302,12 +304,19 @@ export class Observer {
     // Assess gateway
     const gatewayAssessments: GatewayAssessments = {};
     const gatewayHosts = await this.observedGatewayHostList.getHosts();
+
+    // Create map of FQDN => hosts to handle duplicates
+    const hostWallets: { [key: string]: string[] } = {};
+    gatewayHosts.forEach((host) => {
+      (hostWallets[host.fqdn] ||= []).push(host.wallet);
+    });
+
     await pMap(
       gatewayHosts,
       async (host) => {
         const ownershipAssessment = await assessOwnership({
           host: host.fqdn,
-          expectedWallet: host.wallet,
+          expectedWallets: hostWallets[host.fqdn].sort(),
         });
 
         const [prescribedAssessments, chosenAssessments] = await Promise.all([
