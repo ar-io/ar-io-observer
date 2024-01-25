@@ -107,7 +107,7 @@ export class WarpContract implements ObserverContract {
       );
       this.contract.setEvaluationOptions(evaluationOptions);
       this.evaluationOptions = evaluationOptions;
-      this.contract.syncState(
+      await this.contract.syncState(
         `${this.cacheUrl}/v1/contract/${this.contractId}`,
       );
     }
