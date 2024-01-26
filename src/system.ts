@@ -209,10 +209,11 @@ export const turboClient: TurboAuthenticatedClient | undefined = (() => {
 const signer =
   walletJwk !== undefined ? new ArweaveSigner(walletJwk) : undefined;
 
+const arweaveURL = new URL(config.ARWEAVE_URL);
 export const arweave = new Arweave({
-  host: 'arweave.net',
+  host: arweaveURL.host,
   port: 443,
-  protocol: 'https',
+  protocol: arweaveURL.protocol.replace(':', ''),
 });
 
 const turboReportSink =
