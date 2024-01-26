@@ -25,6 +25,7 @@ import Arweave from 'arweave';
 import got from 'got';
 import { default as NodeCache } from 'node-cache';
 import * as fs from 'node:fs';
+import { LmdbCache } from 'warp-contracts-lmdb';
 import {
   JWKInterface,
   LogLevel,
@@ -245,7 +246,7 @@ export const warp = WarpFactory.forMainnet(
   },
   true,
   arweave,
-);
+).useStateCache(new LmdbCache(defaultCacheOptions));
 
 export const contract =
   walletJwk !== undefined
