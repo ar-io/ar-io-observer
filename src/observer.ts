@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import { Timings } from '@szmarczak/http-timer';
-import got from 'got';
+import got, { RequestError } from 'got';
 import crypto from 'node:crypto';
 import pMap from 'p-map';
 
@@ -46,7 +46,7 @@ interface ArnsResolution {
 }
 
 // TODO consider moving this into a resolver class
-function getArnsResolution({
+export function getArnsResolution({
   host,
   arnsName,
 }: {
@@ -64,20 +64,37 @@ function getArnsResolution({
   });
   const dataHash = crypto.createHash('sha256');
 
+  let streamBytesProcessed = 0;
+  const MAX_BYTES_TO_PROCESS = 1048576; // 1MiB
+
   return new Promise<ArnsResolution>((resolve, reject) => {
     let response: any;
 
-    stream.on('error', (error) => {
+    const resolveWithResponse = (response: any) =>
+      resolve({
+        statusCode: response.statusCode,
+        resolvedId: response.headers['x-arns-resolved-id'] ?? null,
+        ttlSeconds: response.headers['x-arns-ttl-seconds'],
+        contentType: response.headers['content-type'],
+        contentLength: response.headers['content-length'],
+        dataHashDigest: dataHash.digest('base64url'),
+        timings: response.timings,
+      });
+
+    const resolveWith404 = () =>
+      resolve({
+        statusCode: 404,
+        resolvedId: null,
+        ttlSeconds: null,
+        contentType: null,
+        contentLength: null,
+        dataHashDigest: null,
+        timings: null,
+      });
+
+    stream.on('error', (error: RequestError) => {
       if ((error as any)?.response?.statusCode === 404) {
-        resolve({
-          statusCode: 404,
-          resolvedId: null,
-          ttlSeconds: null,
-          contentType: null,
-          contentLength: null,
-          dataHashDigest: null,
-          timings: null,
-        });
+        resolveWith404();
       } else {
         reject(error);
       }
@@ -88,19 +105,27 @@ function getArnsResolution({
     });
 
     stream.on('data', (data) => {
-      dataHash.update(data);
+      const bytesToProcess = Math.min(
+        data.length,
+        MAX_BYTES_TO_PROCESS - streamBytesProcessed,
+      );
+
+      if (bytesToProcess > 0) {
+        dataHash.update(data.slice(0, bytesToProcess));
+        streamBytesProcessed += bytesToProcess;
+      }
+
+      if (streamBytesProcessed >= MAX_BYTES_TO_PROCESS) {
+        stream.on('close', () => {
+          resolveWithResponse(response);
+        });
+
+        stream.destroy();
+      }
     });
 
     stream.on('end', () => {
-      resolve({
-        statusCode: +response.statusCode,
-        resolvedId: response.headers['x-arns-resolved-id'],
-        ttlSeconds: response.headers['x-arns-ttl-seconds'],
-        contentType: response.headers['content-type'],
-        contentLength: response.headers['content-length'],
-        dataHashDigest: dataHash.digest('base64url'),
-        timings: response.timings,
-      });
+      resolveWithResponse(response);
     });
   });
 }
