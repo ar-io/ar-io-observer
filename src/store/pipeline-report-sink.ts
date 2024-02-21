@@ -53,16 +53,19 @@ export class PipelineReportSink implements ReportSink {
         log.info(`Saving report using ${name}...`);
         const maybeReportInfo = await sink.saveReport(lastReportInfo);
 
-        // Pass returned report info to the next sink
-        if (maybeReportInfo !== undefined) {
-          lastReportInfo = maybeReportInfo;
-          log.info(`Report saved using ${name}`, {
-            ...lastReportInfo,
-            report: undefined,
-          });
+        if (!maybeReportInfo) {
+          return;
         }
+
+        // Pass returned report info to the next sink
+        lastReportInfo = maybeReportInfo;
+        log.info(`Report saved using ${name}`, {
+          ...lastReportInfo,
+          report: undefined,
+        });
       } catch (error) {
-        log.error('Error saving report', { error });
+        log.error(`Error saving report using ${name}`, { error });
+        return;
       }
     }
     log.info('Report saved');

@@ -155,7 +155,7 @@ export interface ReportSink {
 }
 
 export interface ReportStore {
-  saveReport(reportInfo: ReportInfo): Promise<ReportInfo | undefined>;
+  saveReport(reportInfo: ReportInfo): Promise<ReportInfo>;
   getReport(epochStartHeight: number): Promise<ObserverReport | null>;
   latestReport(): Promise<ObserverReport | null>;
 }
@@ -179,5 +179,5 @@ export interface ObserverContract {
   writeInteraction(
     interaction: ObservationInteraction,
     options?: WriteInteractionOptions,
-  ): Promise<WriteInteractionResponse | null>;
+  ): Promise<WriteInteractionResponse>;
 }

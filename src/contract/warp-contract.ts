@@ -154,16 +154,22 @@ export class WarpContract implements ObserverContract {
   async writeInteraction(
     interaction: ObservationInteraction,
     options?: WriteInteractionOptions,
-  ): Promise<WriteInteractionResponse | null> {
+  ): Promise<WriteInteractionResponse> {
     await this.ensureContractInit();
 
     this.log.debug('Writing contract interaction...', { interaction });
     for (let i = 0; i < MAX_INTERACTION_RETRIES; i++) {
       try {
-        return await this.contract.writeInteraction(interaction, {
+        const response = await this.contract.writeInteraction(interaction, {
           disableBundling: true,
           ...options,
         });
+
+        if (!response) {
+          throw new Error();
+        }
+
+        return response;
       } catch (error: any) {
         this.log.error('Error writing interaction:', {
           message: error?.message,
