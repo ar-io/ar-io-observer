@@ -98,13 +98,10 @@ export class ContractReportSink implements ReportSink {
     this.walletAddress = walletAddress;
   }
 
-  async saveReport(reportInfo: ReportInfo): Promise<
-    | {
-        report: ObserverReport;
-        interactionTxIds?: string[];
-      }
-    | undefined
-  > {
+  async saveReport(reportInfo: ReportInfo): Promise<{
+    report: ObserverReport;
+    interactionTxIds?: string[];
+  }> {
     const { report, reportTxId } = reportInfo;
     const failedGatewaySummaries: string[] =
       getFailedGatewaySummaryFromReport(report);
@@ -146,12 +143,9 @@ export class ContractReportSink implements ReportSink {
           ],
         },
       );
-      if (saveObservationsTxId) {
-        saveObservationsTxIds.push(saveObservationsTxId.originalTxId);
-      } else {
-        saveObservationsTxIds.push('invalid');
-      }
+      saveObservationsTxIds.push(saveObservationsTxId.originalTxId);
     }
+
     this.log.info('Observation interactions saved', {
       interactionIds: saveObservationsTxIds,
     });
