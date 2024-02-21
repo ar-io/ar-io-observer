@@ -35,7 +35,7 @@ export class FsReportStore implements ReportSink, ReportStore {
     this.baseDir = baseDir;
   }
 
-  async saveReport(reportInfo: ReportInfo): Promise<ReportInfo | undefined> {
+  async saveReport(reportInfo: ReportInfo): Promise<ReportInfo> {
     if (!fs.existsSync(this.baseDir)) {
       await fs.promises.mkdir(this.baseDir, { recursive: true });
     }
