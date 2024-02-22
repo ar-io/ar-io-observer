@@ -166,7 +166,7 @@ export class WarpContract implements ObserverContract {
         });
 
         if (!response) {
-          throw new Error();
+          throw new Error('Failed to write interaction');
         }
 
         return response;
