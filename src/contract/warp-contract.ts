@@ -157,6 +157,12 @@ export class WarpContract implements ObserverContract {
   ): Promise<WriteInteractionResponse> {
     await this.ensureContractInit();
 
+    this.log.debug('Dry writing contract interaction...', { interaction });
+    const dryWriteResult = await this.contract.dryWrite(interaction);
+    if (dryWriteResult.type === 'error') {
+      throw new Error(`Dry write failed: ${dryWriteResult.errorMessage}`);
+    }
+
     this.log.debug('Writing contract interaction...', { interaction });
     for (let i = 0; i < MAX_INTERACTION_RETRIES; i++) {
       try {
