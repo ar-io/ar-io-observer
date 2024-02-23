@@ -40,7 +40,7 @@ export class PipelineReportSink implements ReportSink {
     this.sinks = sinks;
   }
 
-  async saveReport(reportInfo: ReportInfo): Promise<ReportInfo | undefined> {
+  async saveReport(reportInfo: ReportInfo): Promise<ReportInfo> {
     const report = reportInfo.report;
     const log = this.log.child({
       epochStartHeight: report.epochStartHeight,
@@ -51,24 +51,17 @@ export class PipelineReportSink implements ReportSink {
     for (const { name, sink } of this.sinks) {
       try {
         log.info(`Saving report using ${name}...`);
-        const maybeReportInfo = await sink.saveReport(lastReportInfo);
+        lastReportInfo = await sink.saveReport(lastReportInfo);
 
-        if (!maybeReportInfo) {
-          return;
-        }
-
-        // Pass returned report info to the next sink
-        lastReportInfo = maybeReportInfo;
+        // Setting report to undefined to avoid verbose logging
         log.info(`Report saved using ${name}`, {
           ...lastReportInfo,
           report: undefined,
         });
       } catch (error) {
         log.error(`Error saving report using ${name}`, { error });
-        return;
       }
     }
-    log.info('Report saved');
 
     return lastReportInfo;
   }
