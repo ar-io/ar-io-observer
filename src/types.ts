@@ -151,7 +151,7 @@ export interface ReportInfo {
 }
 
 export interface ReportSink {
-  saveReport(reportInfo: ReportInfo): Promise<ReportInfo | undefined>;
+  saveReport(reportInfo: ReportInfo): Promise<ReportInfo>;
 }
 
 export interface ReportStore {
