@@ -130,7 +130,7 @@ export class TurboReportSink implements ReportSink {
         reportTxId: id,
       };
     } catch (error) {
-      log.error('Error saving report', error);
+      throw new Error(`Error saving report: ${error}`);
     } finally {
       const { winc: newBalance } = await this.turboClient.getBalance();
       log.info(`New Turbo balance: ${newBalance}`, {
