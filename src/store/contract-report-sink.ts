@@ -15,10 +15,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import Arweave from 'arweave';
+import got from 'got';
 import { Tag } from 'warp-contracts/mjs';
 import * as winston from 'winston';
 
+import { CONTRACT_CACHE_URL, CONTRACT_ID } from '../config.js';
 import {
   ObserverContract,
   ObserverReport,
@@ -45,6 +46,43 @@ export function getFailedGatewaySummaryFromReport(
     },
   );
   return [...failedGatewaySummary].sort();
+}
+
+interface FailureSummariesResponse {
+  contractTxId: string;
+  result: {
+    [key: string]: string[];
+  };
+}
+export async function interactionAlreadySaved({
+  observerWallet,
+  epochStartHeight,
+  failedGatewaySummaries,
+  contractCacheUrl = CONTRACT_CACHE_URL,
+  contractId = CONTRACT_ID,
+}: {
+  observerWallet: string;
+  epochStartHeight: number;
+  failedGatewaySummaries: string[];
+  contractCacheUrl?: string;
+  contractId?: string;
+}): Promise<boolean> {
+  const { result } = await got
+    .get(
+      `${contractCacheUrl}/v1/contract/${contractId}/state/observations/${epochStartHeight}/failureSummaries`,
+    )
+    .json<FailureSummariesResponse>();
+
+  for (const failedGateway of failedGatewaySummaries) {
+    if (
+      !Object.prototype.hasOwnProperty.call(result, failedGateway) ||
+      !result[failedGateway].includes(observerWallet)
+    ) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function splitArrayBySize(array: string[], maxSizeInBytes: number): string[][] {
@@ -77,23 +115,19 @@ function splitArrayBySize(array: string[], maxSizeInBytes: number): string[][] {
 export class ContractReportSink implements ReportSink {
   // Dependencies
   private log: winston.Logger;
-  private arweave: Arweave;
   private contract: ObserverContract;
   private readonly walletAddress: string;
 
   constructor({
     log,
-    arweave,
     contract,
     walletAddress,
   }: {
     log: winston.Logger;
-    arweave: Arweave;
     contract: ObserverContract;
     walletAddress: string;
   }) {
     this.log = log;
-    this.arweave = arweave;
     this.contract = contract;
     this.walletAddress = walletAddress;
   }
@@ -112,10 +146,19 @@ export class ContractReportSink implements ReportSink {
       MAX_FAILED_GATEWAY_SUMMARY_BYTES,
     );
 
-    const interactionCount = await this.interactionCount(report);
-    if (interactionCount >= splitFailedGatewaySummaries.length) {
-      this.log.info('Observation interactions already saved');
-      return reportInfo;
+    try {
+      this.log.debug('Checking if interactions were already saved');
+      const isInteractionAlreadySaved = await interactionAlreadySaved({
+        observerWallet: this.walletAddress,
+        epochStartHeight: report.epochStartHeight,
+        failedGatewaySummaries,
+      });
+      if (isInteractionAlreadySaved) {
+        this.log.info('Observation interactions already saved');
+        return reportInfo;
+      }
+    } catch (error) {
+      throw new Error('Failed to check if interactions already saved');
     }
 
     // Processes each failed gateway summary using the same observation report tx id.
@@ -154,41 +197,5 @@ export class ContractReportSink implements ReportSink {
       ...reportInfo,
       interactionTxIds: saveObservationsTxIds,
     };
-  }
-
-  async interactionCount(report: ObserverReport): Promise<number> {
-    const epochStartHeight = report.epochStartHeight;
-    // TODO handle more than 100 interactions
-    const queryObject = {
-      query: `{
-  transactions(
-    first:100,
-    owners: [ "${this.walletAddress}" ],
-    tags: [
-      {
-        name: "AR-IO-Epoch-Start-Height",
-        values: [ "${epochStartHeight}" ]
-      },
-      {
-        name: "AR-IO-Component",
-        values: [ "observer" ]
-      },
-      {
-        name: "App-Name",
-        values: ["SmartWeaveAction"]
-      }
-    ]
-  ) 
-  {
-    edges {
-      node {
-        id
-      }
-    }
-  }
-}`,
-    };
-    const response = await this.arweave.api.post('/graphql', queryObject);
-    return response?.data?.data?.transactions?.edges?.length ?? 0;
   }
 }
