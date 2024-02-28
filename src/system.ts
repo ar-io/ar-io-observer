@@ -318,7 +318,7 @@ export async function updateAndSaveCurrentReport() {
     try {
       log.info('Getting observers from contract state...');
       observers = (await prescribedObserversSource?.getObservers()) ?? [];
-      log.info(`Retreived ${observers.length} observers from contract state`);
+      log.info(`Retrieved ${observers.length} observers from contract state`);
       if (observers.length === 0) {
         log.error('No observers found in contract state');
         return;
