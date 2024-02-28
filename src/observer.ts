@@ -20,6 +20,7 @@ import got, { RequestError } from 'got';
 import crypto from 'node:crypto';
 import pMap from 'p-map';
 
+import { AR_IO_NODE_RELEASE } from './config.js';
 import {
   ArnsNameAssessment,
   ArnsNameAssessments,
@@ -49,11 +50,18 @@ interface ArnsResolution {
 export function getArnsResolution({
   host,
   arnsName,
+  nodeReleaseVersion,
 }: {
   host: string;
   arnsName: string;
+  nodeReleaseVersion?: string;
 }): Promise<ArnsResolution> {
   const url = `https://${arnsName}.${host}/`;
+  const nodeReleaseHeader =
+    nodeReleaseVersion !== undefined
+      ? { 'X-AR-IO-Node-Release': nodeReleaseVersion }
+      : {};
+
   const stream = got.stream.get(url, {
     timeout: {
       lookup: 5000,
@@ -61,6 +69,7 @@ export function getArnsResolution({
       secureConnect: 2000,
       socket: 1000,
     },
+    headers: nodeReleaseHeader,
   });
   const dataHash = crypto.createHash('sha256');
 
@@ -233,6 +242,7 @@ export class Observer {
     const referenceResolution = await getArnsResolution({
       host: this.referenceGatewayHost,
       arnsName,
+      nodeReleaseVersion: AR_IO_NODE_RELEASE,
     });
 
     const gatewayResolution = await getArnsResolution({
