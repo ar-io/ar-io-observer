@@ -23,7 +23,7 @@ import swaggerUi from 'swagger-ui-express';
 import YAML from 'yaml';
 
 import * as config from './config.js';
-import { reportCache } from './system.js';
+import { reportCache, walletAddress } from './system.js';
 
 // HTTP server
 export const app = express();
@@ -80,7 +80,7 @@ app.get('/ar-io/observer/healthcheck', async (_req, res) => {
 
 app.get('/ar-io/observer/info', (_req, res) => {
   res.status(200).send({
-    wallet: config.OBSERVER_WALLET,
+    wallet: walletAddress,
     contractId: config.CONTRACT_ID,
   });
 });
