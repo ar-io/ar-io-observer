@@ -217,6 +217,11 @@ export const arweave = new Arweave({
   protocol: arweaveURL.protocol.replace(':', ''),
 });
 
+export const walletAddress =
+  walletJwk !== undefined
+    ? await arweave.wallets.jwkToAddress(walletJwk)
+    : 'undefined';
+
 const turboReportSink =
   turboClient && signer
     ? new TurboReportSink({
