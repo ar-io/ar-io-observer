@@ -108,3 +108,5 @@ export const REPORT_GENERATION_INTERVAL_MS = +env.varOrDefault(
   'REPORT_GENERATION_INTERVAL_MS',
   `${1000 * 60 * 60}`, // 1 hour
 );
+
+export const AR_IO_NODE_RELEASE = env.varOrDefault('AR_IO_NODE_RELEASE', '0');

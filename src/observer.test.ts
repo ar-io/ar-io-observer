@@ -117,4 +117,49 @@ describe('getArnsResolution', function () {
       expect(error.response.statusCode).to.equal(500);
     }
   });
+
+  it('should add "X-AR-IO-Node-Release" header when making a request to a reference gateway', async function () {
+    const data = Buffer.alloc(100, 'a').toString();
+    const scope = nock(baseURL, {
+      reqheaders: {
+        'X-AR-IO-Node-Release': 'test',
+      },
+    })
+      .get('/')
+      .reply(200, data, {
+        'Content-Type': defaultContentType,
+        'x-arns-resolved-id': defaultArnsResolvedId,
+        'x-arns-ttl-seconds': defaultArnsTtlSeconds,
+        'Content-Length': String(data.length),
+      });
+
+    await getArnsResolution({
+      host,
+      arnsName,
+      nodeReleaseVersion: 'test',
+    });
+
+    expect(scope.isDone()).to.be.true;
+  });
+
+  it('should not add "X-AR-IO-Node-Release" header when assessing a gateway', async function () {
+    const data = Buffer.alloc(100, 'a').toString();
+    const scope = nock(baseURL, {
+      badheaders: ['X-AR-IO-Node-Release'],
+    })
+      .get('/')
+      .reply(200, data, {
+        'Content-Type': defaultContentType,
+        'x-arns-resolved-id': defaultArnsResolvedId,
+        'x-arns-ttl-seconds': defaultArnsTtlSeconds,
+        'Content-Length': String(data.length),
+      });
+
+    await getArnsResolution({
+      host,
+      arnsName,
+    });
+
+    expect(scope.isDone()).to.be.true;
+  });
 });
