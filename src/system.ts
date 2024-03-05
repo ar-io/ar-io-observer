@@ -164,6 +164,7 @@ export const observer = new Observer({
   chosenNamesSource,
   gatewayAssessmentConcurrency: config.GATEWAY_ASSESSMENT_CONCURRENCY,
   nameAssessmentConcurrency: config.NAME_ASSESSMENT_CONCURRENCY,
+  nodeReleaseVersion: config.AR_IO_NODE_RELEASE,
 });
 
 export const reportCache = new NodeCache({

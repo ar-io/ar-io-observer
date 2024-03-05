@@ -20,7 +20,6 @@ import got, { RequestError } from 'got';
 import crypto from 'node:crypto';
 import pMap from 'p-map';
 
-import { AR_IO_NODE_RELEASE } from './config.js';
 import {
   ArnsNameAssessment,
   ArnsNameAssessments,
@@ -201,6 +200,7 @@ export class Observer {
   private chosenNamesSource: ArnsNamesSource;
   private gatewayAsessementConcurrency: number;
   private nameAssessmentConcurrency: number;
+  private nodeReleaseVersion: string;
 
   constructor({
     observerAddress,
@@ -211,6 +211,7 @@ export class Observer {
     observedGatewayHostList,
     gatewayAssessmentConcurrency,
     nameAssessmentConcurrency,
+    nodeReleaseVersion,
   }: {
     observerAddress: string;
     referenceGatewayHost: string;
@@ -220,6 +221,7 @@ export class Observer {
     chosenNamesSource: ArnsNamesSource;
     gatewayAssessmentConcurrency: number;
     nameAssessmentConcurrency: number;
+    nodeReleaseVersion: string;
   }) {
     this.observerAddress = observerAddress;
     this.referenceGatewayHost = referenceGatewayHost;
@@ -229,6 +231,7 @@ export class Observer {
     this.chosenNamesSource = chosenNamesSource;
     this.gatewayAsessementConcurrency = gatewayAssessmentConcurrency;
     this.nameAssessmentConcurrency = nameAssessmentConcurrency;
+    this.nodeReleaseVersion = nodeReleaseVersion;
   }
 
   async assessArnsName({
@@ -242,7 +245,7 @@ export class Observer {
     const referenceResolution = await getArnsResolution({
       host: this.referenceGatewayHost,
       arnsName,
-      nodeReleaseVersion: AR_IO_NODE_RELEASE,
+      nodeReleaseVersion: this.nodeReleaseVersion,
     });
 
     const gatewayResolution = await getArnsResolution({
