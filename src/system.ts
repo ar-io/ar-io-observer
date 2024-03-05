@@ -220,7 +220,7 @@ export const arweave = new Arweave({
 export const walletAddress =
   walletJwk !== undefined
     ? await arweave.wallets.jwkToAddress(walletJwk)
-    : 'undefined';
+    : 'INVALID';
 
 const turboReportSink =
   turboClient && signer
