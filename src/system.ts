@@ -165,6 +165,7 @@ export const observer = new Observer({
   gatewayAssessmentConcurrency: config.GATEWAY_ASSESSMENT_CONCURRENCY,
   nameAssessmentConcurrency: config.NAME_ASSESSMENT_CONCURRENCY,
   nodeReleaseVersion: config.AR_IO_NODE_RELEASE,
+  entropySource: chainEntropySource,
 });
 
 export const reportCache = new NodeCache({
