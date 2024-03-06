@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import { Timings } from '@szmarczak/http-timer';
-import got, { RequestError } from 'got';
+import got, { RequestError, Response } from 'got';
 import crypto from 'node:crypto';
 import pMap from 'p-map';
 
@@ -24,6 +24,7 @@ import {
   ArnsNameAssessment,
   ArnsNameAssessments,
   ArnsNamesSource,
+  EntropySource,
   EpochHeightSource,
   GatewayAssessments,
   GatewayHostsSource,
@@ -45,95 +46,190 @@ interface ArnsResolution {
   timings: Timings | null;
 }
 
+const client = got.extend({
+  timeout: {
+    lookup: 5000,
+    connect: 2000,
+    secureConnect: 2000,
+    socket: 1000,
+  },
+});
+
+export function bufferToSeed(buffer: Buffer): number[] {
+  if (buffer.length === 0) {
+    throw new Error('Buffer is empty. Non-empty buffer required.');
+  }
+
+  return Array.from(buffer).map((byte) => byte / 255);
+}
+
+export function customPRNG(seed: number[]): () => number {
+  if (seed.length === 0) {
+    throw new Error('Seed array must not be empty.');
+  }
+
+  let index = 0;
+  return () => {
+    const result = seed[index % seed.length];
+    index = (index + 1) % seed.length;
+    return result;
+  };
+}
+
+export function generateRandomRanges({
+  contentSize,
+  rangeSize,
+  rangeQuantity,
+  rng,
+}: {
+  contentSize: number;
+  rangeSize: number;
+  rangeQuantity: number;
+  rng: () => number;
+}): string[] {
+  const ranges: string[] = [];
+
+  for (let i = 0; i < rangeQuantity; i++) {
+    const maxStart = contentSize - rangeSize;
+    const start = Math.floor(rng() * maxStart);
+    const end = start + rangeSize - 1;
+    ranges.push(`${start}-${end}`);
+  }
+
+  return ranges;
+}
+
 // TODO consider moving this into a resolver class
-export function getArnsResolution({
+export async function getArnsResolution({
   host,
   arnsName,
   nodeReleaseVersion,
+  entropy,
 }: {
   host: string;
   arnsName: string;
   nodeReleaseVersion?: string;
+  entropy: Buffer;
 }): Promise<ArnsResolution> {
-  const url = `https://${arnsName}.${host}/`;
-  const nodeReleaseHeader =
-    nodeReleaseVersion !== undefined
-      ? { 'X-AR-IO-Node-Release': nodeReleaseVersion }
-      : {};
-
-  const stream = got.stream.get(url, {
-    timeout: {
-      lookup: 5000,
-      connect: 2000,
-      secureConnect: 2000,
-      socket: 1000,
-    },
-    headers: nodeReleaseHeader,
-  });
-  const dataHash = crypto.createHash('sha256');
-
-  let streamBytesProcessed = 0;
   const MAX_BYTES_TO_PROCESS = 1048576; // 1MiB
+  const url = `https://${arnsName}.${host}/`;
 
-  return new Promise<ArnsResolution>((resolve, reject) => {
-    let response: any;
+  let gotClient = client;
 
-    const resolveWithResponse = (response: any) =>
+  if (nodeReleaseVersion !== undefined) {
+    gotClient = client.extend({
+      headers: { 'X-AR-IO-Node-Release': nodeReleaseVersion },
+    });
+  }
+
+  const notFoundResponse = {
+    statusCode: 404,
+    resolvedId: null,
+    ttlSeconds: null,
+    contentType: null,
+    contentLength: null,
+    dataHashDigest: null,
+    timings: null,
+  };
+
+  const resolveWithResponse = (
+    resolve: (value: ArnsResolution | PromiseLike<ArnsResolution>) => void,
+    response: Response,
+  ) => {
+    if (response.statusCode === 404) {
+      resolve(notFoundResponse);
+    } else {
       resolve({
         statusCode: response.statusCode,
-        resolvedId: response.headers['x-arns-resolved-id'] ?? null,
-        ttlSeconds: response.headers['x-arns-ttl-seconds'],
-        contentType: response.headers['content-type'],
-        contentLength: response.headers['content-length'],
+        resolvedId:
+          (response.headers['x-arns-resolved-id'] as string | undefined) ??
+          null,
+        ttlSeconds:
+          (response.headers['x-arns-ttl-seconds'] as string | undefined) ??
+          null,
+        contentType:
+          (response.headers['content-type'] as string | undefined) ?? null,
+        contentLength: response.headers['content-length'] ?? null,
         dataHashDigest: dataHash.digest('base64url'),
         timings: response.timings,
       });
+    }
+  };
 
-    const resolveWith404 = () =>
-      resolve({
-        statusCode: 404,
-        resolvedId: null,
-        ttlSeconds: null,
-        contentType: null,
-        contentLength: null,
-        dataHashDigest: null,
-        timings: null,
+  let headResponse: Response;
+
+  try {
+    headResponse = await gotClient.head(url);
+  } catch (error: any) {
+    if ((error as any)?.response?.statusCode === 404) {
+      return notFoundResponse;
+    }
+
+    throw error;
+  }
+
+  if (headResponse.headers['content-length'] === undefined) {
+    throw new Error('Content length is not defined');
+  }
+
+  const contentLength = headResponse.headers['content-length'];
+
+  const dataHash = crypto.createHash('sha256');
+
+  if (+contentLength > MAX_BYTES_TO_PROCESS) {
+    return new Promise<ArnsResolution>((resolve, reject) => {
+      const rng = customPRNG(bufferToSeed(entropy));
+      const ranges = generateRandomRanges({
+        contentSize: +contentLength,
+        rangeSize: 200,
+        rangeQuantity: 5,
+        rng,
       });
 
+      Promise.all(
+        ranges.map((range) =>
+          gotClient.get(headResponse.requestUrl, {
+            responseType: 'buffer',
+            headers: {
+              Range: `bytes=${range}`,
+            },
+          }),
+        ),
+      )
+        .then((rangeResponses) => {
+          rangeResponses.forEach((response) => {
+            dataHash.update(response.body);
+          });
+
+          resolveWithResponse(resolve, headResponse);
+        })
+        .catch((error) => {
+          if ((error as any)?.response?.statusCode === 404) {
+            resolveWithResponse(resolve, error.response);
+          } else {
+            reject(error);
+          }
+        });
+    });
+  }
+
+  return new Promise<ArnsResolution>((resolve, reject) => {
+    const stream = gotClient.stream.get(url);
+
     stream.on('error', (error: RequestError) => {
-      if ((error as any)?.response?.statusCode === 404) {
-        resolveWith404();
+      if (error.response !== undefined && error.response.statusCode === 404) {
+        resolveWithResponse(resolve, error.response);
       } else {
         reject(error);
       }
     });
 
-    stream.on('response', (resp) => {
-      response = resp;
-    });
-
     stream.on('data', (data) => {
-      const bytesToProcess = Math.min(
-        data.length,
-        MAX_BYTES_TO_PROCESS - streamBytesProcessed,
-      );
-
-      if (bytesToProcess > 0) {
-        dataHash.update(data.slice(0, bytesToProcess));
-        streamBytesProcessed += bytesToProcess;
-      }
-
-      if (streamBytesProcessed >= MAX_BYTES_TO_PROCESS) {
-        stream.on('close', () => {
-          resolveWithResponse(response);
-        });
-
-        stream.destroy();
-      }
+      dataHash.update(data);
     });
 
     stream.on('end', () => {
-      resolveWithResponse(response);
+      resolveWithResponse(resolve, headResponse);
     });
   });
 }
@@ -147,16 +243,7 @@ async function assessOwnership({
 }): Promise<OwnershipAssessment> {
   try {
     const url = `https://${host}/ar-io/info`;
-    const resp = await got
-      .get(url, {
-        timeout: {
-          lookup: 5000,
-          connect: 2000,
-          secureConnect: 2000,
-          socket: 1000,
-        },
-      })
-      .json<any>();
+    const resp = await client.get(url).json<any>();
     if (resp?.wallet) {
       if (!expectedWallets.includes(resp.wallet)) {
         return {
@@ -201,6 +288,7 @@ export class Observer {
   private gatewayAsessementConcurrency: number;
   private nameAssessmentConcurrency: number;
   private nodeReleaseVersion: string;
+  private entropySource: EntropySource;
 
   constructor({
     observerAddress,
@@ -212,6 +300,7 @@ export class Observer {
     gatewayAssessmentConcurrency,
     nameAssessmentConcurrency,
     nodeReleaseVersion,
+    entropySource,
   }: {
     observerAddress: string;
     referenceGatewayHost: string;
@@ -222,6 +311,7 @@ export class Observer {
     gatewayAssessmentConcurrency: number;
     nameAssessmentConcurrency: number;
     nodeReleaseVersion: string;
+    entropySource: EntropySource;
   }) {
     this.observerAddress = observerAddress;
     this.referenceGatewayHost = referenceGatewayHost;
@@ -232,25 +322,30 @@ export class Observer {
     this.gatewayAsessementConcurrency = gatewayAssessmentConcurrency;
     this.nameAssessmentConcurrency = nameAssessmentConcurrency;
     this.nodeReleaseVersion = nodeReleaseVersion;
+    this.entropySource = entropySource;
   }
 
   async assessArnsName({
     host,
     arnsName,
+    entropy,
   }: {
     host: string;
     arnsName: string;
+    entropy: Buffer;
   }): Promise<ArnsNameAssessment> {
     // TODO handle exceptions
     const referenceResolution = await getArnsResolution({
       host: this.referenceGatewayHost,
       arnsName,
       nodeReleaseVersion: this.nodeReleaseVersion,
+      entropy,
     });
 
     const gatewayResolution = await getArnsResolution({
       host,
       arnsName,
+      entropy,
     });
 
     let pass = true;
@@ -289,9 +384,11 @@ export class Observer {
   async assessArnsNames({
     host,
     names,
+    entropy,
   }: {
     host: string;
     names: string[];
+    entropy: Buffer;
   }): Promise<ArnsNameAssessments> {
     return pMap(
       names,
@@ -300,6 +397,7 @@ export class Observer {
           return await this.assessArnsName({
             host,
             arnsName: name,
+            entropy,
           });
         } catch (err) {
           const errorMessage =
@@ -349,6 +447,10 @@ export class Observer {
       (hostWallets[host.fqdn] ||= []).push(host.wallet);
     });
 
+    const entropy = await this.entropySource.getEntropy({
+      height: epochStartHeight,
+    });
+
     await pMap(
       gatewayHosts,
       async (host) => {
@@ -361,10 +463,12 @@ export class Observer {
           await this.assessArnsNames({
             host: host.fqdn,
             names: prescribedNames,
+            entropy,
           }),
           await this.assessArnsNames({
             host: host.fqdn,
             names: chosenNames,
+            entropy,
           }),
         ]);
 
