@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import { expect } from 'chai';
+import got from 'got';
 import nock from 'nock';
 import crypto from 'node:crypto';
 
@@ -31,9 +32,8 @@ const entropy = Buffer.from('entropy');
 
 describe('Observer', function () {
   describe('getArnsResolution', function () {
-    const host = 'example.com';
-    const arnsName = 'test';
-    const baseURL = `https://${arnsName}.${host}`;
+    const url = 'https://arnsname.gateway.com';
+    const invalidUrl = 'http://invalidhost.invaliddomain';
 
     const defaultContentType = 'application/octet-stream';
     const defaultArnsResolvedId = '12345';
@@ -45,7 +45,7 @@ describe('Observer', function () {
 
     it('should correctly hash data for responses under 1MiB', async function () {
       const data = Buffer.alloc(100, 'a').toString();
-      nock(baseURL)
+      nock(url)
         .head('/')
         .reply(200, undefined, {
           'Content-Type': defaultContentType,
@@ -53,7 +53,7 @@ describe('Observer', function () {
           'x-arns-ttl-seconds': defaultArnsTtlSeconds,
           'Content-Length': String(data.length),
         });
-      nock(baseURL)
+      nock(url)
         .get('/')
         .reply(200, data, {
           'Content-Type': defaultContentType,
@@ -66,7 +66,11 @@ describe('Observer', function () {
         .update(data)
         .digest('base64url');
 
-      const result = await getArnsResolution({ host, arnsName, entropy });
+      const result = await getArnsResolution({
+        url,
+        got,
+        entropy,
+      });
 
       expect(result.statusCode).to.equal(200);
       expect(result.resolvedId).to.equal(defaultArnsResolvedId);
@@ -89,7 +93,7 @@ describe('Observer', function () {
         rng,
       });
 
-      nock(baseURL)
+      nock(url)
         .head('/')
         .reply(200, undefined, {
           'Content-Type': defaultContentType,
@@ -102,7 +106,7 @@ describe('Observer', function () {
 
       ranges.forEach((range) => {
         dataHash.update(partialContent);
-        nock(baseURL)
+        nock(url)
           .get('/')
           .matchHeader('Range', `bytes=${range}`)
           .reply(206, partialContent, {
@@ -112,8 +116,8 @@ describe('Observer', function () {
       });
 
       const result = await getArnsResolution({
-        host,
-        arnsName,
+        url,
+        got,
         entropy,
       });
 
@@ -127,9 +131,13 @@ describe('Observer', function () {
     });
 
     it('should resolve with correct properties on a 404 response for HEAD requests', async function () {
-      nock(baseURL).head('/').reply(404);
+      nock(url).head('/').reply(404);
 
-      const result = await getArnsResolution({ host, arnsName, entropy });
+      const result = await getArnsResolution({
+        url,
+        got,
+        entropy,
+      });
 
       expect(result.statusCode).to.equal(404);
       expect(result.resolvedId).to.be.null;
@@ -137,16 +145,18 @@ describe('Observer', function () {
       expect(result.contentType).to.be.null;
       expect(result.contentLength).to.be.null;
       expect(result.dataHashDigest).to.be.null;
-      expect(result.timings).to.be.null;
+      expect(result.timings).to.be.a.string;
     });
 
     it('should resolve with correct properties on a 404 response for GET requests', async function () {
-      nock(baseURL)
-        .head('/')
-        .reply(200, undefined, { 'Content-Length': '100' });
-      nock(baseURL).get('/').reply(404);
+      nock(url).head('/').reply(200, undefined, { 'Content-Length': '100' });
+      nock(url).get('/').reply(404);
 
-      const result = await getArnsResolution({ host, arnsName, entropy });
+      const result = await getArnsResolution({
+        url,
+        got,
+        entropy,
+      });
 
       expect(result.statusCode).to.equal(404);
       expect(result.resolvedId).to.be.null;
@@ -154,27 +164,37 @@ describe('Observer', function () {
       expect(result.contentType).to.be.null;
       expect(result.contentLength).to.be.null;
       expect(result.dataHashDigest).to.be.null;
-      expect(result.timings).to.be.null;
+      expect(result.timings).to.be.a.string;
     });
 
     it('should handle non-404 errors appropriately for HEAD requests', async function () {
-      nock(baseURL).head('/').reply(500);
+      nock(url).head('/').reply(500);
+
+      const gotClient = got.extend({
+        retry: { limit: 0 },
+      });
 
       try {
-        await getArnsResolution({ host, arnsName, entropy });
+        await getArnsResolution({
+          url,
+          got: gotClient,
+          entropy,
+        });
       } catch (error: any) {
         expect(error).to.exist;
       }
     });
 
     it('should handle non-404 errors appropriately for GET requests', async function () {
-      nock(baseURL)
-        .head('/')
-        .reply(200, undefined, { 'Content-Length': '100' });
-      nock(baseURL).get('/').reply(500);
+      nock(url).head('/').reply(200, undefined, { 'Content-Length': '100' });
+      nock(url).get('/').reply(500);
 
       try {
-        await getArnsResolution({ host, arnsName, entropy });
+        await getArnsResolution({
+          url,
+          got,
+          entropy,
+        });
       } catch (error: any) {
         expect(error).to.exist;
         expect(error.response).to.exist;
@@ -182,9 +202,41 @@ describe('Observer', function () {
       }
     });
 
+    it('should reject on network errors for HEAD requests', async function () {
+      const gotClient = got.extend({
+        retry: { limit: 0 },
+      });
+
+      try {
+        await getArnsResolution({
+          url: invalidUrl,
+          got: gotClient,
+          entropy,
+        });
+      } catch (error: any) {
+        expect(error.message).to.exist;
+      }
+    });
+
+    it('should reject on network errors for GET requests', async function () {
+      nock(invalidUrl)
+        .head('/')
+        .reply(200, undefined, { 'Content-Length': '100' });
+
+      const gotClient = got.extend({
+        retry: { limit: 0 },
+      });
+
+      try {
+        await getArnsResolution({ url: invalidUrl, got: gotClient, entropy });
+      } catch (error: any) {
+        expect(error.message).to.exist;
+      }
+    });
+
     it('should add "X-AR-IO-Node-Release" header when making a request to a reference gateway', async function () {
       const data = Buffer.alloc(100, 'a').toString();
-      const headScope = nock(baseURL, {
+      const headScope = nock(url, {
         reqheaders: {
           'X-AR-IO-Node-Release': 'test',
         },
@@ -196,7 +248,7 @@ describe('Observer', function () {
           'x-arns-ttl-seconds': defaultArnsTtlSeconds,
           'Content-Length': String(data.length),
         });
-      const getScope = nock(baseURL, {
+      const getScope = nock(url, {
         reqheaders: {
           'X-AR-IO-Node-Release': 'test',
         },
@@ -209,10 +261,13 @@ describe('Observer', function () {
           'Content-Length': String(data.length),
         });
 
+      const gotClient = got.extend({
+        headers: { 'X-AR-IO-Node-Release': 'test' },
+      });
+
       await getArnsResolution({
-        host,
-        arnsName,
-        nodeReleaseVersion: 'test',
+        url,
+        got: gotClient,
         entropy,
       });
 
@@ -222,7 +277,7 @@ describe('Observer', function () {
 
     it('should not add "X-AR-IO-Node-Release" header when assessing a gateway', async function () {
       const data = Buffer.alloc(100, 'a').toString();
-      const headScope = nock(baseURL, {
+      const headScope = nock(url, {
         badheaders: ['X-AR-IO-Node-Release'],
       })
         .head('/')
@@ -232,7 +287,7 @@ describe('Observer', function () {
           'x-arns-ttl-seconds': defaultArnsTtlSeconds,
           'Content-Length': String(data.length),
         });
-      const getScope = nock(baseURL, {
+      const getScope = nock(url, {
         badheaders: ['X-AR-IO-Node-Release'],
       })
         .get('/')
@@ -244,8 +299,8 @@ describe('Observer', function () {
         });
 
       await getArnsResolution({
-        host,
-        arnsName,
+        url,
+        got,
         entropy,
       });
 
