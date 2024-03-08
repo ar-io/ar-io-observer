@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import { Timings } from '@szmarczak/http-timer';
-import got, { RequestError, Response } from 'got';
+import got, { Got, RequestError, Response } from 'got';
 import crypto from 'node:crypto';
 import pMap from 'p-map';
 
@@ -99,82 +99,80 @@ export function generateRandomRanges({
 
 // TODO consider moving this into a resolver class
 export async function getArnsResolution({
-  host,
-  arnsName,
-  nodeReleaseVersion,
+  url,
+  got,
+  referenceGatewayHeadResponse,
+  referenceGatewayContentLength,
   entropy,
 }: {
-  host: string;
-  arnsName: string;
-  nodeReleaseVersion?: string;
+  url: string;
+  got: Got;
+  referenceGatewayHeadResponse?: Response;
+  referenceGatewayContentLength?: string;
   entropy: Buffer;
 }): Promise<ArnsResolution> {
   const MAX_BYTES_TO_PROCESS = 1048576; // 1MiB
-  const url = `https://${arnsName}.${host}/`;
 
-  let gotClient = client;
-
-  if (nodeReleaseVersion !== undefined) {
-    gotClient = client.extend({
-      headers: { 'X-AR-IO-Node-Release': nodeReleaseVersion },
-    });
-  }
-
-  const notFoundResponse = {
-    statusCode: 404,
-    resolvedId: null,
-    ttlSeconds: null,
-    contentType: null,
-    contentLength: null,
-    dataHashDigest: null,
-    timings: null,
-  };
-
-  const resolveWithResponse = (
-    resolve: (value: ArnsResolution | PromiseLike<ArnsResolution>) => void,
-    response: Response,
-  ) => {
-    if (response.statusCode === 404) {
-      resolve(notFoundResponse);
-    } else {
-      resolve({
-        statusCode: response.statusCode,
-        resolvedId:
-          (response.headers['x-arns-resolved-id'] as string | undefined) ??
-          null,
-        ttlSeconds:
-          (response.headers['x-arns-ttl-seconds'] as string | undefined) ??
-          null,
-        contentType:
-          (response.headers['content-type'] as string | undefined) ?? null,
-        contentLength: response.headers['content-length'] ?? null,
-        dataHashDigest: dataHash.digest('base64url'),
-        timings: response.timings,
-      });
-    }
-  };
-
-  let headResponse: Response;
-
-  try {
-    headResponse = await gotClient.head(url);
-  } catch (error: any) {
-    if ((error as any)?.response?.statusCode === 404) {
-      return notFoundResponse;
-    }
-
-    throw error;
-  }
-
-  if (headResponse.headers['content-length'] === undefined) {
-    throw new Error('Content length is not defined');
-  }
-
-  const contentLength = headResponse.headers['content-length'];
+  const arnsResolution = (response: Response, dataHashDigest?: string) => ({
+    statusCode: response.statusCode,
+    resolvedId:
+      (response.headers['x-arns-resolved-id'] as string | undefined) ?? null,
+    ttlSeconds:
+      (response.headers['x-arns-ttl-seconds'] as string | undefined) ?? null,
+    contentType:
+      (response.headers['content-type'] as string | undefined) ?? null,
+    contentLength: response.headers['content-length'] ?? null,
+    dataHashDigest: dataHashDigest ?? null,
+    timings: response.timings,
+  });
 
   const dataHash = crypto.createHash('sha256');
 
-  if (+contentLength > MAX_BYTES_TO_PROCESS) {
+  const getHashWithinFirstMiB = () => {
+    return new Promise<ArnsResolution>((resolve, reject) => {
+      const stream = got.stream.get(url);
+      let response: any;
+      let streamBytesProcessed = 0;
+
+      stream.on('error', (error: RequestError) => {
+        if (error.response !== undefined && error.response.statusCode === 404) {
+          resolve(arnsResolution(error.response));
+        } else {
+          reject(error);
+        }
+      });
+
+      stream.on('response', (resp) => {
+        response = resp;
+      });
+
+      stream.on('data', (data) => {
+        const bytesToProcess = Math.min(
+          data.length,
+          MAX_BYTES_TO_PROCESS - streamBytesProcessed,
+        );
+
+        if (bytesToProcess > 0) {
+          dataHash.update(data.slice(0, bytesToProcess));
+          streamBytesProcessed += bytesToProcess;
+        }
+
+        if (streamBytesProcessed >= MAX_BYTES_TO_PROCESS) {
+          stream.on('close', () => {
+            resolve(arnsResolution(response, dataHash.digest('base64url')));
+          });
+
+          stream.destroy();
+        }
+      });
+
+      stream.on('end', () => {
+        resolve(arnsResolution(response, dataHash.digest('base64url')));
+      });
+    });
+  };
+
+  const getHashWithRangeRequests = () => {
     return new Promise<ArnsResolution>((resolve, reject) => {
       const rng = customHashPRNG(entropy);
       const ranges = generateRandomRanges({
@@ -186,7 +184,7 @@ export async function getArnsResolution({
 
       Promise.all(
         ranges.map((range) =>
-          gotClient.get(headResponse.requestUrl, {
+          got.get(url, {
             responseType: 'buffer',
             headers: {
               Range: `bytes=${range}`,
@@ -199,37 +197,49 @@ export async function getArnsResolution({
             dataHash.update(response.body);
           });
 
-          resolveWithResponse(resolve, headResponse);
+          resolve(arnsResolution(headResponse, dataHash.digest('base64url')));
         })
         .catch((error) => {
           if ((error as any)?.response?.statusCode === 404) {
-            resolveWithResponse(resolve, error.response);
+            resolve(arnsResolution(headResponse));
           } else {
             reject(error);
           }
         });
     });
+  };
+
+  let headResponse: Response;
+  if (referenceGatewayHeadResponse !== undefined) {
+    headResponse = referenceGatewayHeadResponse;
+  } else {
+    try {
+      headResponse = await got.head(url);
+    } catch (error: any) {
+      if ((error as any)?.response?.statusCode === 404) {
+        return arnsResolution(error.response);
+      }
+
+      throw error;
+    }
   }
 
-  return new Promise<ArnsResolution>((resolve, reject) => {
-    const stream = gotClient.stream.get(url);
+  let contentLength: string;
+  if (referenceGatewayContentLength !== undefined) {
+    contentLength = referenceGatewayContentLength;
+  } else {
+    if (headResponse.headers['content-length'] !== undefined) {
+      contentLength = headResponse.headers['content-length'];
+    } else {
+      return getHashWithinFirstMiB();
+    }
+  }
 
-    stream.on('error', (error: RequestError) => {
-      if (error.response !== undefined && error.response.statusCode === 404) {
-        resolveWithResponse(resolve, error.response);
-      } else {
-        reject(error);
-      }
-    });
+  if (+contentLength > MAX_BYTES_TO_PROCESS) {
+    return getHashWithRangeRequests();
+  }
 
-    stream.on('data', (data) => {
-      dataHash.update(data);
-    });
-
-    stream.on('end', () => {
-      resolveWithResponse(resolve, headResponse);
-    });
-  });
+  return getHashWithinFirstMiB();
 }
 
 async function assessOwnership({
@@ -332,17 +342,32 @@ export class Observer {
     arnsName: string;
     entropy: Buffer;
   }): Promise<ArnsNameAssessment> {
+    const referenceGatewayUrl = `https://${arnsName}.${this.referenceGatewayHost}/`;
+
+    const gotClient = client.extend({
+      headers: { 'X-AR-IO-Node-Release': this.nodeReleaseVersion },
+    });
+
+    const headReferenceGatewayResponse = await gotClient.head(
+      referenceGatewayUrl,
+    );
+
+    const referenceGatewayContentLength =
+      headReferenceGatewayResponse.headers['content-length'];
+
     // TODO handle exceptions
     const referenceResolution = await getArnsResolution({
-      host: this.referenceGatewayHost,
-      arnsName,
-      nodeReleaseVersion: this.nodeReleaseVersion,
+      url: referenceGatewayUrl,
+      got: gotClient,
+      referenceGatewayHeadResponse: headReferenceGatewayResponse,
+      referenceGatewayContentLength: referenceGatewayContentLength,
       entropy,
     });
 
     const gatewayResolution = await getArnsResolution({
-      host,
-      arnsName,
+      url: `https://${arnsName}.${host}/`,
+      got: gotClient,
+      referenceGatewayContentLength: referenceGatewayContentLength,
       entropy,
     });
 
