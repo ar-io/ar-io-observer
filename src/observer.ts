@@ -55,24 +55,22 @@ const client = got.extend({
   },
 });
 
-export function bufferToSeed(buffer: Buffer): number[] {
-  if (buffer.length === 0) {
-    throw new Error('Buffer is empty. Non-empty buffer required.');
+export function customHashPRNG(seed: Buffer) {
+  if (!Buffer.isBuffer(seed)) {
+    throw new Error('Seed must be a Buffer.');
   }
 
-  return Array.from(buffer).map((byte) => byte / 255);
-}
+  let currentHash = seed;
 
-export function customPRNG(seed: number[]): () => number {
-  if (seed.length === 0) {
-    throw new Error('Seed array must not be empty.');
-  }
-
-  let index = 0;
   return () => {
-    const result = seed[index % seed.length];
-    index = (index + 1) % seed.length;
-    return result;
+    // Create a new hash from the current hash
+    const hash = crypto.createHash('sha256');
+    hash.update(currentHash);
+    currentHash = hash.digest();
+
+    // Convert the hash to a floating-point number and return it
+    const int = currentHash.readBigUInt64BE(0);
+    return Number(int) / 2 ** 64;
   };
 }
 
@@ -178,7 +176,7 @@ export async function getArnsResolution({
 
   if (+contentLength > MAX_BYTES_TO_PROCESS) {
     return new Promise<ArnsResolution>((resolve, reject) => {
-      const rng = customPRNG(bufferToSeed(entropy));
+      const rng = customHashPRNG(entropy);
       const ranges = generateRandomRanges({
         contentSize: +contentLength,
         rangeSize: 200,
