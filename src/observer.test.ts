@@ -20,8 +20,7 @@ import nock from 'nock';
 import crypto from 'node:crypto';
 
 import {
-  bufferToSeed,
-  customPRNG,
+  customHashPRNG,
   generateRandomRanges,
   getArnsResolution,
 } from './observer.js';
@@ -82,7 +81,7 @@ describe('Observer', function () {
       const largeContent = Buffer.alloc(OneMiB + 500, 'a').toString();
       const partialContent = Buffer.alloc(200, 'a').toString(); // Sample range content
       const entropy = Buffer.from('random');
-      const rng = customPRNG(bufferToSeed(entropy));
+      const rng = customHashPRNG(entropy);
       const ranges = generateRandomRanges({
         contentSize: largeContent.length,
         rangeSize: 200,
@@ -255,72 +254,38 @@ describe('Observer', function () {
     });
   });
 
-  describe('bufferToSeed', function () {
-    it('should convert a buffer to an array of numbers between 0 and 1', function () {
-      const buffer = Buffer.from([0, 127, 255]);
-      const expected = [0, 127 / 255, 1];
-      const result = bufferToSeed(buffer);
-      expect(result).to.deep.equal(expected);
+  describe('customHashPRNG', () => {
+    it('should initialize correctly with a Buffer seed', () => {
+      const seed = crypto.randomBytes(32);
+      const prng = customHashPRNG(seed);
+      expect(prng).to.be.a('function');
     });
 
-    it('should throw an error if the buffer is empty', function () {
-      const buffer = Buffer.from([]);
-      expect(() => bufferToSeed(buffer)).to.throw(
-        'Buffer is empty. Non-empty buffer required.',
+    it('should throw an error if the seed is not a Buffer', () => {
+      const invalidSeed: any = 'not a buffer';
+      expect(() => customHashPRNG(invalidSeed)).to.throw(
+        'Seed must be a Buffer.',
       );
     });
 
-    it('should handle a buffer with a single element', function () {
-      const buffer = Buffer.from([128]);
-      const expected = [128 / 255];
-      const result = bufferToSeed(buffer);
-      expect(result).to.deep.equal(expected);
+    it('should produce a deterministic sequence for a given seed', () => {
+      const seed = Buffer.from('1234567890abcdef', 'hex');
+      const prng1 = customHashPRNG(seed);
+      const prng2 = customHashPRNG(seed);
+
+      const sequence1 = Array.from({ length: 5 }, prng1);
+      const sequence2 = Array.from({ length: 5 }, prng2);
+
+      expect(sequence1).to.deep.equal(sequence2);
     });
 
-    it('should produce values strictly less than 1 for non-255 bytes', function () {
-      const buffer = Buffer.from([0, 1, 254]);
-      const result = bufferToSeed(buffer);
-      result.forEach((value, index) => {
-        if (index < 2) {
-          // Only check the first two elements, as the third is intentionally 254/255
-          expect(value).to.be.lessThan(1);
-        }
-      });
-    });
+    it('should generate numbers within the range [0, 1)', () => {
+      const seed = crypto.randomBytes(32);
+      const prng = customHashPRNG(seed);
+      const number = prng();
 
-    it('should produce a value of 1 for byte value 255', function () {
-      const buffer = Buffer.from([255]);
-      const result = bufferToSeed(buffer);
-      expect(result[0]).to.equal(1);
-    });
-  });
-
-  describe('customPRNG', function () {
-    it('should generate numbers based on the seed array', function () {
-      const seed = [0.1, 0.2, 0.3];
-      const prng = customPRNG(seed);
-      expect(prng()).to.equal(0.1);
-      expect(prng()).to.equal(0.2);
-      expect(prng()).to.equal(0.3);
-    });
-
-    it('should cycle back to the start of the seed array after reaching the end', function () {
-      const seed = [0.4, 0.5];
-      const prng = customPRNG(seed);
-      prng(); // Call once
-      prng(); // Call twice
-      expect(prng()).to.equal(0.4); // Should cycle back to the first element
-    });
-
-    it('should handle a single-element seed array correctly', function () {
-      const seed = [0.6];
-      const prng = customPRNG(seed);
-      expect(prng()).to.equal(0.6);
-      expect(prng()).to.equal(0.6); // Should keep returning the same element
-    });
-
-    it('should throw an error if the seed array is empty', function () {
-      expect(() => customPRNG([])).to.throw('Seed array must not be empty.');
+      expect(number).to.be.at.least(0);
+      expect(number).to.be.below(1);
     });
   });
 
