@@ -15,6 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+import { ReadThroughPromiseCache } from '@ardrive/ardrive-promise-cache';
 import { Timings } from '@szmarczak/http-timer';
 import got, { Got, RequestError, Response } from 'got';
 import crypto from 'node:crypto';
@@ -101,14 +102,12 @@ export function generateRandomRanges({
 export async function getArnsResolution({
   url,
   got,
-  referenceGatewayHeadResponse,
-  referenceGatewayContentLength,
+  referenceGatewayContentLength = null,
   entropy,
 }: {
   url: string;
   got: Got;
-  referenceGatewayHeadResponse?: Response;
-  referenceGatewayContentLength?: string;
+  referenceGatewayContentLength?: string | null;
   entropy: Buffer;
 }): Promise<ArnsResolution> {
   const MAX_BYTES_TO_PROCESS = 1048576; // 1MiB
@@ -120,8 +119,13 @@ export async function getArnsResolution({
     ttlSeconds:
       (response.headers['x-arns-ttl-seconds'] as string | undefined) ?? null,
     contentType:
-      (response.headers['content-type'] as string | undefined) ?? null,
-    contentLength: response.headers['content-length'] ?? null,
+      response.statusCode === 404
+        ? null
+        : (response.headers['content-type'] as string | undefined) ?? null,
+    contentLength:
+      response.statusCode === 404
+        ? null
+        : response.headers['content-length'] ?? null,
     dataHashDigest: dataHashDigest ?? null,
     timings: response.timings,
   });
@@ -210,22 +214,18 @@ export async function getArnsResolution({
   };
 
   let headResponse: Response;
-  if (referenceGatewayHeadResponse !== undefined) {
-    headResponse = referenceGatewayHeadResponse;
-  } else {
-    try {
-      headResponse = await got.head(url);
-    } catch (error: any) {
-      if ((error as any)?.response?.statusCode === 404) {
-        return arnsResolution(error.response);
-      }
-
-      throw error;
+  try {
+    headResponse = await got.head(url);
+  } catch (error: any) {
+    if ((error as any)?.response?.statusCode === 404) {
+      return arnsResolution(error.response);
     }
+
+    throw error;
   }
 
   let contentLength: string;
-  if (referenceGatewayContentLength !== undefined) {
+  if (referenceGatewayContentLength !== null) {
     contentLength = referenceGatewayContentLength;
   } else {
     if (headResponse.headers['content-length'] !== undefined) {
@@ -297,6 +297,11 @@ export class Observer {
   private nameAssessmentConcurrency: number;
   private nodeReleaseVersion: string;
   private entropySource: EntropySource;
+  private gotClient: Got;
+  private referenceGatewayResolutionCache?: ReadThroughPromiseCache<
+    string,
+    ArnsResolution
+  >;
 
   constructor({
     observerAddress,
@@ -331,6 +336,9 @@ export class Observer {
     this.nameAssessmentConcurrency = nameAssessmentConcurrency;
     this.nodeReleaseVersion = nodeReleaseVersion;
     this.entropySource = entropySource;
+    this.gotClient = client.extend({
+      headers: { 'X-AR-IO-Node-Release': this.nodeReleaseVersion },
+    });
   }
 
   async assessArnsName({
@@ -342,32 +350,18 @@ export class Observer {
     arnsName: string;
     entropy: Buffer;
   }): Promise<ArnsNameAssessment> {
-    const referenceGatewayUrl = `https://${arnsName}.${this.referenceGatewayHost}/`;
+    if (this.referenceGatewayResolutionCache === undefined) {
+      throw new Error('Reference gateway resolution cache not set');
+    }
 
-    const gotClient = client.extend({
-      headers: { 'X-AR-IO-Node-Release': this.nodeReleaseVersion },
-    });
-
-    const headReferenceGatewayResponse = await gotClient.head(
-      referenceGatewayUrl,
+    const referenceResolution = await this.referenceGatewayResolutionCache.get(
+      arnsName,
     );
-
-    const referenceGatewayContentLength =
-      headReferenceGatewayResponse.headers['content-length'];
-
-    // TODO handle exceptions
-    const referenceResolution = await getArnsResolution({
-      url: referenceGatewayUrl,
-      got: gotClient,
-      referenceGatewayHeadResponse: headReferenceGatewayResponse,
-      referenceGatewayContentLength: referenceGatewayContentLength,
-      entropy,
-    });
 
     const gatewayResolution = await getArnsResolution({
       url: `https://${arnsName}.${host}/`,
-      got: gotClient,
-      referenceGatewayContentLength: referenceGatewayContentLength,
+      got: this.gotClient,
+      referenceGatewayContentLength: referenceResolution.contentLength,
       entropy,
     });
 
@@ -472,6 +466,22 @@ export class Observer {
 
     const entropy = await this.entropySource.getEntropy({
       height: epochStartHeight,
+    });
+
+    this.referenceGatewayResolutionCache = new ReadThroughPromiseCache<
+      string,
+      ArnsResolution
+    >({
+      cacheParams: {
+        cacheCapacity: prescribedNames.length + chosenNames.length,
+        cacheTTL: 5 * 60_000,
+      },
+      readThroughFunction: async (name: string) =>
+        getArnsResolution({
+          url: `https://${name}.${this.referenceGatewayHost}/`,
+          got: this.gotClient,
+          entropy,
+        }),
     });
 
     await pMap(
