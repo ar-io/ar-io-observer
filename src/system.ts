@@ -15,6 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+import { ArIO } from '@ar.io/sdk/node';
 import {
   TurboAuthenticatedClient,
   TurboFactory,
@@ -22,7 +23,6 @@ import {
 } from '@ardrive/turbo-sdk/node';
 import { ArweaveSigner } from 'arbundles/node';
 import Arweave from 'arweave';
-import got from 'got';
 import { default as NodeCache } from 'node-cache';
 import * as fs from 'node:fs';
 import { LmdbCache } from 'warp-contracts-lmdb';
@@ -81,39 +81,32 @@ const chainSource = new ChainSource({
   arweaveBaseUrl: config.ARWEAVE_URL,
 });
 
-// Attempt to read the start height and epoch block length from the contract
-let epochZeroStartHeigth = START_HEIGHT;
-let epochBlockLength = EPOCH_BLOCK_LENGTH;
-try {
-  const resp = await got
-    .get(
-      `${config.CONTRACT_CACHE_URL}/v1/contract/${config.CONTRACT_ID}/read/epoch`,
-    )
-    .json<any>();
-  epochZeroStartHeigth = +(resp?.result?.epochZeroStartHeight ?? START_HEIGHT);
-  log.info(
-    `Got epoch zero start height from contract: ${epochZeroStartHeigth}`,
-    {
-      epochZeroStartHeigth,
-    },
-  );
-  epochBlockLength = +(resp?.result?.epochBlockLength ?? EPOCH_BLOCK_LENGTH);
-  log.info(`Got epoch block length from contract: ${epochBlockLength}`, {
-    epochBlockLength,
+const networkContract = new ArIO({
+  contractTxId: config.CONTRACT_ID,
+});
+
+// Attempt to read the start height and epoch block length from the contract - default to constants if it fails
+const { epochZeroStartHeight, epochBlockLength } = await networkContract
+  .getCurrentEpoch()
+  .catch((error: unknown) => {
+    log.error(
+      `Unable to get start height from contract cache - using default values`,
+      {
+        error: error instanceof Error ? error.message : error,
+        startHeight: START_HEIGHT,
+        epochBlockLength: EPOCH_BLOCK_LENGTH,
+      },
+    );
+    return {
+      epochZeroStartHeight: START_HEIGHT,
+      epochBlockLength: EPOCH_BLOCK_LENGTH,
+    };
   });
-} catch (error: any) {
-  log.error(
-    `Unable to get start height from contract cache: ${error.message}; defaulting to ${START_HEIGHT}`,
-  );
-  log.error(
-    `Unable to get epoch block length from contract cache: ${error.message}; defaulting to ${EPOCH_BLOCK_LENGTH}`,
-  );
-}
 
 export const epochHeightSelector = new EpochHeightSource({
   heightSource: chainSource,
   epochParams: {
-    startHeight: epochZeroStartHeigth,
+    startHeight: epochZeroStartHeight,
     epochBlockLength,
   },
 });
