@@ -323,6 +323,11 @@ export async function updateAndSaveCurrentReport() {
         return [];
       });
 
+    if (observers.length === 0) {
+      log.warn('Not saving report - no observers retrieved from the contract');
+      return;
+    }
+
     // Save the report after a random block between 50 blocks after the start
     // of the epoch and 100 blocks before the end of the epoch
     const entropy = await compositeEntropySource.getEntropy({
