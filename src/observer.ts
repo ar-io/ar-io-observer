@@ -350,6 +350,8 @@ export class Observer {
     arnsName: string;
     entropy: Buffer;
   }): Promise<ArnsNameAssessment> {
+    // TODO instantiate cache in constructor
+    // Currently not possible because we only have access to epochStartHeight in generateReport
     if (this.referenceGatewayResolutionCache === undefined) {
       throw new Error('Reference gateway resolution cache not set');
     }
