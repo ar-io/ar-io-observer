@@ -88,11 +88,12 @@ const networkContract = new ArIO({
 // Attempt to read the start height and epoch block length from the contract - default to constants if it fails
 const { epochZeroStartHeight, epochBlockLength } = await networkContract
   .getCurrentEpoch()
-  .catch((error: unknown) => {
+  .catch((error: any) => {
     log.error(
       `Unable to get start height from contract cache - using default values`,
       {
-        error: error instanceof Error ? error.message : error,
+        message: error?.message,
+        stack: error?.stack,
         startHeight: START_HEIGHT,
         epochBlockLength: EPOCH_BLOCK_LENGTH,
       },
