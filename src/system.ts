@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { ArIO } from '@ar.io/sdk/node';
+import { ArIO, WeightedObserver } from '@ar.io/sdk/node';
 import {
   TurboAuthenticatedClient,
   TurboFactory,
@@ -48,7 +48,6 @@ import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
 import { RemoteCacheArnsNameList } from './names/remote-cache-arns-name-list.js';
 import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
-import { ContractObserversSource } from './observers/contract-observers-source.js';
 import {
   EPOCH_BLOCK_LENGTH,
   EpochHeightSource,
@@ -288,14 +287,6 @@ export const reportSink = new PipelineReportSink({
   sinks: stores,
 });
 
-export const prescribedObserversSource =
-  contract !== undefined
-    ? new ContractObserversSource({
-        log,
-        contract,
-      })
-    : undefined;
-
 // Wait for chain stability before saving reports
 const START_HEIGHT_START_OFFSET = MAX_FORK_DEPTH;
 
@@ -314,23 +305,23 @@ export async function updateAndSaveCurrentReport() {
     reportCache.set('current', report);
     log.info('Report cached');
 
+    log.info('Getting observers from contract state...');
     // Get selected observers for the current epoch from the contract
-    let observers: string[] = [];
-    try {
-      log.info('Getting observers from contract state...');
-      observers = (await prescribedObserversSource?.getObservers()) ?? [];
-      log.info(`Retrieved ${observers.length} observers from contract state`);
-      if (observers.length === 0) {
-        log.error('No observers found in contract state');
-        return;
-      }
-    } catch (error: any) {
-      log.error('Unable to get observers from contract state:', {
-        message: error.message,
-        stack: error.stack,
+    const observers: string[] = await networkContract
+      .getPrescribedObservers()
+      .then((observers: WeightedObserver[]) => {
+        log.info(`Retrieved ${observers.length} observers from contract state`);
+        return observers.map(
+          (observer: WeightedObserver) => observer.observerAddress,
+        );
+      })
+      .catch((error: any) => {
+        log.error('Unable to get observers from contract state:', {
+          message: error.message,
+          stack: error.stack,
+        });
+        return [];
       });
-      return;
-    }
 
     // Save the report after a random block between 50 blocks after the start
     // of the epoch and 100 blocks before the end of the epoch

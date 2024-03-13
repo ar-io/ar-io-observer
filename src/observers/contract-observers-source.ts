@@ -19,6 +19,7 @@ import * as winston from 'winston';
 
 import { ObserverContract, ObserversSource } from '../types.js';
 
+// TODO: this has been replaced by the ar-io-sdk and can likely be removed
 export class ContractObserversSource implements ObserversSource {
   private log: winston.Logger;
   private contract: ObserverContract;
