@@ -172,6 +172,18 @@ const fsReportStore = new FsReportStore({
 
 log.info(`Using wallet ${config.OBSERVER_WALLET}`);
 export const walletJwk: JWKInterface | undefined = (() => {
+  if(config.JWK) {
+    try {
+      const jwk = JSON.parse(config.JWK);
+      log.info('Key loaded from environment');
+      return jwk;
+    } catch (error: any) {
+      log.error('Unable to load key from environment:', {
+        message: error.message,
+      });
+    }
+  }
+
   try {
     log.info('Loading key file...', {
       keyFile: config.KEY_FILE,
@@ -185,9 +197,10 @@ export const walletJwk: JWKInterface | undefined = (() => {
     log.error('Unable to load key file:', {
       message: error.message,
     });
-    log.warn('Reports will not be published to Arweave');
-    return undefined;
   }
+
+  log.warn('Reports will not be published to Arweave');
+  return undefined;
 })();
 
 export const turboClient: TurboAuthenticatedClient | undefined = (() => {
