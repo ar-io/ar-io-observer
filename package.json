@@ -65,7 +65,7 @@
     "mocha": "^10.0.0",
     "mocha-multi": "^1.1.7",
     "nock": "^13.5.1",
-    "prettier": "^2.6.2",
+    "prettier": "^3.2.5",
     "rimraf": "^3.0.2",
     "sinon": "^14.0.0",
     "sinon-chai": "^3.7.0",
@@ -83,6 +83,8 @@
     "test:ci": "npx c8 -r lcov mocha --no-warnings --timeout 10000 -R mocha-multi --reporter-options spec=-,json=test-results.json",
     "test:coverage": "npx c8 -r text -r html mocha --no-warnings",
     "lint:check": "eslint src",
-    "lint:fix": "eslint --fix src"
+    "lint:fix": "eslint --fix src",
+    "format:fix": "prettier --write src",
+    "format:check": "prettier --check src"
   }
 }
