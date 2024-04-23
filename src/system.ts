@@ -172,7 +172,7 @@ const fsReportStore = new FsReportStore({
 
 log.info(`Using wallet ${config.OBSERVER_WALLET}`);
 export const walletJwk: JWKInterface | undefined = (() => {
-  if(config.JWK) {
+  if (config.JWK !== undefined) {
     try {
       const jwk = JSON.parse(config.JWK);
       log.info('Key loaded from environment');
