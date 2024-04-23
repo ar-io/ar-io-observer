@@ -17,8 +17,7 @@
     "eslint:recommended",
     "plugin:@typescript-eslint/eslint-recommended",
     "plugin:@typescript-eslint/recommended",
-    "plugin:mocha/recommended",
-    "prettier"
+    "plugin:mocha/recommended"
   ],
   "rules": {
     "@typescript-eslint/no-explicit-any": ["off"],
