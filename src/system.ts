@@ -80,7 +80,7 @@ const chainSource = new ChainSource({
   arweaveBaseUrl: config.ARWEAVE_URL,
 });
 
-const networkContract = new ArIO({
+const networkContract = ArIO.init({
   contractTxId: config.CONTRACT_ID,
 });
 
