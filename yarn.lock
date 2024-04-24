@@ -32,15 +32,17 @@
     call-me-maybe "^1.0.1"
     js-yaml "^4.1.0"
 
-"@ar.io/sdk@^1.0.0-alpha.6":
-  version "1.0.0-alpha.6"
-  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-1.0.0-alpha.6.tgz#00b05d6cc361bf864aadc81e038d4ef2e3ea70fc"
-  integrity sha512-oiPsS7KnFTQ/hr2k7be5iKm0wStoLCabiqfcOpxZN6bbfWLcjUJJukorbUwg35RoZQ8hgZD5LN8o10n4BonZVw==
+"@ar.io/sdk@^1.0.0":
+  version "1.0.0"
+  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-1.0.0.tgz#70f5a3dfe6e27b11accf5b6c1c457dbda4c33805"
+  integrity sha512-QKPFxu+A+9vYq75HeoFzHsSA5AKqNqnIoOmH+UpmUa+e5ICUHv8wunbth9CIRzVO6TmA5gHlgStvod2oD9AdPw==
   dependencies:
-    arweave "^1.14.4"
+    arbundles "0.11.0"
+    arweave "1.14.4"
     axios "1.4.0"
     setimmediate "^1.0.5"
-    warp-contracts "^1.4.38"
+    warp-arbundles "^1.0.4"
+    warp-contracts "1.4.39"
     winston "^3.11.0"
 
 "@ardrive/ardrive-promise-cache@^1.1.4":
@@ -661,6 +663,17 @@
   version "1.2.1"
   resolved "https://registry.yarnpkg.com/@humanwhocodes/object-schema/-/object-schema-1.2.1.tgz#b520529ec21d8e5945a1851dfd1c32e94e39ff45"
   integrity sha512-ZnQMnLV4e7hDlUvw8H+U8ASL02SS2Gn6+9Ac3wGGLIe7+je2AeAOxPY+izIPJDfFDb7eDjev0Us8MO1iFRN8hA==
+
+"@irys/arweave@^0.0.2":
+  version "0.0.2"
+  resolved "https://registry.yarnpkg.com/@irys/arweave/-/arweave-0.0.2.tgz#c0e73eb8c15e323342d33ea92701d4036fd22ae3"
+  integrity sha512-ddE5h4qXbl0xfGlxrtBIwzflaxZUDlDs43TuT0u1OMfyobHul4AA1VEX72Rpzw2bOh4vzoytSqA1jCM7x9YtHg==
+  dependencies:
+    asn1.js "^5.4.1"
+    async-retry "^1.3.3"
+    axios "^1.4.0"
+    base64-js "^1.5.1"
+    bignumber.js "^9.1.1"
 
 "@istanbuljs/schema@^0.1.2", "@istanbuljs/schema@^0.1.3":
   version "0.1.3"
@@ -1504,6 +1517,30 @@ aproba@^1.0.3:
   resolved "https://registry.yarnpkg.com/aproba/-/aproba-1.2.0.tgz#6802e6264efd18c790a1b0d517f0f2627bf2c94a"
   integrity sha512-Y9J6ZjXtoYh8RnXVCMOU/ttDmk1aBjunq9vO0ta5x85WDQiQfUF9sIPBITdbiiIVcBo03Hi3jMxigBtsddlXRw==
 
+arbundles@0.11.0:
+  version "0.11.0"
+  resolved "https://registry.yarnpkg.com/arbundles/-/arbundles-0.11.0.tgz#2a8bbc142aae6c56588dffd8cd4b20b931a4e578"
+  integrity sha512-8U4u5TjbD14mBO9bJkUfynVrHztBGtvYcMx2E5Yuyu/iiSRByJDFHfCINAY3+zvllkTipbPjTP5XlACJQIuRcw==
+  dependencies:
+    "@ethersproject/bytes" "^5.7.0"
+    "@ethersproject/hash" "^5.7.0"
+    "@ethersproject/providers" "^5.7.2"
+    "@ethersproject/signing-key" "^5.7.0"
+    "@ethersproject/transactions" "^5.7.0"
+    "@ethersproject/wallet" "^5.7.0"
+    "@irys/arweave" "^0.0.2"
+    "@noble/ed25519" "^1.6.1"
+    base64url "^3.0.1"
+    bs58 "^4.0.1"
+    keccak "^3.0.2"
+    secp256k1 "^5.0.0"
+  optionalDependencies:
+    "@randlabs/myalgo-connect" "^1.1.2"
+    algosdk "^1.13.1"
+    arweave-stream-tx "^1.1.0"
+    multistream "^4.1.0"
+    tmp-promise "^3.0.2"
+
 arbundles@^0.9.9:
   version "0.9.11"
   resolved "https://registry.yarnpkg.com/arbundles/-/arbundles-0.9.11.tgz#4dbccecc20876b38f01ba4b80abe8ee761c3e1e9"
@@ -1669,6 +1706,13 @@ async-mutex@^0.4.0:
   dependencies:
     tslib "^2.4.0"
 
+async-retry@^1.3.3:
+  version "1.3.3"
+  resolved "https://registry.yarnpkg.com/async-retry/-/async-retry-1.3.3.tgz#0e7f36c04d8478e7a58bdbed80cedf977785f280"
+  integrity sha512-wfr/jstw9xNi/0teMHrRW7dsz3Lt5ARhYNZ2ewpadnhaIp5mbALhOAP+EAdsC7t4Z6wqsDVv9+W6gm1Dk9mEyw==
+  dependencies:
+    retry "0.13.1"
+
 async@^3.2.3:
   version "3.2.4"
   resolved "https://registry.yarnpkg.com/async/-/async-3.2.4.tgz#2d22e00f8cddeb5fde5dd33522b56d1cf569a81c"
@@ -1755,7 +1799,7 @@ bignumber.js@9.1.1, bignumber.js@^9.0.2:
   resolved "https://registry.yarnpkg.com/bignumber.js/-/bignumber.js-9.1.1.tgz#c4df7dc496bd849d4c9464344c1aa74228b4dac6"
   integrity sha512-pHm4LsMJ6lzgNGVfZHjMoO8sdoRhOzOH4MLmY65Jg70bpxCKu5iOHNJyfF6OyvYw7t8Fpf35RuzUyqnQsj8Vig==
 
-bignumber.js@^9.0.0:
+bignumber.js@^9.0.0, bignumber.js@^9.1.1:
   version "9.1.2"
   resolved "https://registry.yarnpkg.com/bignumber.js/-/bignumber.js-9.1.2.tgz#b7c4242259c008903b13707983b5f4bbd31eda0c"
   integrity sha512-2/mKyZH9K85bzOEfhXDBFZTGd1CTs+5IHpeFQo9luiBG7hghdC851Pj2WAhb6E3R6b9tZj/XKhbg4fum+Kepug==
@@ -4660,6 +4704,11 @@ responselike@^3.0.0:
   dependencies:
     lowercase-keys "^3.0.0"
 
+retry@0.13.1:
+  version "0.13.1"
+  resolved "https://registry.yarnpkg.com/retry/-/retry-0.13.1.tgz#185b1587acf67919d63b357349e03537b2484658"
+  integrity sha512-XQBQ3I8W1Cge0Seh+6gjj03LbmRFWuoszgK9ooCpwYIrhhoO80pfq4cUkU5DkknwfOfFteRwlZ56PYOGYyFWdg==
+
 reusify@^1.0.4:
   version "1.0.4"
   resolved "https://registry.yarnpkg.com/reusify/-/reusify-1.0.4.tgz#90da382b1e126efc02146e90845a88db12925d76"
@@ -5395,10 +5444,10 @@ warp-contracts@1.4.33:
     warp-isomorphic "^1.0.7"
     warp-wasm-metering "1.0.1"
 
-warp-contracts@^1.4.38:
-  version "1.4.38"
-  resolved "https://registry.yarnpkg.com/warp-contracts/-/warp-contracts-1.4.38.tgz#babf1b57d166be239c1a93b2601003c60287ca2f"
-  integrity sha512-20RiXdPti5MGpsikplmLn2uOM8+EjHL5yC/T0KVTrdWI+2Zt0KfKl/erF9QER6SUmM0nSTNC0MkcaAu1xnlzPg==
+warp-contracts@1.4.39:
+  version "1.4.39"
+  resolved "https://registry.yarnpkg.com/warp-contracts/-/warp-contracts-1.4.39.tgz#b56f4baa61b633c04d8abba65ee5dfca333ffea5"
+  integrity sha512-Dyk9wjhYceLRSq+U5Ba8h2mTbMPeB1hjdnDhYJP825E7gcc3jGc12GTLynSBqx5eJscOtpGG5Z5SQNxcTOP7/A==
   dependencies:
     archiver "^5.3.0"
     arweave "1.14.4"
