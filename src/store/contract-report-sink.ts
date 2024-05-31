@@ -15,12 +15,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { ArIOWritable } from '@ar.io/sdk/node';
+import { ArIO, ArIOReadable, ArIOWritable } from '@ar.io/sdk/node';
 import { Tag } from 'arweave/node/lib/transaction.js';
-import got from 'got';
 import * as winston from 'winston';
 
-import { CONTRACT_CACHE_URL, CONTRACT_ID } from '../config.js';
+import { CONTRACT_ID } from '../config.js';
 import { ObserverReport, ReportInfo, ReportSink } from '../types.js';
 
 const MAX_FAILED_GATEWAY_SUMMARY_BYTES = 1280;
@@ -44,35 +43,35 @@ export function getFailedGatewaySummaryFromReport(
   return [...failedGatewaySummary].sort();
 }
 
-interface FailureSummariesResponse {
-  contractTxId: string;
-  result: {
-    [key: string]: string[];
-  };
-}
 export async function interactionAlreadySaved({
   observerWallet,
   epochStartHeight,
   failedGatewaySummaries,
-  contractCacheUrl = CONTRACT_CACHE_URL,
-  contractId = CONTRACT_ID,
+  contract = ArIO.init({ contractTxId: CONTRACT_ID }),
 }: {
   observerWallet: string;
   epochStartHeight: number;
   failedGatewaySummaries: string[];
-  contractCacheUrl?: string;
-  contractId?: string;
+  contract: ArIOReadable;
 }): Promise<boolean> {
-  const { result } = await got
-    .get(
-      `${contractCacheUrl}/v1/contract/${contractId}/state/observations/${epochStartHeight}/failureSummaries`,
-    )
-    .json<FailureSummariesResponse>();
+  const observations = await contract.getObservations();
+  if (observations === undefined) {
+    return false;
+  }
+  const epochObservation = observations[`${epochStartHeight}`];
+  const epochFailureSummaries = epochObservation?.failureSummaries;
+  if (
+    epochObservation === undefined ||
+    epochFailureSummaries === undefined ||
+    Object.keys(epochFailureSummaries).length === 0
+  ) {
+    return false;
+  }
 
   for (const failedGateway of failedGatewaySummaries) {
     if (
-      !Object.prototype.hasOwnProperty.call(result, failedGateway) ||
-      !result[failedGateway].includes(observerWallet)
+      epochFailureSummaries[failedGateway] === undefined ||
+      !epochFailureSummaries[failedGateway].includes(observerWallet)
     ) {
       return false;
     }
@@ -148,6 +147,7 @@ export class ContractReportSink implements ReportSink {
         observerWallet: this.walletAddress,
         epochStartHeight: report.epochStartHeight,
         failedGatewaySummaries,
+        contract: this.contract,
       });
       if (isInteractionAlreadySaved) {
         this.log.info('Observation interactions already saved');

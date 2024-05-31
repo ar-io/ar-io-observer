@@ -15,6 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+import { ArIO, ArIOState, RemoteContract } from '@ar.io/sdk';
 import { expect } from 'chai';
 import nock from 'nock';
 
@@ -24,7 +25,13 @@ const observerWallet = 'test';
 const epochStartHeight = 1234567890;
 const contractCacheUrl = 'http://example.com';
 const contractId = '123';
-const networkCallPath = `/v1/contract/${contractId}/state/observations/${epochStartHeight}/failureSummaries`;
+const networkCallPath = `/v1/contract/${contractId}`;
+const contract = ArIO.init({
+  contract: new RemoteContract<ArIOState>({
+    contractTxId: contractId,
+    cacheUrl: contractCacheUrl,
+  }),
+});
 
 const failedGatewaySummaries = [
   'gateway-address',
@@ -41,11 +48,16 @@ describe('interactionAlreadySaved', function () {
     nock(contractCacheUrl)
       .get(networkCallPath)
       .reply(200, {
-        contractTxId: '123',
-        result: {
-          [failedGatewaySummaries[0]]: [observerWallet],
-          [failedGatewaySummaries[1]]: [observerWallet],
-          [failedGatewaySummaries[2]]: [observerWallet],
+        state: {
+          observations: {
+            [epochStartHeight]: {
+              failureSummaries: {
+                [failedGatewaySummaries[0]]: [observerWallet],
+                [failedGatewaySummaries[1]]: [observerWallet],
+                [failedGatewaySummaries[2]]: [observerWallet],
+              },
+            },
+          },
         },
       });
 
@@ -53,8 +65,7 @@ describe('interactionAlreadySaved', function () {
       observerWallet,
       epochStartHeight,
       failedGatewaySummaries,
-      contractCacheUrl,
-      contractId,
+      contract,
     });
 
     expect(result).to.be.true;
@@ -64,11 +75,16 @@ describe('interactionAlreadySaved', function () {
     nock(contractCacheUrl)
       .get(networkCallPath)
       .reply(200, {
-        contractTxId: '123',
-        result: {
-          [failedGatewaySummaries[0]]: ['observer'],
-          [failedGatewaySummaries[1]]: ['another-observer'],
-          [failedGatewaySummaries[2]]: ['yet-another-observer'],
+        state: {
+          observations: {
+            [epochStartHeight]: {
+              failureSummaries: {
+                [failedGatewaySummaries[0]]: ['observer'],
+                [failedGatewaySummaries[1]]: ['another-observer'],
+                [failedGatewaySummaries[2]]: ['yet-another-observer'],
+              },
+            },
+          },
         },
       });
 
@@ -76,8 +92,7 @@ describe('interactionAlreadySaved', function () {
       observerWallet,
       epochStartHeight,
       failedGatewaySummaries,
-      contractCacheUrl,
-      contractId,
+      contract,
     });
 
     expect(result).to.be.false;
@@ -87,11 +102,16 @@ describe('interactionAlreadySaved', function () {
     nock(contractCacheUrl)
       .get(networkCallPath)
       .reply(200, {
-        contractTxId: '123',
-        result: {
-          [failedGatewaySummaries[0]]: [observerWallet],
-          [failedGatewaySummaries[1]]: ['another-observer'],
-          [failedGatewaySummaries[2]]: ['yet-another-observer'],
+        state: {
+          observations: {
+            [epochStartHeight]: {
+              failureSummaries: {
+                [failedGatewaySummaries[0]]: [observerWallet],
+                [failedGatewaySummaries[1]]: ['another-observer'],
+                [failedGatewaySummaries[2]]: ['yet-another-observer'],
+              },
+            },
+          },
         },
       });
 
@@ -99,40 +119,49 @@ describe('interactionAlreadySaved', function () {
       observerWallet,
       epochStartHeight,
       failedGatewaySummaries,
-      contractCacheUrl,
-      contractId,
+      contract,
     });
 
     expect(result).to.be.false;
   });
 
-  it('should return true when failedGatewaySummaries array is empty', async function () {
+  it('should return false when failedGatewaySummaries is empty', async function () {
     nock(contractCacheUrl)
       .get(networkCallPath)
-      .reply(200, { contractTxId: '123', result: {} });
+      .reply(200, {
+        state: {
+          observations: {
+            [epochStartHeight]: {
+              failureSummaries: {},
+            },
+          },
+        },
+      });
 
     const result = await interactionAlreadySaved({
       observerWallet,
       epochStartHeight,
       failedGatewaySummaries: [],
-      contractCacheUrl,
-      contractId,
+      contract,
     });
 
-    expect(result).to.be.true;
+    expect(result).to.be.false;
   });
 
   it('should return false when there are no observations for the provided failure gateway summaries', async function () {
     nock(contractCacheUrl)
       .get(networkCallPath)
-      .reply(200, { contractTxId: '123', result: {} });
+      .reply(200, {
+        state: {
+          observations: {},
+        },
+      });
 
     const result = await interactionAlreadySaved({
       observerWallet,
       epochStartHeight,
       failedGatewaySummaries,
-      contractCacheUrl,
-      contractId,
+      contract,
     });
 
     expect(result).to.be.false;
@@ -146,8 +175,7 @@ describe('interactionAlreadySaved', function () {
         observerWallet,
         epochStartHeight,
         failedGatewaySummaries,
-        contractCacheUrl,
-        contractId,
+        contract,
       });
     } catch (error: any) {
       expect(error.message).to.include('Network error');
@@ -162,8 +190,7 @@ describe('interactionAlreadySaved', function () {
         observerWallet,
         epochStartHeight,
         failedGatewaySummaries,
-        contractCacheUrl,
-        contractId,
+        contract,
       });
     } catch (error) {
       expect(error).to.exist;
