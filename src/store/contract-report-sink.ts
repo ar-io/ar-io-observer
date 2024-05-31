@@ -15,17 +15,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+import { ArIOWritable } from '@ar.io/sdk';
 import got from 'got';
 import { Tag } from 'warp-contracts/mjs';
 import * as winston from 'winston';
 
 import { CONTRACT_CACHE_URL, CONTRACT_ID } from '../config.js';
-import {
-  ObserverContract,
-  ObserverReport,
-  ReportInfo,
-  ReportSink,
-} from '../types.js';
+import { ObserverReport, ReportInfo, ReportSink } from '../types.js';
 
 const MAX_FAILED_GATEWAY_SUMMARY_BYTES = 1280;
 
@@ -115,7 +111,7 @@ function splitArrayBySize(array: string[], maxSizeInBytes: number): string[][] {
 export class ContractReportSink implements ReportSink {
   // Dependencies
   private log: winston.Logger;
-  private contract: ObserverContract;
+  private contract: ArIOWritable;
   private readonly walletAddress: string;
 
   constructor({
@@ -124,7 +120,7 @@ export class ContractReportSink implements ReportSink {
     walletAddress,
   }: {
     log: winston.Logger;
-    contract: ObserverContract;
+    contract: ArIOWritable;
     walletAddress: string;
   }) {
     this.log = log;
@@ -168,10 +164,9 @@ export class ContractReportSink implements ReportSink {
       if (reportTxId === undefined) {
         throw new Error('Report TX ID is undefined');
       }
-      const saveObservationsTxId = await this.contract.writeInteraction(
+      const { id: saveObservationsTxId } = await this.contract.saveObservations(
         {
-          function: 'saveObservations',
-          observerReportTxId: reportTxId,
+          reportTxId: reportTxId,
           failedGateways: failedGatewaySummary,
         },
         {
@@ -186,7 +181,7 @@ export class ContractReportSink implements ReportSink {
           ],
         },
       );
-      saveObservationsTxIds.push(saveObservationsTxId.originalTxId);
+      saveObservationsTxIds.push(saveObservationsTxId);
     }
 
     this.log.info('Observation interactions saved', {
