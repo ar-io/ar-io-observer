@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { ArIO, WeightedObserver } from '@ar.io/sdk/node';
+import { ArIO, ArIOWritable, WeightedObserver } from '@ar.io/sdk/node';
 import {
   TurboAuthenticatedClient,
   TurboFactory,
@@ -36,7 +36,6 @@ import {
 
 import { ChainSource, MAX_FORK_DEPTH } from './arweave.js';
 import * as config from './config.js';
-import { WarpContract } from './contract/warp-contract.js';
 import { CachedEntropySource } from './entropy/cached-entropy-source.js';
 import { ChainEntropySource } from './entropy/chain-entropy-source.js';
 import { CompositeEntropySource } from './entropy/composite-entropy-source.js';
@@ -76,12 +75,49 @@ const observedGatewayHostList =
         contractId: config.CONTRACT_ID,
       });
 
+log.info(`Using wallet ${config.OBSERVER_WALLET}`);
+export const walletJwk: JWKInterface | undefined = (() => {
+  if (config.JWK !== undefined) {
+    try {
+      const jwk = JSON.parse(config.JWK);
+      log.info('Key loaded from environment');
+      return jwk;
+    } catch (error: any) {
+      log.error('Unable to load key from environment:', {
+        message: error.message,
+      });
+    }
+  }
+
+  try {
+    log.info('Loading key file...', {
+      keyFile: config.KEY_FILE,
+    });
+    const jwk = JSON.parse(fs.readFileSync(config.KEY_FILE).toString());
+    log.info('Key file loaded', {
+      keyFile: config.KEY_FILE,
+    });
+    return jwk;
+  } catch (error: any) {
+    log.error('Unable to load key file:', {
+      message: error.message,
+    });
+  }
+
+  log.warn('Reports will not be published to Arweave');
+  return undefined;
+})();
+
 const chainSource = new ChainSource({
   arweaveBaseUrl: config.ARWEAVE_URL,
 });
 
+const signer =
+  walletJwk !== undefined ? new ArweaveSigner(walletJwk) : undefined;
+
 const networkContract = ArIO.init({
   contractTxId: config.CONTRACT_ID,
+  signer,
 });
 
 // Attempt to read the start height and epoch block length from the contract - default to constants if it fails
@@ -170,39 +206,6 @@ const fsReportStore = new FsReportStore({
   baseDir: './data/reports',
 });
 
-log.info(`Using wallet ${config.OBSERVER_WALLET}`);
-export const walletJwk: JWKInterface | undefined = (() => {
-  if (config.JWK !== undefined) {
-    try {
-      const jwk = JSON.parse(config.JWK);
-      log.info('Key loaded from environment');
-      return jwk;
-    } catch (error: any) {
-      log.error('Unable to load key from environment:', {
-        message: error.message,
-      });
-    }
-  }
-
-  try {
-    log.info('Loading key file...', {
-      keyFile: config.KEY_FILE,
-    });
-    const jwk = JSON.parse(fs.readFileSync(config.KEY_FILE).toString());
-    log.info('Key file loaded', {
-      keyFile: config.KEY_FILE,
-    });
-    return jwk;
-  } catch (error: any) {
-    log.error('Unable to load key file:', {
-      message: error.message,
-    });
-  }
-
-  log.warn('Reports will not be published to Arweave');
-  return undefined;
-})();
-
 export const turboClient: TurboAuthenticatedClient | undefined = (() => {
   if (walletJwk !== undefined) {
     return TurboFactory.authenticated({
@@ -213,9 +216,6 @@ export const turboClient: TurboAuthenticatedClient | undefined = (() => {
     return undefined;
   }
 })();
-
-const signer =
-  walletJwk !== undefined ? new ArweaveSigner(walletJwk) : undefined;
 
 const arweaveURL = new URL(config.ARWEAVE_URL);
 export const arweave = new Arweave({
@@ -262,22 +262,11 @@ export const warp = WarpFactory.forMainnet(
   arweave,
 ).useStateCache(new LmdbCache(defaultCacheOptions));
 
-export const contract =
-  walletJwk !== undefined
-    ? new WarpContract({
-        log,
-        wallet: walletJwk,
-        warp,
-        cacheUrl: config.CONTRACT_CACHE_URL,
-        contractId: config.CONTRACT_ID,
-      })
-    : undefined;
-
 export const warpReportSink =
-  contract !== undefined
+  networkContract !== undefined && networkContract instanceof ArIOWritable
     ? new ContractReportSink({
         log,
-        contract,
+        contract: networkContract,
         walletAddress: config.OBSERVER_WALLET,
       })
     : undefined;
