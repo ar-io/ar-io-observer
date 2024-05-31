@@ -21,18 +21,10 @@ import {
   TurboFactory,
   defaultTurboConfiguration,
 } from '@ardrive/turbo-sdk/node';
-import { ArweaveSigner } from 'arbundles/node';
+import { ArweaveSigner, JWKInterface } from 'arbundles/node';
 import Arweave from 'arweave';
 import { default as NodeCache } from 'node-cache';
 import * as fs from 'node:fs';
-import { LmdbCache } from 'warp-contracts-lmdb';
-import {
-  JWKInterface,
-  LogLevel,
-  LoggerFactory,
-  WarpFactory,
-  defaultCacheOptions,
-} from 'warp-contracts/mjs';
 
 import { ChainSource, MAX_FORK_DEPTH } from './arweave.js';
 import * as config from './config.js';
@@ -252,17 +244,7 @@ if (turboReportSink !== undefined) {
   });
 }
 
-// Set our warp log level
-LoggerFactory.INST.logLevel(config.WARP_LOG_LEVEL as LogLevel);
-export const warp = WarpFactory.forMainnet(
-  {
-    ...defaultCacheOptions,
-  },
-  true,
-  arweave,
-).useStateCache(new LmdbCache(defaultCacheOptions));
-
-export const warpReportSink =
+export const contractReportSink =
   networkContract !== undefined && networkContract instanceof ArIOWritable
     ? new ContractReportSink({
         log,
@@ -275,12 +257,12 @@ if (!config.SUBMIT_CONTRACT_INTERACTIONS) {
   log.info(
     'SUBMIT_CONTRACT_INTERACTIONS is false - contract interactions will not be saved',
   );
-} else if (warpReportSink === undefined) {
+} else if (contractReportSink === undefined) {
   log.info('Wallet not configured - contract interactions will not be saved');
 } else {
   stores.push({
-    name: 'WarpReportSink',
-    sink: warpReportSink,
+    name: 'ContractReportSink',
+    sink: contractReportSink,
   });
 }
 
