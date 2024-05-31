@@ -52,7 +52,7 @@ export async function interactionAlreadySaved({
   observerWallet: string;
   epochStartHeight: number;
   failedGatewaySummaries: string[];
-  contract: ArIOReadable;
+  contract?: ArIOReadable;
 }): Promise<boolean> {
   const observations = await contract.getObservations();
   if (observations === undefined) {
