@@ -15,9 +15,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { ArIOWritable } from '@ar.io/sdk';
+import { ArIOWritable } from '@ar.io/sdk/node';
+import { Tag } from 'arweave/node/lib/transaction.js';
 import got from 'got';
-import { Tag } from 'warp-contracts/mjs';
 import * as winston from 'winston';
 
 import { CONTRACT_CACHE_URL, CONTRACT_ID } from '../config.js';
