@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { ArIO, ArIOReadable, ArIOWritable } from '@ar.io/sdk/node';
+import { ArIO, ArIOReadContract, ArIOWriteContract } from '@ar.io/sdk/node';
 import { Tag } from 'arweave/node/lib/transaction.js';
 import * as winston from 'winston';
 
@@ -52,7 +52,7 @@ export async function interactionAlreadySaved({
   observerWallet: string;
   epochStartHeight: number;
   failedGatewaySummaries: string[];
-  contract?: ArIOReadable;
+  contract?: ArIOReadContract;
 }): Promise<boolean> {
   const observations = await contract.getObservations();
   if (observations === undefined) {
@@ -110,7 +110,7 @@ function splitArrayBySize(array: string[], maxSizeInBytes: number): string[][] {
 export class ContractReportSink implements ReportSink {
   // Dependencies
   private log: winston.Logger;
-  private contract: ArIOWritable;
+  private contract: ArIOWriteContract;
   private readonly walletAddress: string;
 
   constructor({
@@ -119,7 +119,7 @@ export class ContractReportSink implements ReportSink {
     walletAddress,
   }: {
     log: winston.Logger;
-    contract: ArIOWritable;
+    contract: ArIOWriteContract;
     walletAddress: string;
   }) {
     this.log = log;
