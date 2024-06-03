@@ -19,7 +19,10 @@ import { ArIO, ArIOState, RemoteContract } from '@ar.io/sdk';
 import { expect } from 'chai';
 import nock from 'nock';
 
+
+
 import { interactionAlreadySaved } from './contract-report-sink.js';
+
 
 const observerWallet = 'test';
 const epochStartHeight = 1234567890;
@@ -167,8 +170,21 @@ describe('interactionAlreadySaved', function () {
     expect(result).to.be.false;
   });
 
+  // by default the SDK will retry 5 times
   it('should gracefully handle network errors', async function () {
-    nock(contractCacheUrl).get(networkCallPath).replyWithError('Network error');
+    nock(contractCacheUrl)
+      .get(networkCallPath)
+      .replyWithError('Network error')
+      .get(networkCallPath)
+      .replyWithError('Network error')
+      .get(networkCallPath)
+      .replyWithError('Network error')
+      .get(networkCallPath)
+      .replyWithError('Network error')
+      .get(networkCallPath)
+      .replyWithError('Network error')
+      .get(networkCallPath)
+      .replyWithError('Network error');
 
     try {
       await interactionAlreadySaved({
