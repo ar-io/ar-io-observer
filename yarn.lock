@@ -32,14 +32,15 @@
     call-me-maybe "^1.0.1"
     js-yaml "^4.1.0"
 
-"@ar.io/sdk@^1.1.0-alpha.8":
-  version "1.1.0-alpha.8"
-  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-1.1.0-alpha.8.tgz#4062f5c9e90d983f18cfa6e6ff0b07587ee0b9e2"
-  integrity sha512-Fdr2cbg+9a6ays8sbpDTlzx91ECF3O9CUMUEpsk0mVGfox7F/rkOGsTO361MFIG8jZX/WLSXFpLrIRfpvmgT0Q==
+"@ar.io/sdk@^1.1.0":
+  version "1.1.0"
+  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-1.1.0.tgz#b9519823f3f43c6be694d99900687eeb68774b8b"
+  integrity sha512-f/GAG0bSsrFj9NuSYar5WIXl8Tsgq+hV8svgzdaP3a9iTxjcYdV9sEOyujiNjFPlp8TqREKKl381n7IcHBYOgg==
   dependencies:
     arbundles "0.11.0"
     arweave "1.14.4"
     axios "1.6.0"
+    axios-retry "^4.3.0"
     bunyan "^1.8.15"
     warp-contracts "1.4.45"
 
@@ -1677,6 +1678,13 @@ axios-retry@^3.7.0:
   integrity sha512-uK9K/GnlExfShu9dB4GuK0j+iGkIR+LRus3ILhE0zSVXY2q6Dxpemr50NPMs5kP7eOKv9Pz4VvUO40ps1F67dA==
   dependencies:
     "@babel/runtime" "^7.15.4"
+    is-retry-allowed "^2.2.0"
+
+axios-retry@^4.3.0:
+  version "4.3.0"
+  resolved "https://registry.yarnpkg.com/axios-retry/-/axios-retry-4.3.0.tgz#43d10bb3675286d116e0a37350ff73aec36ebb80"
+  integrity sha512-vUAQ3bi02Q++b8aAn3fuM03qRKFLZ6BPcqSVsOpgWeww2jrYFpu9SKb9VuctvxrJuRCWM/voDuuRAD7v3A1G5g==
+  dependencies:
     is-retry-allowed "^2.2.0"
 
 axios@1.6.0:
