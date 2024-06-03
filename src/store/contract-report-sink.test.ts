@@ -19,10 +19,7 @@ import { ArIO, ArIOState, RemoteContract } from '@ar.io/sdk';
 import { expect } from 'chai';
 import nock from 'nock';
 
-
-
 import { interactionAlreadySaved } from './contract-report-sink.js';
-
 
 const observerWallet = 'test';
 const epochStartHeight = 1234567890;
