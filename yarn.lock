@@ -32,7 +32,7 @@
     call-me-maybe "^1.0.1"
     js-yaml "^4.1.0"
 
-"@ar.io/sdk@^1.1.0":
+"@ar.io/sdk@1.1.0":
   version "1.1.0"
   resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-1.1.0.tgz#b9519823f3f43c6be694d99900687eeb68774b8b"
   integrity sha512-f/GAG0bSsrFj9NuSYar5WIXl8Tsgq+hV8svgzdaP3a9iTxjcYdV9sEOyujiNjFPlp8TqREKKl381n7IcHBYOgg==
