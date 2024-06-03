@@ -112,6 +112,10 @@ const networkContract = ArIO.init({
   signer,
 });
 
+log.info(`Using contract ${config.CONTRACT_ID} to fetch contract information`, {
+  contractId: config.CONTRACT_ID,
+});
+
 // Attempt to read the start height and epoch block length from the contract - default to constants if it fails
 const { epochZeroStartHeight, epochBlockLength } = await networkContract
   .getCurrentEpoch()
@@ -130,6 +134,11 @@ const { epochZeroStartHeight, epochBlockLength } = await networkContract
       epochBlockLength: EPOCH_BLOCK_LENGTH,
     };
   });
+
+log.info('Using epoch start height and block length from contract cache', {
+  epochZeroStartHeight,
+  epochBlockLength,
+});
 
 export const epochHeightSelector = new EpochHeightSource({
   heightSource: chainSource,
