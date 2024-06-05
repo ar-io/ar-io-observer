@@ -19,18 +19,24 @@
 //
 // Arweave
 //
-
 export interface BlockSource {
   getBlockByHeight(height: number): Promise<any>; // TODO fix any
 }
 
 export interface HeightSource {
   getHeight(): Promise<number>;
+  getHeightAtTimestamp(timestamp: number): Promise<number>;
 }
 
 export interface EpochHeightSource {
   getEpochStartHeight(): Promise<number>;
   getEpochEndHeight(): Promise<number>;
+}
+
+export interface EpochTimestampSource {
+  getEpochStartTimestamp(): Promise<number>;
+  getEpochEndTimestamp(): Promise<number>;
+  getEpochIndex(): Promise<number>;
 }
 
 //
@@ -48,7 +54,7 @@ export interface ArnsNameList {
 }
 
 export interface ArnsNamesSource {
-  getNames(opts?: { [key: string]: any }): Promise<string[]>;
+  getPrescribedNames(opts?: { [key: string]: any }): Promise<string[]>;
 }
 
 //
@@ -121,8 +127,9 @@ export interface GatewayAssessments {
 export interface ObserverReport {
   formatVersion: number;
   observerAddress: string;
-  epochStartHeight: number;
-  epochEndHeight: number;
+  epochStartTimestamp: number;
+  epochEndTimestamp: number;
+  epochIndex: number;
   generatedAt: number;
   gatewayAssessments: GatewayAssessments;
 }

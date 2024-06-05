@@ -17,7 +17,7 @@
  */
 import got from 'got';
 
-import { AVERAGE_BLOCK_TIME } from '../arweave.js';
+import { AVERAGE_BLOCK_TIME_SECS } from '../arweave.js';
 import { ArnsNameList } from '../types.js';
 
 interface NameRecords {
@@ -113,14 +113,14 @@ export class RemoteCacheArnsNameList implements ArnsNameList {
         // TODO remove magic number
         if (
           +anyRecord?.startTimestamp >
-          blockTimestamp - AVERAGE_BLOCK_TIME * 50
+          blockTimestamp - AVERAGE_BLOCK_TIME_SECS * 50
         ) {
           continue;
         }
         // TODO remove magic number
         if (
           +anyRecord?.endTimestamp <
-          blockTimestamp + AVERAGE_BLOCK_TIME * 6000
+          blockTimestamp + AVERAGE_BLOCK_TIME_SECS * 6000
         ) {
           continue;
         }
