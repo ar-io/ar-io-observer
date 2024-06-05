@@ -17,9 +17,10 @@
  */
 import got from 'got';
 
-import { HeightSource } from './types.js';
+import { BlockSource, HeightSource } from './types.js';
 
-export const AVERAGE_BLOCK_TIME = 120;
+export const AVERAGE_BLOCK_TIME_SECS = 120;
+export const AVERAGE_BLOCK_TIME_MS = AVERAGE_BLOCK_TIME_SECS * 1000;
 export const MAX_FORK_DEPTH = 50;
 
 export class FixedHeightSource implements HeightSource {
@@ -32,9 +33,13 @@ export class FixedHeightSource implements HeightSource {
   async getHeight(): Promise<number> {
     return this.height;
   }
+
+  async getHeightAtTimestamp(_timestamp: number): Promise<number> {
+    return this.height;
+  }
 }
 
-export class ChainSource implements HeightSource {
+export class ChainSource implements HeightSource, BlockSource {
   private arweaveBaseUrl: string;
 
   constructor({ arweaveBaseUrl }: { arweaveBaseUrl: string }) {
@@ -49,5 +54,48 @@ export class ChainSource implements HeightSource {
       throw new Error(`Invalid height: ${resp.body}`);
     }
     return height;
+  }
+
+  async getBlockByHeight(height: number): Promise<any> {
+    const url = `${this.arweaveBaseUrl}/block/height/${height}`;
+    const resp = await got(url);
+    const block = JSON.parse(resp.body);
+    return block;
+  }
+
+  // copy/pasta from irys/arbundles
+  async getHeightAtTimestamp(reqTimestamp: number): Promise<number> {
+    const currentHeight = await this.getHeight();
+    const avgBlockTime = 2 * 60 * 1000;
+    const estimateHeightDelta = Math.ceil(
+      (Date.now() - reqTimestamp) / avgBlockTime,
+    );
+    const estimateHeight = currentHeight - estimateHeightDelta;
+    // Get blocks from around the estimate
+    const height = estimateHeight;
+
+    let wobble = 0;
+    let closestDelta = Infinity;
+    let closestHeight = 0;
+    let twoClosest = 0; // Below will flip flop between two values at minimum
+
+    for (let i = 0; i < 30; i++) {
+      const testHeight = height + wobble;
+      const timestamp = await this.getBlockByHeight(testHeight);
+      const cDelta = timestamp - reqTimestamp;
+      if (cDelta === twoClosest) break;
+      if (i % 2 === 0) twoClosest = cDelta;
+      if (Math.abs(cDelta) > 20 * 60 * 1000) {
+        wobble += Math.floor((cDelta / avgBlockTime) * 0.75) * -1;
+      } else {
+        wobble += cDelta > 0 ? -1 : 1;
+      }
+      if (Math.abs(cDelta) < Math.abs(closestDelta)) {
+        closestDelta = cDelta;
+        closestHeight = testHeight;
+      }
+    }
+
+    return closestHeight;
   }
 }
