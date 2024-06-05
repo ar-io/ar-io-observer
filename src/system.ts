@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { ArIO, ArIOWritable, WeightedObserver } from '@ar.io/sdk/node';
+import { ArIOWritable, IO, WeightedObserver } from '@ar.io/sdk/node';
 import {
   TurboAuthenticatedClient,
   TurboFactory,
@@ -26,7 +26,11 @@ import Arweave from 'arweave';
 import { default as NodeCache } from 'node-cache';
 import * as fs from 'node:fs';
 
-import { ChainSource, MAX_FORK_DEPTH } from './arweave.js';
+import {
+  AVERAGE_BLOCK_TIME_MS,
+  ChainSource,
+  MAX_FORK_DEPTH,
+} from './arweave.js';
 import * as config from './config.js';
 import { CachedEntropySource } from './entropy/cached-entropy-source.js';
 import { ChainEntropySource } from './entropy/chain-entropy-source.js';
@@ -35,14 +39,15 @@ import { RandomEntropySource } from './entropy/random-entropy-source.js';
 import { RemoteCacheHostsSource } from './hosts/remote-cache-hosts-source.js';
 import { StaticHostsSource } from './hosts/static-hosts-source.js';
 import log from './log.js';
+import { IOContractNamesSource } from './names/io-contract-names-source.js';
 import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
 import { RemoteCacheArnsNameList } from './names/remote-cache-arns-name-list.js';
 import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
 import {
-  EPOCH_BLOCK_LENGTH,
-  EpochHeightSource,
-  START_HEIGHT,
+  EPOCH_BLOCK_LENGTH_MS,
+  EpochTimestampSource,
+  START_TIMESTAMP,
 } from './protocol.js';
 import { ContractReportSink } from './store/contract-report-sink.js';
 import { FsReportStore } from './store/fs-report-store.js';
@@ -107,8 +112,8 @@ const chainSource = new ChainSource({
 const signer =
   walletJwk !== undefined ? new ArweaveSigner(walletJwk) : undefined;
 
-const networkContract = ArIO.init({
-  contractTxId: config.CONTRACT_ID,
+const networkContract = IO.init({
+  processId: config.IO_PROCESS_ID,
   signer,
 });
 
@@ -117,34 +122,36 @@ log.info(`Using contract ${config.CONTRACT_ID} to fetch contract information`, {
 });
 
 // Attempt to read the start height and epoch block length from the contract - default to constants if it fails
-const { epochZeroStartHeight, epochBlockLength } = await networkContract
-  .getCurrentEpoch()
-  .catch((error: any) => {
-    log.error(
-      `Unable to get start height from contract cache - using default values`,
-      {
-        message: error?.message,
-        stack: error?.stack,
-        startHeight: START_HEIGHT,
-        epochBlockLength: EPOCH_BLOCK_LENGTH,
-      },
-    );
-    return {
-      epochZeroStartHeight: START_HEIGHT,
-      epochBlockLength: EPOCH_BLOCK_LENGTH,
-    };
-  });
-
-log.info('Using epoch start height and block length from contract cache', {
-  epochZeroStartHeight,
-  epochBlockLength,
+const {
+  startTimestamp: epochStartTimestamp,
+  endTimestamp: epochEndTimestamp,
+  epochIndex,
+} = await networkContract.getCurrentEpoch().catch((error: any) => {
+  log.error(
+    `Unable to get start height from contract cache - using default values`,
+    {
+      message: error?.message,
+      stack: error?.stack,
+    },
+  );
+  return {
+    startTimestamp: START_TIMESTAMP,
+    endTimestamp: EPOCH_BLOCK_LENGTH_MS,
+    epochIndex: 0,
+  };
 });
 
-export const epochHeightSelector = new EpochHeightSource({
+log.info('Using epoch start height and block length from contract cache', {
+  epochStartTimestamp,
+  epochEndTimestamp,
+});
+
+export const epochTimestampSelector = new EpochTimestampSource({
   heightSource: chainSource,
   epochParams: {
-    startHeight: epochZeroStartHeight,
-    epochBlockLength,
+    epochStartTimestamp: epochStartTimestamp,
+    epochEndTimestamp: epochEndTimestamp,
+    epochIndex: epochIndex,
   },
 });
 
@@ -162,10 +169,8 @@ const chainEntropySource = new ChainEntropySource({
   arweaveBaseUrl: config.ARWEAVE_URL,
 });
 
-const prescribedNamesSource = new RandomArnsNamesSource({
-  nameList: remoteCacheArnsNameList,
-  entropySource: chainEntropySource,
-  numNamesToSource: config.NUM_ARNS_NAMES_TO_OBSERVE_PER_GROUP,
+const prescribedNamesSource = new IOContractNamesSource({
+  contract: networkContract,
 });
 
 const randomEntropySource = new RandomEntropySource();
@@ -188,7 +193,7 @@ const chosenNamesSource = new RandomArnsNamesSource({
 export const observer = new Observer({
   observerAddress: config.OBSERVER_WALLET,
   referenceGatewayHost: config.REFERENCE_GATEWAY_HOST,
-  epochHeightSource: epochHeightSelector,
+  epochTimestampSource: epochTimestampSelector,
   observedGatewayHostList,
   prescribedNamesSource,
   chosenNamesSource,
@@ -196,6 +201,7 @@ export const observer = new Observer({
   nameAssessmentConcurrency: config.NAME_ASSESSMENT_CONCURRENCY,
   nodeReleaseVersion: config.AR_IO_NODE_RELEASE,
   entropySource: chainEntropySource,
+  heightSource: chainSource,
 });
 
 export const reportCache = new NodeCache({
@@ -281,13 +287,15 @@ export const reportSink = new PipelineReportSink({
 });
 
 // Wait for chain stability before saving reports
-const START_HEIGHT_START_OFFSET = MAX_FORK_DEPTH;
+// const START_HEIGHT_START_OFFSET = MAX_FORK_DEPTH;
+const START_HEIGHT_START_OFFSET_MS = MAX_FORK_DEPTH * AVERAGE_BLOCK_TIME_MS;
 
 // Ensure there is enough time to save the report at the end of the epoch. We
 // use 2 * MAX_FORK_DEPTH because it allows MAX_FORK_DEPTH blocks (somewhat
 // arbitrary but pleasingly symmetric) before we stop attempting to save
 // altogether for consistency reasons at the end of the epoch.
-const START_HEIGHT_END_OFFSET = 2 * MAX_FORK_DEPTH;
+// const START_HEIGHT_END_OFFSET = 2 * MAX_FORK_DEPTH;
+const START_HEIGHT_END_OFFSET_MS = 2 * MAX_FORK_DEPTH * AVERAGE_BLOCK_TIME_MS;
 
 export async function updateAndSaveCurrentReport() {
   try {
@@ -301,7 +309,7 @@ export async function updateAndSaveCurrentReport() {
     log.info('Getting observers from contract state...');
     // Get selected observers for the current epoch from the contract
     const observers: string[] = await networkContract
-      .getPrescribedObservers()
+      .getPrescribedObservers({ timestamp: epochStartTimestamp })
       .then((observers: WeightedObserver[]) => {
         log.info(`Retrieved ${observers.length} observers from contract state`);
         return observers.map(
@@ -321,24 +329,34 @@ export async function updateAndSaveCurrentReport() {
       return;
     }
 
+    const entropyHeight = chainSource.getHeightAtTimestamp(
+      report.epochStartTimestamp,
+    );
+    const epochBlockLengthMs =
+      report.epochEndTimestamp - report.epochStartTimestamp;
     // Save the report after a random block between 50 blocks after the start
     // of the epoch and 100 blocks before the end of the epoch
     const entropy = await compositeEntropySource.getEntropy({
-      height: report.epochStartHeight,
+      height: entropyHeight,
     });
-    const saveAfterHeight =
-      report.epochStartHeight +
-      START_HEIGHT_START_OFFSET +
+    const saveAfterTimestamp =
+      report.epochStartTimestamp +
+      START_HEIGHT_START_OFFSET_MS +
       (entropy.readUInt32BE(0) %
-        (epochBlockLength -
-          START_HEIGHT_START_OFFSET -
-          START_HEIGHT_END_OFFSET));
+        (epochBlockLengthMs -
+          START_HEIGHT_START_OFFSET_MS -
+          START_HEIGHT_END_OFFSET_MS));
 
     const currentHeight = await chainSource.getHeight();
+    const block = await chainSource.getBlockByHeight(currentHeight);
+    const currentBlockTimestamp = block.timestamp;
 
     if (!observers.includes(config.OBSERVER_WALLET)) {
       log.info('Not saving report - not selected as an observer');
-    } else if (currentHeight > report.epochEndHeight - MAX_FORK_DEPTH) {
+    } else if (
+      currentBlockTimestamp >
+      report.epochStartTimestamp - MAX_FORK_DEPTH * AVERAGE_BLOCK_TIME_MS
+    ) {
       // Contract state is based on the current height so to avoid potential
       // inconsistencies where we generate a report for one epoch, but get
       // contract state from the next one, we don't save the report if we're
@@ -347,12 +365,14 @@ export async function updateAndSaveCurrentReport() {
       // report.
       log.info('Not saving report - too close to end of epoch', {
         currentHeight,
-        epochEndHeight: report.epochEndHeight,
+        currentBlockTimestamp,
+        epochEndTimestamp: report.epochEndTimestamp,
       });
-    } else if (currentHeight < saveAfterHeight) {
+    } else if (currentBlockTimestamp < saveAfterTimestamp) {
       log.info('Not saving report - save height not reached', {
         currentHeight,
-        saveAfterHeight,
+        saveAfterTimestamp,
+        currentBlockTimestamp,
       });
     } else {
       reportSink.saveReport({ report });

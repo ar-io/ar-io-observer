@@ -38,7 +38,7 @@ export class RandomArnsNamesSource implements ArnsNamesSource {
     this.numNamesToSource = numNamesToSource;
   }
 
-  async getNames({ height }: { height: number }): Promise<string[]> {
+  async getPrescribedNames({ height }: { height: number }): Promise<string[]> {
     const selectedNames: string[] = [];
     const usedIndexes = new Set<number>();
     const entropy = await this.entropySource.getEntropy({ height });
