@@ -60,7 +60,7 @@ export class PipelineReportSink implements ReportSink {
           report: undefined,
         });
       } catch (error) {
-        log.error(`Error saving report using ${name}`, { error });
+        log.error(`Error saving report using ${name}`, error);
       }
     }
 
