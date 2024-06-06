@@ -21,20 +21,13 @@ import got, { Got, RequestError, Response } from 'got';
 import crypto from 'node:crypto';
 import pMap from 'p-map';
 
-import { EpochTimestampSource } from './protocol.js';
-import {
-  ArnsNameAssessment,
-  ArnsNameAssessments,
-  ArnsNamesSource,
-  EntropySource,
-  GatewayAssessments,
-  GatewayHostsSource,
-  HeightSource,
-  ObserverReport,
-  OwnershipAssessment,
-} from './types.js';
 
-const REPORT_FORMAT_VERSION = 2;
+
+import { EpochTimestampSource } from './protocol.js';
+import { ArnsNameAssessment, ArnsNameAssessments, ArnsNamesSource, EntropySource, GatewayAssessments, GatewayHostsSource, HeightSource, ObserverReport, OwnershipAssessment } from './types.js';
+
+
+export const REPORT_FORMAT_VERSION = 2;
 
 const NAME_PASS_THRESHOLD = 0.8;
 
@@ -290,7 +283,7 @@ async function assessOwnership({
 export class Observer {
   private observerAddress: string;
   private referenceGatewayHost: string;
-  private epochTimestampSource: EpochTimestampSource;
+  private epochSource: EpochTimestampSource;
   private observedGatewayHostList: GatewayHostsSource;
   private prescribedNamesSource: ArnsNamesSource;
   private chosenNamesSource: ArnsNamesSource;
@@ -298,7 +291,6 @@ export class Observer {
   private nameAssessmentConcurrency: number;
   private nodeReleaseVersion: string;
   private entropySource: EntropySource;
-  private heightSource: HeightSource;
   private gotClient: Got;
   private referenceGatewayResolutionCache?: ReadThroughPromiseCache<
     string,
@@ -308,7 +300,7 @@ export class Observer {
   constructor({
     observerAddress,
     prescribedNamesSource,
-    epochTimestampSource,
+    epochSource,
     chosenNamesSource,
     referenceGatewayHost,
     observedGatewayHostList,
@@ -316,11 +308,10 @@ export class Observer {
     nameAssessmentConcurrency,
     nodeReleaseVersion,
     entropySource,
-    heightSource,
   }: {
     observerAddress: string;
     referenceGatewayHost: string;
-    epochTimestampSource: EpochTimestampSource;
+    epochSource: EpochTimestampSource;
     observedGatewayHostList: GatewayHostsSource;
     prescribedNamesSource: ArnsNamesSource;
     chosenNamesSource: ArnsNamesSource;
@@ -328,11 +319,10 @@ export class Observer {
     nameAssessmentConcurrency: number;
     nodeReleaseVersion: string;
     entropySource: EntropySource;
-    heightSource: HeightSource;
   }) {
     this.observerAddress = observerAddress;
     this.referenceGatewayHost = referenceGatewayHost;
-    this.epochTimestampSource = epochTimestampSource;
+    this.epochSource = epochSource;
     this.observedGatewayHostList = observedGatewayHostList;
     this.prescribedNamesSource = prescribedNamesSource;
     this.chosenNamesSource = chosenNamesSource;
@@ -340,7 +330,6 @@ export class Observer {
     this.nameAssessmentConcurrency = nameAssessmentConcurrency;
     this.nodeReleaseVersion = nodeReleaseVersion;
     this.entropySource = entropySource;
-    this.heightSource = heightSource;
     this.gotClient = client.extend({
       headers: { 'X-AR-IO-Node-Release': this.nodeReleaseVersion },
     });
@@ -452,23 +441,16 @@ export class Observer {
   }
 
   async generateReport(): Promise<ObserverReport> {
-    const epochStartTimestamp =
-      await this.epochTimestampSource.getEpochStartTimestamp();
-    const epochEndTimestamp =
-      await this.epochTimestampSource.getEpochEndTimestamp();
-
-    const epochIndex = await this.epochTimestampSource.getEpochIndex();
-
-    // not sure we want to do this
-    const epochStartHeight = await this.heightSource.getHeightAtTimestamp(
-      epochStartTimestamp,
-    );
-
+    const epochStartTimestamp = await this.epochSource.getEpochStartTimestamp();
+    const epochEndTimestamp = await this.epochSource.getEpochEndTimestamp();
+    const epochStartHeight = await this.epochSource.getEpochStartHeight();
+    const epochIndex = await this.epochSource.getEpochIndex();
     const prescribedNames = await this.prescribedNamesSource.getPrescribedNames(
       {
-        timestamp: epochStartTimestamp,
+        epochIndex: epochIndex,
       },
     );
+    // observer will choose names based on the epoch start height
     const chosenNames = await this.chosenNamesSource.getPrescribedNames({
       height: epochStartHeight,
     });
@@ -483,6 +465,7 @@ export class Observer {
       (hostWallets[host.fqdn] ||= []).push(host.wallet);
     });
 
+    // use the epoch start height to compute entropy for
     const entropy = await this.entropySource.getEntropy({
       height: epochStartHeight,
     });
@@ -552,6 +535,7 @@ export class Observer {
       observerAddress: this.observerAddress,
       epochIndex,
       epochStartTimestamp,
+      epochStartHeight,
       epochEndTimestamp,
       generatedAt: +(Date.now() / 1000).toFixed(0),
       gatewayAssessments,

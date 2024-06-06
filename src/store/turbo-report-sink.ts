@@ -22,6 +22,7 @@ import { promisify } from 'node:util';
 import zlib from 'node:zlib';
 import * as winston from 'winston';
 
+import { REPORT_FORMAT_VERSION } from '../observer.js';
 import { ObserverReport, ReportInfo, ReportSink } from '../types.js';
 
 const gzip = promisify(zlib.gzip);
@@ -43,8 +44,16 @@ async function createReportDataItem(
         value: 'observer',
       },
       {
-        name: 'AR-IO-Epoch-Start-Height',
-        value: report.epochStartHeight.toString(),
+        name: 'AR-IO-Epoch-Start-Timestamp',
+        value: report.epochStartTimestamp.toString(),
+      },
+      {
+        name: 'AR-IO-Epoch-Index',
+        value: report.epochIndex.toString(),
+      },
+      {
+        name: 'AR-IO-Observer-Report-Version',
+        value: REPORT_FORMAT_VERSION.toString(),
       },
     ],
   });
@@ -88,7 +97,7 @@ export class TurboReportSink implements ReportSink {
   }> {
     const { report } = reportInfo;
     const log = this.log.child({
-      epochStartHeight: report.epochStartHeight,
+      epochStartTimestamp: report.epochStartTimestamp,
     });
 
     // Return existing TX ID if the report was already saved
@@ -140,7 +149,7 @@ export class TurboReportSink implements ReportSink {
   }
 
   async getReportTxId(report: ObserverReport): Promise<string | undefined> {
-    const epochStartHeight = report.epochStartHeight;
+    const epochStartTimestamp = report.epochStartTimestamp;
 
     // Find the first report TX ID for the given epoch start height
     const queryObject = {
@@ -151,8 +160,8 @@ export class TurboReportSink implements ReportSink {
     owners: [ "${this.walletAddress}" ],
     tags: [
       {
-        name: "AR-IO-Epoch-Start-Height",
-        values: [ "${epochStartHeight}" ]
+        name: "AR-IO-Epoch-Start-Timestamp",
+        values: [ "${epochStartTimestamp}" ]
       },
       {
         name: "App-Name",
