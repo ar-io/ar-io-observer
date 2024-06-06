@@ -43,7 +43,8 @@ export class PipelineReportSink implements ReportSink {
   async saveReport(reportInfo: ReportInfo): Promise<ReportInfo> {
     const report = reportInfo.report;
     const log = this.log.child({
-      epochStartHeight: report.epochStartHeight,
+      epochStartTimestamp: report.epochStartTimestamp,
+      epochIndex: report.epochIndex,
     });
 
     log.info('Saving report...');

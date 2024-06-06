@@ -53,6 +53,7 @@ export class ChainSource implements HeightSource, BlockSource {
     if (isNaN(height)) {
       throw new Error(`Invalid height: ${resp.body}`);
     }
+    console.log('Got height got height', height)
     return height;
   }
 
@@ -61,41 +62,5 @@ export class ChainSource implements HeightSource, BlockSource {
     const resp = await got(url);
     const block = JSON.parse(resp.body);
     return block;
-  }
-
-  // copy/pasta from irys/arbundles
-  async getHeightAtTimestamp(reqTimestamp: number): Promise<number> {
-    const currentHeight = await this.getHeight();
-    const avgBlockTime = 2 * 60 * 1000;
-    const estimateHeightDelta = Math.ceil(
-      (Date.now() - reqTimestamp) / avgBlockTime,
-    );
-    const estimateHeight = currentHeight - estimateHeightDelta;
-    // Get blocks from around the estimate
-    const height = estimateHeight;
-
-    let wobble = 0;
-    let closestDelta = Infinity;
-    let closestHeight = 0;
-    let twoClosest = 0; // Below will flip flop between two values at minimum
-
-    for (let i = 0; i < 30; i++) {
-      const testHeight = height + wobble;
-      const timestamp = await this.getBlockByHeight(testHeight);
-      const cDelta = timestamp - reqTimestamp;
-      if (cDelta === twoClosest) break;
-      if (i % 2 === 0) twoClosest = cDelta;
-      if (Math.abs(cDelta) > 20 * 60 * 1000) {
-        wobble += Math.floor((cDelta / avgBlockTime) * 0.75) * -1;
-      } else {
-        wobble += cDelta > 0 ? -1 : 1;
-      }
-      if (Math.abs(cDelta) < Math.abs(closestDelta)) {
-        closestDelta = cDelta;
-        closestHeight = testHeight;
-      }
-    }
-
-    return closestHeight;
   }
 }

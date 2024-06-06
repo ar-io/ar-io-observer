@@ -25,8 +25,14 @@ export class IOContractNamesSource implements ArnsNamesSource {
     this.contract = contract;
   }
 
-  async getPrescribedNames(): Promise<string[]> {
-    const names = await this.contract.getPrescribedNames();
+  async getPrescribedNames({
+    epochIndex,
+  }: {
+    epochIndex: number;
+  }): Promise<string[]> {
+    const names = await this.contract.getPrescribedNames({
+      epochIndex,
+    });
     return names;
   }
 }
