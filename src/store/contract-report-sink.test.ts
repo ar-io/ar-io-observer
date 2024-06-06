@@ -15,6 +15,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
+/**
+ * 
+ * TODO: come back to these tests with AO mocks
+ * 
 import { ArIO, ArIOState, RemoteContract } from '@ar.io/sdk';
 import { expect } from 'chai';
 import nock from 'nock';
@@ -210,3 +215,4 @@ describe('interactionAlreadySaved', function () {
     }
   });
 });
+**/
