@@ -16,26 +16,21 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import { IO, IOWriteable, WeightedObserver } from '@ar.io/sdk/node';
-import {
-  TurboAuthenticatedClient,
-  TurboFactory,
-  defaultTurboConfiguration,
-} from '@ardrive/turbo-sdk/node';
+import { TurboAuthenticatedClient, TurboFactory, defaultTurboConfiguration } from '@ardrive/turbo-sdk/node';
 import { ArweaveSigner, JWKInterface } from 'arbundles/node';
 import Arweave from 'arweave';
 import { default as NodeCache } from 'node-cache';
 import * as fs from 'node:fs';
 
-import {
-  AVERAGE_BLOCK_TIME_MS,
-  ChainSource,
-  MAX_FORK_DEPTH,
-} from './arweave.js';
+
+
+import { AVERAGE_BLOCK_TIME_MS, ChainSource, MAX_FORK_DEPTH } from './arweave.js';
 import * as config from './config.js';
 import { CachedEntropySource } from './entropy/cached-entropy-source.js';
 import { ChainEntropySource } from './entropy/chain-entropy-source.js';
 import { CompositeEntropySource } from './entropy/composite-entropy-source.js';
 import { RandomEntropySource } from './entropy/random-entropy-source.js';
+import { ContractHostsSource } from './hosts/io-contract-hosts-source.js';
 import { RemoteCacheHostsSource } from './hosts/remote-cache-hosts-source.js';
 import { StaticHostsSource } from './hosts/static-hosts-source.js';
 import log from './log.js';
@@ -44,33 +39,14 @@ import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
 import { RemoteCacheArnsNameList } from './names/remote-cache-arns-name-list.js';
 import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
-import {
-  EPOCH_BLOCK_LENGTH_MS,
-  EpochTimestampSource,
-  START_TIMESTAMP,
-} from './protocol.js';
+import { EPOCH_BLOCK_LENGTH_MS, EpochTimestampSource, START_TIMESTAMP } from './protocol.js';
 import { ContractReportSink } from './store/contract-report-sink.js';
 import { FsReportStore } from './store/fs-report-store.js';
-import {
-  PipelineReportSink,
-  ReportSinkEntry,
-} from './store/pipeline-report-sink.js';
+import { PipelineReportSink, ReportSinkEntry } from './store/pipeline-report-sink.js';
 import { TurboReportSink } from './store/turbo-report-sink.js';
 
-const REPORT_CACHE_TTL_SECONDS = 60 * 60 * 2.5; // 2.5 hours
 
-const observedGatewayHostList =
-  config.OBSERVED_GATEWAY_HOSTS.length > 0
-    ? new StaticHostsSource({
-        hosts: config.OBSERVED_GATEWAY_HOSTS.map((fqdn) => ({
-          fqdn,
-          wallet: '<unknown>',
-        })),
-      })
-    : new RemoteCacheHostsSource({
-        baseCacheUrl: config.CONTRACT_CACHE_URL,
-        contractId: config.CONTRACT_ID,
-      });
+const REPORT_CACHE_TTL_SECONDS = 60 * 60 * 2.5; // 2.5 hours
 
 log.info(`Using wallet ${config.OBSERVER_WALLET}`);
 export const walletJwk: JWKInterface | undefined = (() => {
@@ -124,6 +100,18 @@ log.info(
   },
 );
 
+const observedGatewayHostList =
+  config.OBSERVED_GATEWAY_HOSTS.length > 0
+    ? new StaticHostsSource({
+        hosts: config.OBSERVED_GATEWAY_HOSTS.map((fqdn) => ({
+          fqdn,
+          wallet: '<unknown>',
+        })),
+      })
+    : new ContractHostsSource({
+        contract: networkContract,
+      });
+
 // Attempt to read the start height and epoch block length from the contract - default to constants if it fails
 const {
   startTimestamp: epochStartTimestamp,
@@ -160,22 +148,19 @@ export const epochSelector = new EpochTimestampSource({
   },
 });
 
+const namesSource = new IOContractNamesSource({
+  contract: networkContract,
+});
+
 const remoteCacheArnsNameList =
   config.ARNS_NAMES.length > 0
     ? new StaticArnsNameList({
         names: config.ARNS_NAMES,
       })
-    : new RemoteCacheArnsNameList({
-        baseCacheUrl: config.CONTRACT_CACHE_URL,
-        contractId: config.CONTRACT_ID,
-      });
+    : namesSource;
 
 const chainEntropySource = new ChainEntropySource({
   arweaveBaseUrl: config.ARWEAVE_URL,
-});
-
-const prescribedNamesSource = new IOContractNamesSource({
-  contract: networkContract,
 });
 
 const randomEntropySource = new RandomEntropySource();
@@ -200,7 +185,7 @@ export const observer = new Observer({
   referenceGatewayHost: config.REFERENCE_GATEWAY_HOST,
   epochSource: epochSelector,
   observedGatewayHostList,
-  prescribedNamesSource,
+  prescribedNamesSource: namesSource,
   chosenNamesSource,
   gatewayAssessmentConcurrency: config.GATEWAY_ASSESSMENT_CONCURRENCY,
   nameAssessmentConcurrency: config.NAME_ASSESSMENT_CONCURRENCY,
@@ -351,13 +336,13 @@ export async function updateAndSaveCurrentReport() {
 
     const currentHeight = await chainSource.getHeight();
     const block = await chainSource.getBlockByHeight(currentHeight);
-    const currentBlockTimestamp = block.timestamp;
+    const currentBlockTimestamp = block.timestamp * 1000;
 
     if (!observers.includes(config.OBSERVER_WALLET)) {
       log.info('Not saving report - not selected as an observer');
     } else if (
       currentBlockTimestamp >
-      report.epochStartTimestamp - MAX_FORK_DEPTH * AVERAGE_BLOCK_TIME_MS
+      report.epochEndTimestamp - MAX_FORK_DEPTH * AVERAGE_BLOCK_TIME_MS
     ) {
       // Contract state is based on the current height so to avoid potential
       // inconsistencies where we generate a report for one epoch, but get
@@ -371,7 +356,7 @@ export async function updateAndSaveCurrentReport() {
         epochEndTimestamp: report.epochEndTimestamp,
       });
     } else if (currentBlockTimestamp < saveAfterTimestamp) {
-      log.info('Not saving report - save height not reached', {
+      log.info('Not saving report - save timestamp not reached', {
         currentHeight,
         saveAfterTimestamp,
         currentBlockTimestamp,
