@@ -99,7 +99,7 @@ export class RemoteCacheArnsNameList implements ArnsNameList {
       if (!hasTimestamp(block)) {
         throw new Error('Unexpected block response format');
       }
-      const blockTimestamp = block.timestamp;
+      const blockTimestamp = block.timestamp * 1000;
 
       // TODO request the state at the given height
       const cacheUrl = `${this.baseCacheUrl}/v1/contract/${this.contractId}/records`;

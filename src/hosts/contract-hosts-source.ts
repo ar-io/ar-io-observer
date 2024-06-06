@@ -17,37 +17,35 @@
  */
 import { AoIORead } from '@ar.io/sdk';
 
-import { ArnsNameList, ArnsNamesSource } from '../types.js';
+import { GatewayHost, GatewayHostsSource } from '../types.js';
 
-export class IOContractNamesSource implements ArnsNamesSource, ArnsNameList {
+export class ContractHostsSource implements GatewayHostsSource {
   private contract: AoIORead;
+
   constructor({ contract }: { contract: AoIORead }) {
     this.contract = contract;
   }
 
-  async getPrescribedNames({
-    epochIndex,
-  }: {
-    epochIndex: number;
-  }): Promise<string[]> {
-    const names = await this.contract.getPrescribedNames({
-      epochIndex,
-    });
-    return names;
-  }
-
-  async getAllNames(): Promise<string[]> {
-    const names = await this.contract.getArNSRecords();
-    const namesArray = Object.keys(names).sort();
-    return namesArray;
-  }
-
-  async getName(index: number): Promise<string> {
-    const names = await this.getAllNames();
-    return names[index];
-  }
-
-  async getNamesCount(): Promise<number> {
-    return (await this.getAllNames()).length;
+  async getHosts(): Promise<GatewayHost[]> {
+    const gateways = await this.contract.getGateways();
+    if (Object.keys(gateways).length === 0) {
+      throw new Error('No gateways found in response');
+    }
+    const hosts = [];
+    for (const [wallet, gateway] of Object.entries(gateways)) {
+      if (gateway?.settings?.fqdn === undefined) {
+        throw new Error('No FQDN found');
+      } else {
+        hosts.push({
+          startTimestamp: gateway?.startTimestamp,
+          endTimestamp: gateway?.endTimestamp,
+          fqdn: gateway?.settings?.fqdn,
+          port: gateway?.settings?.port,
+          protocol: gateway?.settings?.protocol,
+          wallet: wallet,
+        });
+      }
+    }
+    return hosts;
   }
 }
