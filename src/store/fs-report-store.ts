@@ -42,10 +42,11 @@ export class FsReportStore implements ReportSink, ReportStore {
 
     let report = reportInfo.report;
     const log = this.log.child({
-      epochStartHeight: report.epochStartHeight,
+      epochStartTimestamp: report.epochStartTimestamp,
+      epochIndex: report.epochIndex,
     });
 
-    const savedReport = await this.getReport(report.epochStartHeight);
+    const savedReport = await this.getReport(report.epochIndex);
     if (savedReport !== null) {
       log.info('Using previously saved report');
       report = savedReport;
@@ -55,13 +56,13 @@ export class FsReportStore implements ReportSink, ReportStore {
       };
     }
 
-    const reportFile = `${this.baseDir}/${report.epochStartHeight}.json`;
+    const reportFile = `${this.baseDir}/${report.epochIndex}.json`;
     log.info('Saving report...', {
       reportFile,
     });
     if (!fs.existsSync(reportFile)) {
       await fs.promises.writeFile(
-        `./data/reports/${report.epochStartHeight}.json`,
+        `./data/reports/${report.epochIndex}.json`,
         JSON.stringify(report),
       );
     }
@@ -72,8 +73,8 @@ export class FsReportStore implements ReportSink, ReportStore {
     return reportInfo;
   }
 
-  async getReport(epochStartHeight: number): Promise<ObserverReport | null> {
-    const reportFile = `./data/reports/${epochStartHeight}.json`;
+  async getReport(epochIndex: number): Promise<ObserverReport | null> {
+    const reportFile = `./data/reports/${epochIndex}.json`;
     if (!fs.existsSync(reportFile)) {
       return null;
     }

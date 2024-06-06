@@ -74,6 +74,7 @@ interface EpochParams {
 
 interface EpochTimestampParams {
   epochStartTimestamp: number;
+  epochStartHeight: number;
   epochEndTimestamp: number;
   epochIndex: number;
 }
@@ -120,6 +121,7 @@ export class EpochTimestampSource implements IEpochTimestampSource {
     epochParams = {
       epochStartTimestamp: 0,
       epochEndTimestamp: 1000 * 60 * 60 * 24, // 1 day
+      epochStartHeight: 0,
       epochIndex: 0,
     },
   }: {
@@ -135,6 +137,10 @@ export class EpochTimestampSource implements IEpochTimestampSource {
 
   async getEpochEndTimestamp(): Promise<number> {
     return this.epochParams.epochEndTimestamp;
+  }
+
+  async getEpochStartHeight(): Promise<number> {
+    return this.epochParams.epochStartHeight;
   }
 
   async getEpochIndex(): Promise<number> {

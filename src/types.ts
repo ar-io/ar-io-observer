@@ -25,7 +25,6 @@ export interface BlockSource {
 
 export interface HeightSource {
   getHeight(): Promise<number>;
-  getHeightAtTimestamp(timestamp: number): Promise<number>;
 }
 
 export interface EpochHeightSource {
@@ -34,6 +33,7 @@ export interface EpochHeightSource {
 }
 
 export interface EpochTimestampSource {
+  getEpochStartHeight(): Promise<number>;
   getEpochStartTimestamp(): Promise<number>;
   getEpochEndTimestamp(): Promise<number>;
   getEpochIndex(): Promise<number>;
@@ -129,6 +129,7 @@ export interface ObserverReport {
   observerAddress: string;
   epochStartTimestamp: number;
   epochEndTimestamp: number;
+  epochStartHeight: number;
   epochIndex: number;
   generatedAt: number;
   gatewayAssessments: GatewayAssessments;

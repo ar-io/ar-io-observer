@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { ArIOWritable, IO, WeightedObserver } from '@ar.io/sdk/node';
+import { IO, IOWriteable, WeightedObserver } from '@ar.io/sdk/node';
 import {
   TurboAuthenticatedClient,
   TurboFactory,
@@ -117,41 +117,46 @@ const networkContract = IO.init({
   signer,
 });
 
-log.info(`Using contract ${config.CONTRACT_ID} to fetch contract information`, {
-  contractId: config.CONTRACT_ID,
-});
+log.info(
+  `Using process ${config.IO_PROCESS_ID} to fetch contract information`,
+  {
+    processId: config.IO_PROCESS_ID,
+  },
+);
 
 // Attempt to read the start height and epoch block length from the contract - default to constants if it fails
 const {
   startTimestamp: epochStartTimestamp,
   endTimestamp: epochEndTimestamp,
+  startHeight: epochStartHeight,
   epochIndex,
 } = await networkContract.getCurrentEpoch().catch((error: any) => {
-  log.error(
-    `Unable to get start height from contract cache - using default values`,
-    {
-      message: error?.message,
-      stack: error?.stack,
-    },
-  );
+  log.error(`Unable to get start height from contract - using default values`, {
+    message: error?.message,
+    stack: error?.stack,
+  });
   return {
     startTimestamp: START_TIMESTAMP,
     endTimestamp: EPOCH_BLOCK_LENGTH_MS,
     epochIndex: 0,
+    startHeight: 0,
   };
 });
 
-log.info('Using epoch start height and block length from contract cache', {
+log.info('Using epoch information for entropy and reports', {
   epochStartTimestamp,
   epochEndTimestamp,
+  epochIndex,
+  epochStartHeight,
 });
 
-export const epochTimestampSelector = new EpochTimestampSource({
+export const epochSelector = new EpochTimestampSource({
   heightSource: chainSource,
   epochParams: {
     epochStartTimestamp: epochStartTimestamp,
     epochEndTimestamp: epochEndTimestamp,
     epochIndex: epochIndex,
+    epochStartHeight: epochStartHeight,
   },
 });
 
@@ -193,7 +198,7 @@ const chosenNamesSource = new RandomArnsNamesSource({
 export const observer = new Observer({
   observerAddress: config.OBSERVER_WALLET,
   referenceGatewayHost: config.REFERENCE_GATEWAY_HOST,
-  epochTimestampSource: epochTimestampSelector,
+  epochSource: epochSelector,
   observedGatewayHostList,
   prescribedNamesSource,
   chosenNamesSource,
@@ -201,7 +206,6 @@ export const observer = new Observer({
   nameAssessmentConcurrency: config.NAME_ASSESSMENT_CONCURRENCY,
   nodeReleaseVersion: config.AR_IO_NODE_RELEASE,
   entropySource: chainEntropySource,
-  heightSource: chainSource,
 });
 
 export const reportCache = new NodeCache({
@@ -260,7 +264,7 @@ if (turboReportSink !== undefined) {
 }
 
 export const contractReportSink =
-  networkContract !== undefined && networkContract instanceof ArIOWritable
+  networkContract !== undefined && networkContract instanceof IOWriteable
     ? new ContractReportSink({
         log,
         contract: networkContract,
@@ -309,7 +313,7 @@ export async function updateAndSaveCurrentReport() {
     log.info('Getting observers from contract state...');
     // Get selected observers for the current epoch from the contract
     const observers: string[] = await networkContract
-      .getPrescribedObservers({ timestamp: epochStartTimestamp })
+      .getPrescribedObservers({ epochIndex })
       .then((observers: WeightedObserver[]) => {
         log.info(`Retrieved ${observers.length} observers from contract state`);
         return observers.map(
@@ -329,9 +333,7 @@ export async function updateAndSaveCurrentReport() {
       return;
     }
 
-    const entropyHeight = chainSource.getHeightAtTimestamp(
-      report.epochStartTimestamp,
-    );
+    const entropyHeight = report.epochStartHeight;
     const epochBlockLengthMs =
       report.epochEndTimestamp - report.epochStartTimestamp;
     // Save the report after a random block between 50 blocks after the start

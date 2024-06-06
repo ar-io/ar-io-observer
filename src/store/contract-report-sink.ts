@@ -15,11 +15,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { ArIO, ArIOReadContract, ArIOWriteContract } from '@ar.io/sdk/node';
+import { AoIORead, AoIOWrite, IO } from '@ar.io/sdk/node';
 import { Tag } from 'arweave/node/lib/transaction.js';
 import * as winston from 'winston';
 
-import { CONTRACT_ID } from '../config.js';
+import { IO_PROCESS_ID } from '../config.js';
 import { ObserverReport, ReportInfo, ReportSink } from '../types.js';
 
 const MAX_FAILED_GATEWAY_SUMMARY_BYTES = 1280;
@@ -45,23 +45,24 @@ export function getFailedGatewaySummaryFromReport(
 
 export async function interactionAlreadySaved({
   observerWallet,
-  epochStartHeight,
+  epochIndex,
   failedGatewaySummaries,
-  contract = ArIO.init({ contractTxId: CONTRACT_ID }),
+  contract = IO.init({ processId: IO_PROCESS_ID }),
 }: {
   observerWallet: string;
-  epochStartHeight: number;
+  epochIndex: number;
   failedGatewaySummaries: string[];
-  contract?: ArIOReadContract;
+  contract?: AoIORead;
 }): Promise<boolean> {
-  const observations = await contract.getObservations();
+  const observations = await contract.getObservations({
+    epochIndex,
+  });
   if (observations === undefined) {
     return false;
   }
-  const epochObservation = observations[`${epochStartHeight}`];
-  const epochFailureSummaries = epochObservation?.failureSummaries;
+  const epochFailureSummaries = observations.failureSummaries;
   if (
-    epochObservation === undefined ||
+    observations === undefined ||
     epochFailureSummaries === undefined ||
     Object.keys(epochFailureSummaries).length === 0
   ) {
@@ -110,7 +111,7 @@ function splitArrayBySize(array: string[], maxSizeInBytes: number): string[][] {
 export class ContractReportSink implements ReportSink {
   // Dependencies
   private log: winston.Logger;
-  private contract: ArIOWriteContract;
+  private contract: AoIOWrite;
   private readonly walletAddress: string;
 
   constructor({
@@ -119,7 +120,7 @@ export class ContractReportSink implements ReportSink {
     walletAddress,
   }: {
     log: winston.Logger;
-    contract: ArIOWriteContract;
+    contract: AoIOWrite;
     walletAddress: string;
   }) {
     this.log = log;
@@ -145,7 +146,7 @@ export class ContractReportSink implements ReportSink {
       this.log.debug('Checking if interactions were already saved');
       const isInteractionAlreadySaved = await interactionAlreadySaved({
         observerWallet: this.walletAddress,
-        epochStartHeight: report.epochStartHeight,
+        epochIndex: report.epochIndex,
         failedGatewaySummaries,
         contract: this.contract,
       });
@@ -174,9 +175,10 @@ export class ContractReportSink implements ReportSink {
             new Tag('App-Name', 'AR-IO Observer'),
             new Tag('AR-IO-Component', 'observer'),
             new Tag(
-              'AR-IO-Epoch-Start-Height',
-              report.epochStartHeight.toString(),
+              'AR-IO-Epoch-Start-Timestamp',
+              report.epochStartTimestamp.toString(),
             ),
+            new Tag('AR-IO-Epoch-Index', report.epochIndex.toString()),
             new Tag('AR-IO-Observation-Report-Tx-Id', reportTxId),
           ],
         },
