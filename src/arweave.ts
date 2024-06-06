@@ -53,7 +53,6 @@ export class ChainSource implements HeightSource, BlockSource {
     if (isNaN(height)) {
       throw new Error(`Invalid height: ${resp.body}`);
     }
-    console.log('Got height got height', height)
     return height;
   }
 

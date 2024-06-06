@@ -16,35 +16,45 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import { IO, IOWriteable, WeightedObserver } from '@ar.io/sdk/node';
-import { TurboAuthenticatedClient, TurboFactory, defaultTurboConfiguration } from '@ardrive/turbo-sdk/node';
+import {
+  TurboAuthenticatedClient,
+  TurboFactory,
+  defaultTurboConfiguration,
+} from '@ardrive/turbo-sdk/node';
 import { ArweaveSigner, JWKInterface } from 'arbundles/node';
 import Arweave from 'arweave';
 import { default as NodeCache } from 'node-cache';
 import * as fs from 'node:fs';
 
-
-
-import { AVERAGE_BLOCK_TIME_MS, ChainSource, MAX_FORK_DEPTH } from './arweave.js';
+import {
+  AVERAGE_BLOCK_TIME_MS,
+  ChainSource,
+  MAX_FORK_DEPTH,
+} from './arweave.js';
 import * as config from './config.js';
 import { CachedEntropySource } from './entropy/cached-entropy-source.js';
 import { ChainEntropySource } from './entropy/chain-entropy-source.js';
 import { CompositeEntropySource } from './entropy/composite-entropy-source.js';
 import { RandomEntropySource } from './entropy/random-entropy-source.js';
-import { ContractHostsSource } from './hosts/io-contract-hosts-source.js';
-import { RemoteCacheHostsSource } from './hosts/remote-cache-hosts-source.js';
+import { ContractHostsSource } from './hosts/contract-hosts-source.js';
 import { StaticHostsSource } from './hosts/static-hosts-source.js';
 import log from './log.js';
-import { IOContractNamesSource } from './names/io-contract-names-source.js';
+import { ContractNamesSource } from './names/contract-names-source.js';
 import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
-import { RemoteCacheArnsNameList } from './names/remote-cache-arns-name-list.js';
 import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
-import { EPOCH_BLOCK_LENGTH_MS, EpochTimestampSource, START_TIMESTAMP } from './protocol.js';
+import {
+  EPOCH_BLOCK_LENGTH_MS,
+  EpochTimestampSource,
+  START_TIMESTAMP,
+} from './protocol.js';
 import { ContractReportSink } from './store/contract-report-sink.js';
 import { FsReportStore } from './store/fs-report-store.js';
-import { PipelineReportSink, ReportSinkEntry } from './store/pipeline-report-sink.js';
+import {
+  PipelineReportSink,
+  ReportSinkEntry,
+} from './store/pipeline-report-sink.js';
 import { TurboReportSink } from './store/turbo-report-sink.js';
-
 
 const REPORT_CACHE_TTL_SECONDS = 60 * 60 * 2.5; // 2.5 hours
 
@@ -148,7 +158,7 @@ export const epochSelector = new EpochTimestampSource({
   },
 });
 
-const namesSource = new IOContractNamesSource({
+const namesSource = new ContractNamesSource({
   contract: networkContract,
 });
 
