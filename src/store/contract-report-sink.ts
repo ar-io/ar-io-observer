@@ -155,6 +155,7 @@ export class ContractReportSink implements ReportSink {
         return reportInfo;
       }
     } catch (error) {
+      this.log.error('Failed to check if interactions already saved', error);
       throw new Error('Failed to check if interactions already saved');
     }
 
@@ -177,6 +178,10 @@ export class ContractReportSink implements ReportSink {
             new Tag(
               'AR-IO-Epoch-Start-Timestamp',
               report.epochStartTimestamp.toString(),
+            ),
+            new Tag(
+              'AR-IO-Epoch-Start-Height',
+              report.epochStartHeight.toString(),
             ),
             new Tag('AR-IO-Epoch-Index', report.epochIndex.toString()),
             new Tag('AR-IO-Observation-Report-Tx-Id', reportTxId),
