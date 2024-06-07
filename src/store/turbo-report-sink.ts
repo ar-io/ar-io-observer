@@ -44,6 +44,10 @@ async function createReportDataItem(
         value: 'observer',
       },
       {
+        name: 'AR-IO-Epoch-Start-Height',
+        value: report.epochStartHeight.toString(),
+      },
+      {
         name: 'AR-IO-Epoch-Start-Timestamp',
         value: report.epochStartTimestamp.toString(),
       },
@@ -150,6 +154,8 @@ export class TurboReportSink implements ReportSink {
 
   async getReportTxId(report: ObserverReport): Promise<string | undefined> {
     const epochStartTimestamp = report.epochStartTimestamp;
+    const epochStartHeight = report.epochStartHeight;
+    const epochIndex = report.epochIndex;
 
     // Find the first report TX ID for the given epoch start height
     const queryObject = {
@@ -159,6 +165,14 @@ export class TurboReportSink implements ReportSink {
     first:1,
     owners: [ "${this.walletAddress}" ],
     tags: [
+      {
+        name: "AR-IO-Epoch-Start-Height",
+        values: [ "${epochStartHeight}" ]
+      },
+      {
+        name: "AR-IO-Epoch-Index",
+        values: [ "${epochIndex}" ]
+      }
       {
         name: "AR-IO-Epoch-Start-Timestamp",
         values: [ "${epochStartTimestamp}" ]
