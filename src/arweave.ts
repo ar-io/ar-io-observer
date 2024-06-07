@@ -33,10 +33,6 @@ export class FixedHeightSource implements HeightSource {
   async getHeight(): Promise<number> {
     return this.height;
   }
-
-  async getHeightAtTimestamp(_timestamp: number): Promise<number> {
-    return this.height;
-  }
 }
 
 export class ChainSource implements HeightSource, BlockSource {
