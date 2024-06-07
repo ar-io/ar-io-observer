@@ -21,11 +21,18 @@ import got, { Got, RequestError, Response } from 'got';
 import crypto from 'node:crypto';
 import pMap from 'p-map';
 
-
-
 import { EpochTimestampSource } from './protocol.js';
-import { ArnsNameAssessment, ArnsNameAssessments, ArnsNamesSource, EntropySource, GatewayAssessments, GatewayHostsSource, HeightSource, ObserverReport, OwnershipAssessment } from './types.js';
-
+import {
+  ArnsNameAssessment,
+  ArnsNameAssessments,
+  ArnsNamesSource,
+  EntropySource,
+  GatewayAssessments,
+  GatewayHostsSource,
+  HeightSource,
+  ObserverReport,
+  OwnershipAssessment,
+} from './types.js';
 
 export const REPORT_FORMAT_VERSION = 2;
 
