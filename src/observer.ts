@@ -29,7 +29,6 @@ import {
   EntropySource,
   GatewayAssessments,
   GatewayHostsSource,
-  HeightSource,
   ObserverReport,
   OwnershipAssessment,
 } from './types.js';
