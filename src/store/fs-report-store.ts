@@ -18,12 +18,10 @@
 import fs from 'node:fs';
 import * as winston from 'winston';
 
-import {
-  ObserverReport,
-  ReportInfo,
-  ReportSink,
-  ReportStore,
-} from '../types.js';
+
+
+import { ObserverReport, ReportInfo, ReportSink, ReportStore } from '../types.js';
+
 
 export class FsReportStore implements ReportSink, ReportStore {
   // Dependencies
@@ -44,9 +42,10 @@ export class FsReportStore implements ReportSink, ReportStore {
     const log = this.log.child({
       epochStartTimestamp: report.epochStartTimestamp,
       epochIndex: report.epochIndex,
+      epochStartHeight: report.epochStartHeight,
     });
 
-    const savedReport = await this.getReport(report.epochIndex);
+    const savedReport = await this.getReport(report.epochStartHeight);
     if (savedReport !== null) {
       log.info('Using previously saved report');
       report = savedReport;
@@ -56,13 +55,13 @@ export class FsReportStore implements ReportSink, ReportStore {
       };
     }
 
-    const reportFile = `${this.baseDir}/${report.epochIndex}.json`;
+    const reportFile = `${this.baseDir}/${report.epochStartHeight}.json`;
     log.info('Saving report...', {
       reportFile,
     });
     if (!fs.existsSync(reportFile)) {
       await fs.promises.writeFile(
-        `./data/reports/${report.epochIndex}.json`,
+        `./data/reports/${report.epochStartHeight}.json`,
         JSON.stringify(report),
       );
     }
@@ -73,8 +72,8 @@ export class FsReportStore implements ReportSink, ReportStore {
     return reportInfo;
   }
 
-  async getReport(epochIndex: number): Promise<ObserverReport | null> {
-    const reportFile = `./data/reports/${epochIndex}.json`;
+  async getReport(epochStartHeight: number): Promise<ObserverReport | null> {
+    const reportFile = `./data/reports/${epochStartHeight}.json`;
     if (!fs.existsSync(reportFile)) {
       return null;
     }
