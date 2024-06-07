@@ -18,10 +18,12 @@
 import fs from 'node:fs';
 import * as winston from 'winston';
 
-
-
-import { ObserverReport, ReportInfo, ReportSink, ReportStore } from '../types.js';
-
+import {
+  ObserverReport,
+  ReportInfo,
+  ReportSink,
+  ReportStore,
+} from '../types.js';
 
 export class FsReportStore implements ReportSink, ReportStore {
   // Dependencies
