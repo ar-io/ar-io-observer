@@ -102,6 +102,8 @@ export class TurboReportSink implements ReportSink {
     const { report } = reportInfo;
     const log = this.log.child({
       epochStartTimestamp: report.epochStartTimestamp,
+      epochIndex: report.epochIndex,
+      epochStartHeight: report.epochStartHeight,
     });
 
     // Return existing TX ID if the report was already saved
