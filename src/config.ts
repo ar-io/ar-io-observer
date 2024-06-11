@@ -89,7 +89,7 @@ export const NUM_ARNS_NAMES_TO_OBSERVE_PER_GROUP = +env.varOrDefault(
   '1',
 );
 
-export const PORT = +env.varOrDefault('PORT', '5000');
+export const PORT = +env.varOrDefault('PORT', '5050');
 
 export const GATEWAY_ASSESSMENT_CONCURRENCY = +env.varOrDefault(
   'GATEWAY_ASSESSMENT_CONCURRENCY',
