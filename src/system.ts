@@ -128,13 +128,6 @@ const namesSource = new ContractNamesSource({
   contract: networkContract,
 });
 
-const remoteCacheArnsNameList =
-  config.ARNS_NAMES.length > 0
-    ? new StaticArnsNameList({
-        names: config.ARNS_NAMES,
-      })
-    : namesSource;
-
 const chainEntropySource = new ChainEntropySource({
   arweaveBaseUrl: config.ARWEAVE_URL,
 });
@@ -150,8 +143,15 @@ const compositeEntropySource = new CompositeEntropySource({
   sources: [cachedEntropySource, chainEntropySource],
 });
 
+const nameListSource =
+  config.ARNS_NAMES.length > 0
+    ? new StaticArnsNameList({
+        names: config.ARNS_NAMES,
+      })
+    : namesSource; // use the contract source if nothing configured
+
 const chosenNamesSource = new RandomArnsNamesSource({
-  nameList: remoteCacheArnsNameList,
+  nameList: nameListSource,
   entropySource: compositeEntropySource,
   numNamesToSource: config.NUM_ARNS_NAMES_TO_OBSERVE_PER_GROUP,
 });
