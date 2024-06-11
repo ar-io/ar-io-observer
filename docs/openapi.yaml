@@ -35,7 +35,7 @@ components:
      type: object
      properties: 
        wallet: { '$ref': '#/components/schemas/ArweaveWallet' }
-       contractId: { '$ref': '#/components/schemas/ArweaveId' }
+       processId: { '$ref': '#/components/schemas/ArweaveId' }
     OwnershipAssessment:
       type: object
       properties:
