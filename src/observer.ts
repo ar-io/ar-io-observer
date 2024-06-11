@@ -451,11 +451,9 @@ export class Observer {
     const epochEndTimestamp = await this.epochSource.getEpochEndTimestamp();
     const epochStartHeight = await this.epochSource.getEpochStartHeight();
     const epochIndex = await this.epochSource.getEpochIndex();
-    const prescribedNames = await this.prescribedNamesSource.getNames(
-      {
-        epochIndex: epochIndex,
-      },
-    );
+    const prescribedNames = await this.prescribedNamesSource.getNames({
+      epochIndex: epochIndex,
+    });
     // observer will choose names based on the epoch start height
     const chosenNames = await this.chosenNamesSource.getNames({
       height: epochStartHeight,
