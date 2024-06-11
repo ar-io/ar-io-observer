@@ -36,6 +36,7 @@ import { CachedEntropySource } from './entropy/cached-entropy-source.js';
 import { ChainEntropySource } from './entropy/chain-entropy-source.js';
 import { CompositeEntropySource } from './entropy/composite-entropy-source.js';
 import { RandomEntropySource } from './entropy/random-entropy-source.js';
+import { ContractEpochSource } from './epochs/contract-epoch-source.js';
 import { ContractHostsSource } from './hosts/contract-hosts-source.js';
 import { StaticHostsSource } from './hosts/static-hosts-source.js';
 import log from './log.js';
@@ -43,11 +44,6 @@ import { ContractNamesSource } from './names/contract-names-source.js';
 import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
 import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
-import {
-  EPOCH_BLOCK_LENGTH_MS,
-  EpochTimestampSource,
-  START_TIMESTAMP,
-} from './protocol.js';
 import { ContractReportSink } from './store/contract-report-sink.js';
 import { FsReportStore } from './store/fs-report-store.js';
 import {
@@ -122,40 +118,10 @@ const observedGatewayHostList =
         contract: networkContract,
       });
 
-// Attempt to read the start height and epoch block length from the contract - default to constants if it fails
-const {
-  startTimestamp: epochStartTimestamp,
-  endTimestamp: epochEndTimestamp,
-  startHeight: epochStartHeight,
-  epochIndex,
-} = await networkContract.getCurrentEpoch().catch((error: any) => {
-  log.error(`Unable to get start height from contract - using default values`, {
-    message: error?.message,
-    stack: error?.stack,
-  });
-  return {
-    startTimestamp: START_TIMESTAMP,
-    endTimestamp: EPOCH_BLOCK_LENGTH_MS,
-    epochIndex: 0,
-    startHeight: 0,
-  };
-});
-
-log.info('Using epoch information for entropy and reports', {
-  epochStartTimestamp,
-  epochEndTimestamp,
-  epochIndex,
-  epochStartHeight,
-});
-
-export const epochSelector = new EpochTimestampSource({
+export const epochSource = new ContractEpochSource({
+  contract: networkContract,
+  blockSource: chainSource,
   heightSource: chainSource,
-  epochParams: {
-    epochStartTimestamp: epochStartTimestamp,
-    epochEndTimestamp: epochEndTimestamp,
-    epochIndex: epochIndex,
-    epochStartHeight: epochStartHeight,
-  },
 });
 
 const namesSource = new ContractNamesSource({
@@ -193,7 +159,7 @@ const chosenNamesSource = new RandomArnsNamesSource({
 export const observer = new Observer({
   observerAddress: config.OBSERVER_WALLET,
   referenceGatewayHost: config.REFERENCE_GATEWAY_HOST,
-  epochSource: epochSelector,
+  epochSource,
   observedGatewayHostList,
   prescribedNamesSource: namesSource,
   chosenNamesSource,
@@ -306,6 +272,7 @@ export async function updateAndSaveCurrentReport() {
     log.info('Report cached');
 
     log.info('Getting observers from contract state...');
+    const epochIndex = await epochSource.getEpochIndex();
     // Get selected observers for the current epoch from the contract
     const observers: string[] = await networkContract
       .getPrescribedObservers({ epochIndex })
