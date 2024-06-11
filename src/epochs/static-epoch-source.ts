@@ -18,21 +18,10 @@
 import {
   HeightSource,
   EpochHeightSource as IEpochHeightSource,
-  EpochTimestampSource as IEpochTimestampSource,
-} from './types.js';
+} from '../types.js';
 
 export const START_HEIGHT = 0;
-export const START_TIMESTAMP = 0;
-export const EPOCH_BLOCK_LENGTH_MS = 60 * 1000 * 60 * 24; // 1 day
 export const EPOCH_BLOCK_LENGTH = 5000;
-export const TESTNET_CONTRACT_SETTINGS = {
-  minLockLength: 5,
-  maxLockLength: 720 * 365 * 3,
-  minNetworkJoinStakeAmount: 5_000,
-  minGatewayJoinLength: 2,
-  gatewayLeaveLength: 2,
-  operatorStakeWithdrawLength: 5,
-};
 
 export function getEpochEnd({
   startHeight,
@@ -72,13 +61,6 @@ interface EpochParams {
   epochBlockLength: number;
 }
 
-interface EpochTimestampParams {
-  epochStartTimestamp: number;
-  epochStartHeight: number;
-  epochEndTimestamp: number;
-  epochIndex: number;
-}
-
 export class EpochHeightSource implements IEpochHeightSource {
   private heightSource: HeightSource;
   private epochParams: EpochParams;
@@ -111,39 +93,5 @@ export class EpochHeightSource implements IEpochHeightSource {
       ...this.epochParams,
       height,
     });
-  }
-}
-
-export class EpochTimestampSource implements IEpochTimestampSource {
-  private epochParams: EpochTimestampParams;
-
-  constructor({
-    epochParams = {
-      epochStartTimestamp: 0,
-      epochEndTimestamp: 1000 * 60 * 60 * 24, // 1 day
-      epochStartHeight: 0,
-      epochIndex: 0,
-    },
-  }: {
-    epochParams?: EpochTimestampParams;
-    heightSource: HeightSource;
-  }) {
-    this.epochParams = epochParams;
-  }
-
-  async getEpochStartTimestamp(): Promise<number> {
-    return this.epochParams.epochStartTimestamp;
-  }
-
-  async getEpochEndTimestamp(): Promise<number> {
-    return this.epochParams.epochEndTimestamp;
-  }
-
-  async getEpochStartHeight(): Promise<number> {
-    return this.epochParams.epochStartHeight;
-  }
-
-  async getEpochIndex(): Promise<number> {
-    return this.epochParams.epochIndex;
   }
 }
