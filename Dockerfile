@@ -27,7 +27,7 @@ COPY --from=builder /app/dist ./dist/
 COPY ./healthcheck.sh /app/healthcheck.sh
 
 # Expose port and add healthcheck
-EXPOSE 5000
+EXPOSE 5050
 HEALTHCHECK CMD /bin/sh healthcheck.sh
 
 # Add labels
