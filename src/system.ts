@@ -340,7 +340,10 @@ export async function updateAndSaveCurrentReport() {
     } else {
       reportSink.saveReport({ report });
     }
-  } catch (error) {
-    log.error('Error generating report', error);
+  } catch (error: any) {
+    log.error('Error generating report', {
+      message: error.message,
+      stack: error.stack,
+    });
   }
 }

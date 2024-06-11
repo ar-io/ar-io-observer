@@ -60,8 +60,11 @@ export class PipelineReportSink implements ReportSink {
           ...lastReportInfo,
           report: undefined,
         });
-      } catch (error) {
-        log.error(`Error saving report using ${name}`, error);
+      } catch (error: any) {
+        log.error(`Error saving report using ${name}`, {
+          message: error.message,
+          stack: error.stack,
+        });
       }
     }
 

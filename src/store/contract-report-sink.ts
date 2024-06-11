@@ -154,8 +154,11 @@ export class ContractReportSink implements ReportSink {
         this.log.info('Observation interactions already saved');
         return reportInfo;
       }
-    } catch (error) {
-      this.log.error('Failed to check if interactions already saved', error);
+    } catch (error: any) {
+      this.log.error('Failed to check if interactions already saved', {
+        message: error.message,
+        stack: error.stack,
+      });
       throw new Error('Failed to check if interactions already saved');
     }
 

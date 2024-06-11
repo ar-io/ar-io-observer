@@ -116,8 +116,11 @@ export class TurboReportSink implements ReportSink {
           reportTxId,
         };
       }
-    } catch (error) {
-      log.error('Error checking for existing report', error);
+    } catch (error: any) {
+      log.error('Error checking for existing report', {
+        message: error.message,
+        stack: error.stack,
+      });
     }
 
     // Upload the report as a data item using Turbo
