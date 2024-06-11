@@ -17,7 +17,7 @@
  */
 import { expect } from 'chai';
 
-import { getEpochEnd, getEpochStart } from './protocol.js';
+import { getEpochEnd, getEpochStart } from './static-epoch-source.js';
 
 describe('getEpochEnd', () => {
   it('should return the correct epoch end when the height at the start of an epoch', () => {
