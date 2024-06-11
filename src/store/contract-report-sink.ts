@@ -54,14 +54,12 @@ export async function interactionAlreadySaved({
   failedGatewaySummaries: string[];
   contract?: AoIORead;
 }): Promise<boolean> {
-  console.log('getting observations for epoch index', epochIndex);
   const observations = await contract.getObservations({
     epochIndex,
   });
   if (observations === undefined) {
     return false;
   }
-  console.log(observations.failureSummaries);
   const epochFailureSummaries = observations.failureSummaries;
   if (
     observations === undefined ||
