@@ -24,7 +24,7 @@ export class StaticArnsNamesSource implements ArnsNamesSource {
     this.names = names;
   }
 
-  async getPrescribedNames(): Promise<string[]> {
+  async getNames(): Promise<string[]> {
     return this.names;
   }
 }
