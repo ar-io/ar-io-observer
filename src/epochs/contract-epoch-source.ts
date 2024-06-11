@@ -16,8 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import { AoIORead, IO } from '@ar.io/sdk';
+import winston from 'winston';
 
 import * as config from '../config.js';
+import defaultLogger from '../log.js';
 import { BlockSource, EpochTimestampParams, HeightSource } from '../types.js';
 import { EpochTimestampSource as IEpochTimestampSource } from '../types.js';
 
@@ -26,19 +28,23 @@ export class ContractEpochSource implements IEpochTimestampSource {
   private blockSource: BlockSource;
   private heightSource: HeightSource;
   private epochParams: EpochTimestampParams | undefined;
+  private log: winston.Logger;
 
   constructor({
     contract = IO.init({ processId: config.IO_PROCESS_ID }),
     blockSource,
     heightSource,
+    log = defaultLogger,
   }: {
     contract?: AoIORead;
     blockSource: BlockSource;
     heightSource: HeightSource;
+    log?: winston.Logger;
   }) {
     this.contract = contract;
     this.blockSource = blockSource;
     this.heightSource = heightSource;
+    this.log = log.child({ class: 'ContractEpochSource' });
   }
 
   async getEpochParams(): Promise<EpochTimestampParams> {
@@ -54,12 +60,22 @@ export class ContractEpochSource implements IEpochTimestampSource {
     }
     const { startTimestamp, startHeight, endTimestamp, epochIndex } =
       await this.contract.getCurrentEpoch();
-    return {
+
+    // log the epoch params for debugging
+    this.log.info('Fetched epoch params', {
+      startTimestamp,
+      startHeight,
+      endTimestamp,
+      epochIndex,
+    });
+
+    this.epochParams = {
       epochStartTimestamp: startTimestamp,
       epochStartHeight: startHeight,
       epochEndTimestamp: endTimestamp,
       epochIndex,
     };
+    return this.epochParams;
   }
 
   async getEpochStartTimestamp(): Promise<number> {
