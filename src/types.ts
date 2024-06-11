@@ -66,7 +66,7 @@ export interface ArnsNameList {
 }
 
 export interface ArnsNamesSource {
-  getPrescribedNames(opts?: { [key: string]: any }): Promise<string[]>;
+  getNames(opts?: { [key: string]: any }): Promise<string[]>;
 }
 
 //
