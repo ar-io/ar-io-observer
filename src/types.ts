@@ -27,6 +27,18 @@ export interface HeightSource {
   getHeight(): Promise<number>;
 }
 
+//
+// Epochs
+//
+
+export interface EpochTimestampParams {
+  epochStartTimestamp: number;
+  epochStartHeight: number;
+  epochEndTimestamp: number;
+  epochIndex: number;
+}
+
+// deprecated
 export interface EpochHeightSource {
   getEpochStartHeight(): Promise<number>;
   getEpochEndHeight(): Promise<number>;
