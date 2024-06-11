@@ -21,12 +21,12 @@ import got, { Got, RequestError, Response } from 'got';
 import crypto from 'node:crypto';
 import pMap from 'p-map';
 
-import { EpochTimestampSource } from './protocol.js';
 import {
   ArnsNameAssessment,
   ArnsNameAssessments,
   ArnsNamesSource,
   EntropySource,
+  EpochTimestampSource,
   GatewayAssessments,
   GatewayHostsSource,
   ObserverReport,
