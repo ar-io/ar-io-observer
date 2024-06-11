@@ -272,10 +272,9 @@ export async function updateAndSaveCurrentReport() {
     log.info('Report cached');
 
     log.info('Getting observers from contract state...');
-    const epochIndex = await epochSource.getEpochIndex();
     // Get selected observers for the current epoch from the contract
     const observers: string[] = await networkContract
-      .getPrescribedObservers({ epochIndex })
+      .getPrescribedObservers({ epochIndex: report.epochIndex })
       .then((observers: WeightedObserver[]) => {
         log.info(`Retrieved ${observers.length} observers from contract state`);
         return observers.map(

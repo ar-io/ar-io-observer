@@ -21,7 +21,7 @@ import { BlockSource, HeightSource } from './types.js';
 
 export const AVERAGE_BLOCK_TIME_SECS = 120;
 export const AVERAGE_BLOCK_TIME_MS = AVERAGE_BLOCK_TIME_SECS * 1000;
-export const MAX_FORK_DEPTH = 50;
+export const MAX_FORK_DEPTH = 18; // update after release 2.7.1 from 50 -> 18
 
 export class FixedHeightSource implements HeightSource {
   private height: number;
