@@ -58,22 +58,21 @@ export class ContractEpochSource implements IEpochTimestampSource {
     ) {
       return this.epochParams;
     }
-    const { startTimestamp, startHeight, endTimestamp, epochIndex } =
-      await this.contract.getCurrentEpoch();
+    const { startTimestamp, startHeight, endTimestamp, epochIndex } = await this.contract.getCurrentEpoch();
 
-    // log the epoch params for debugging
-    this.log.info('Fetched epoch params', {
-      startTimestamp,
-      startHeight,
-      endTimestamp,
-      epochIndex,
+    // TODO: handle if this call fails, either throw error or use defaults
+
+    this.log.info('Updating epoch params.', {
+      startTimestamp: startTimestamp,
+      startHeight: startHeight,
+      endTimestamp: endTimestamp,
+      epochIndex: epochIndex,
     });
-
     this.epochParams = {
       epochStartTimestamp: startTimestamp,
       epochStartHeight: startHeight,
       epochEndTimestamp: endTimestamp,
-      epochIndex,
+      epochIndex: epochIndex,
     };
     return this.epochParams;
   }
