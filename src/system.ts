@@ -336,6 +336,7 @@ export async function updateAndSaveCurrentReport() {
         currentHeight,
         saveAfterTimestamp,
         currentBlockTimestamp,
+        epochIndex: report.epochIndex,
       });
     } else {
       reportSink.saveReport({ report });
