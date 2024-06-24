@@ -64,7 +64,7 @@ export const CONTRACT_ID = env.varOrDefault(
 
 export const IO_PROCESS_ID = env.varOrDefault(
   'IO_PROCESS_ID',
-  'GaQrvEMKBpkjofgnBi_B3IgIDmY_XYelVLB6GcRGrHc',
+  'agYcCFJtrMG6cqMuZfskIkFTGvUPddICmtQSBIoPdiA',
 );
 
 export const OBSERVER_WALLET = env.varOrDefault('OBSERVER_WALLET', '<example>');
