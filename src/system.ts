@@ -266,6 +266,12 @@ export async function updateAndSaveCurrentReport() {
   try {
     log.info('Generating report...');
     const reportStartTime = Date.now();
+    // check that epochs have started
+    const epochIndex = await epochSource.getEpochIndex();
+    if (epochIndex === undefined) {
+      log.info('First epoch has not started yet. Not generating report.');
+      return;
+    }
     const report = await observer.generateReport();
     log.info(`Report generated in ${Date.now() - reportStartTime}ms`);
     reportCache.set('current', report);
