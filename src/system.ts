@@ -354,3 +354,22 @@ export async function updateAndSaveCurrentReport() {
     });
   }
 }
+
+// Exception Handlers
+
+process.on('uncaughtException', (error: any) => {
+  log.error('Uncaught exception!', {
+    error: error?.message,
+    stack: error?.stack,
+  });
+});
+
+process.on('SIGTERM', () => {
+  log.info('SIGTERM received, exiting...');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  log.info('SIGINT received, exiting...');
+  process.exit(0);
+});
