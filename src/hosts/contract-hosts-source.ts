@@ -16,36 +16,58 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import { AoIORead } from '@ar.io/sdk';
+import winston from 'winston';
 
+import defaultLogger from '../log.js';
 import { GatewayHost, GatewayHostsSource } from '../types.js';
 
 export class ContractHostsSource implements GatewayHostsSource {
   private contract: AoIORead;
+  private log: winston.Logger;
 
-  constructor({ contract }: { contract: AoIORead }) {
+  constructor({
+    contract,
+    log = defaultLogger,
+  }: {
+    contract: AoIORead;
+    log?: winston.Logger;
+  }) {
     this.contract = contract;
+    this.log = log.child({ source: 'ContractHostsSource' });
   }
 
   async getHosts(): Promise<GatewayHost[]> {
-    const gateways = await this.contract.getGateways();
-    if (Object.keys(gateways).length === 0) {
-      throw new Error('No gateways found in response');
-    }
     const hosts = [];
-    for (const [wallet, gateway] of Object.entries(gateways)) {
-      if (gateway?.settings?.fqdn === undefined) {
-        throw new Error('No FQDN found');
-      } else {
+    let cursor: string | undefined;
+    this.log.debug('Fetching gateways to observe');
+    do {
+      const { nextCursor, items } = await this.contract.getGateways({
+        cursor,
+      }); // TODO: better error handling
+      for (const gateway of items) {
+        if (gateway.settings.fqdn === undefined) {
+          // skip gateways without FQDN
+          this.log.debug(`No FQDN found for gateway ${gateway.gatewayAddress}`);
+          continue;
+        }
         hosts.push({
-          startTimestamp: gateway?.startTimestamp,
-          endTimestamp: gateway?.endTimestamp,
-          fqdn: gateway?.settings?.fqdn,
-          port: gateway?.settings?.port,
-          protocol: gateway?.settings?.protocol,
-          wallet: wallet,
+          startTimestamp: gateway.startTimestamp,
+          endTimestamp: gateway.endTimestamp,
+          fqdn: gateway.settings.fqdn,
+          port: gateway.settings.port,
+          protocol: gateway.settings.protocol,
+          wallet: gateway.gatewayAddress,
         });
       }
+
+      cursor = nextCursor;
+    } while (cursor !== undefined);
+
+    if (Object.keys(hosts).length === 0) {
+      throw new Error('No gateways found');
     }
+
+    this.log.debug(`Found ${hosts.length} gateways to observe`);
     return hosts;
   }
 }
