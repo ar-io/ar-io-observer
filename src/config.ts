@@ -52,16 +52,6 @@ export const ARWEAVE_URL = env.varOrDefault(
   'https://arweave.net',
 );
 
-export const CONTRACT_CACHE_URL = env.varOrDefault(
-  'CONTRACT_CACHE_URL',
-  'https://dev.arns.app',
-);
-
-export const CONTRACT_ID = env.varOrDefault(
-  'CONTRACT_ID',
-  'bLAgYxAdX2Ry-nt6aH2ixgvJXbpsEYm28NgJgyqfs-U',
-);
-
 export const IO_PROCESS_ID = env.varOrDefault(
   'IO_PROCESS_ID',
   'agYcCFJtrMG6cqMuZfskIkFTGvUPddICmtQSBIoPdiA',
@@ -107,8 +97,6 @@ export const JWK = env.varOrUndefined('OBSERVER_JWK');
 
 export const SUBMIT_CONTRACT_INTERACTIONS =
   env.varOrDefault('SUBMIT_CONTRACT_INTERACTIONS', 'false') === 'true';
-
-export const WARP_LOG_LEVEL = env.varOrDefault('WARP_LOG_LEVEL', 'fatal');
 
 export const REPORT_GENERATION_INTERVAL_MS = +env.varOrDefault(
   'REPORT_GENERATION_INTERVAL_MS',
