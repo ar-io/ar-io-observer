@@ -52,16 +52,6 @@ export const ARWEAVE_URL = env.varOrDefault(
   'https://arweave.net',
 );
 
-export const CONTRACT_CACHE_URL = env.varOrDefault(
-  'CONTRACT_CACHE_URL',
-  'https://dev.arns.app',
-);
-
-export const CONTRACT_ID = env.varOrDefault(
-  'CONTRACT_ID',
-  'bLAgYxAdX2Ry-nt6aH2ixgvJXbpsEYm28NgJgyqfs-U',
-);
-
 export const IO_PROCESS_ID = env.varOrDefault(
   'IO_PROCESS_ID',
   'agYcCFJtrMG6cqMuZfskIkFTGvUPddICmtQSBIoPdiA',
@@ -108,11 +98,16 @@ export const JWK = env.varOrUndefined('OBSERVER_JWK');
 export const SUBMIT_CONTRACT_INTERACTIONS =
   env.varOrDefault('SUBMIT_CONTRACT_INTERACTIONS', 'false') === 'true';
 
-export const WARP_LOG_LEVEL = env.varOrDefault('WARP_LOG_LEVEL', 'fatal');
-
 export const REPORT_GENERATION_INTERVAL_MS = +env.varOrDefault(
   'REPORT_GENERATION_INTERVAL_MS',
   `${1000 * 60 * 60}`, // 1 hour
 );
 
 export const AR_IO_NODE_RELEASE = env.varOrDefault('AR_IO_NODE_RELEASE', 'dev');
+
+// AO
+
+export const AO_MU_URL = env.varOrUndefined('AO_MU_URL');
+export const AO_CU_URL = env.varOrUndefined('AO_CU_URL');
+export const AO_GRAPHQL_URL = env.varOrUndefined('AO_GRAPHQL_URL');
+export const AO_GATEWAY_URL = env.varOrUndefined('AO_GATEWAY_URL');

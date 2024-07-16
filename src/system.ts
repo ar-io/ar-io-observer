@@ -15,12 +15,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { IO, IOWriteable, WeightedObserver } from '@ar.io/sdk/node';
+import { AOProcess, IO, IOWriteable, WeightedObserver } from '@ar.io/sdk/node';
 import {
   TurboAuthenticatedClient,
   TurboFactory,
   defaultTurboConfiguration,
 } from '@ardrive/turbo-sdk/node';
+import { connect } from '@permaweb/aoconnect';
 import { ArweaveSigner, JWKInterface } from 'arbundles/node';
 import Arweave from 'arweave';
 import { default as NodeCache } from 'node-cache';
@@ -95,8 +96,17 @@ const signer =
   walletJwk !== undefined ? new ArweaveSigner(walletJwk) : undefined;
 
 const networkContract = IO.init({
-  processId: config.IO_PROCESS_ID,
-  signer,
+  ...(signer !== undefined ? { signer } : {}),
+  process: new AOProcess({
+    processId: config.IO_PROCESS_ID,
+    ao: connect({
+      // @permaweb/aoconnect defaults will be used if these are not provided
+      MU_URL: config.AO_MU_URL,
+      CU_URL: config.AO_CU_URL,
+      GRAPHQL_URL: config.AO_GRAPHQL_URL,
+      GATEWAY_URL: config.AO_GATEWAY_URL,
+    }),
+  }),
 });
 
 log.info(
