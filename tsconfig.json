@@ -18,9 +18,6 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "skipLibCheck": true,
-    "paths": {
-      "warp-contracts-lmdb": ["./node_modules/warp-contracts-lmdb/lib/types/index.d.ts"]
-    }
   },
   "ts-node": {
     "swc": true

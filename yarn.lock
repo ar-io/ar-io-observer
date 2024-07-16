@@ -32,10 +32,10 @@
     call-me-maybe "^1.0.1"
     js-yaml "^4.1.0"
 
-"@ar.io/sdk@^2.0.0":
-  version "2.0.0"
-  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-2.0.0.tgz#8725d1ece71b19dd7bfe44e846190bd458164206"
-  integrity sha512-at40lht1K6BOegoHoTezgL3z8y+Wj3VTEHMjNcoAywAV4R5l69xOTkJqEDL1uyLahspmxYGgX7rf50XFaVxMOw==
+"@ar.io/sdk@^2.0.2":
+  version "2.0.2"
+  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-2.0.2.tgz#64aa7c4e6b30bbe36d7cc7d450f32d100ee731b3"
+  integrity sha512-DGSHo9Bf90Pe2m4lBEJPFuUageAaoO+nA42nhGJ2vCn6dKVM/y3aSqCJ+H5enHjidx0H1MmsgysiBQGEBElMHg==
   dependencies:
     "@permaweb/aoconnect" "^0.0.55"
     arbundles "0.11.0"
@@ -765,6 +765,20 @@
   version "0.0.55"
   resolved "https://registry.yarnpkg.com/@permaweb/aoconnect/-/aoconnect-0.0.55.tgz#d856a078d3702154ac58541d09478d25ed3acf2c"
   integrity sha512-W2GtLZedVseuDkCKk4CmM9SFmi0DdrMKqvhMBm9xo65z+Mzr/t1TEjMJKRNzEA2qh5IdwM43sWJ5fmbBYLg6TQ==
+  dependencies:
+    "@permaweb/ao-scheduler-utils" "~0.0.16"
+    buffer "^6.0.3"
+    debug "^4.3.4"
+    hyper-async "^1.1.2"
+    mnemonist "^0.39.8"
+    ramda "^0.29.1"
+    warp-arbundles "^1.0.4"
+    zod "^3.22.4"
+
+"@permaweb/aoconnect@^0.0.56":
+  version "0.0.56"
+  resolved "https://registry.yarnpkg.com/@permaweb/aoconnect/-/aoconnect-0.0.56.tgz#28dcf1a094a2b1c1cbaa246d63eeb08a5a0c7269"
+  integrity sha512-Eu4AC1KeX2EOIS9ihWkwPJs7rK+/+XV43QwOJ9DCQAu6EhjanlT3UfV2wSpGiFK/dT/B1YsQyTcxNrmQaXn81g==
   dependencies:
     "@permaweb/ao-scheduler-utils" "~0.0.16"
     buffer "^6.0.3"
