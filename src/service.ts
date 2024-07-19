@@ -28,4 +28,8 @@ if (config.RUN_OBSERVER) {
   });
 
   updateAndSaveCurrentReport();
+} else {
+  log.warn('Observer is disabled', {
+    RUN_OBSERVER: config.RUN_OBSERVER,
+  });
 }
