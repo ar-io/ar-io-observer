@@ -162,41 +162,32 @@ export class TurboReportSink implements ReportSink {
     const epochStartHeight = report.epochStartHeight;
     const epochIndex = report.epochIndex;
 
-    // Find the first report TX ID for the given epoch start height
+    // Find the first report TX ID for the given epoch start height and format version
     const queryObject = {
       query: `{
-  transactions(
-    sort: HEIGHT_ASC,
-    first:1,
-    owners: [ "${this.walletAddress}" ],
-    tags: [
-      {
-        name: "AR-IO-Epoch-Start-Height",
-        values: [ "${epochStartHeight}" ]
-      },
-      {
-        name: "AR-IO-Epoch-Index",
-        values: [ "${epochIndex}" ]
-      }
-      {
-        name: "AR-IO-Epoch-Start-Timestamp",
-        values: [ "${epochStartTimestamp}" ]
-      },
-      {
-        name: "App-Name",
-        values: ["AR-IO Observer"]
-      }
-    ]
-  ) 
-  {
-    edges {
-      node {
-        id
-      }
-    }
-  }
-}`,
+        transactions(
+          sort: HEIGHT_ASC,
+          first:1,
+          owners: [ "${this.walletAddress}" ],
+          tags: [
+            { name: "App-Name", values: ["AR-IO Observer"] },
+            { name: "Content-Type", values: [ "application/json" ] },
+            { name: "AR-IO-Epoch-Start-Height", values: [ "${epochStartHeight}" ]},
+            { name: "AR-IO-Epoch-Index", values: [ "${epochIndex}" ] }
+            { name: "AR-IO-Epoch-Start-Timestamp", values: [ "${epochStartTimestamp}" ]},
+            { name: "AR-IO-Observer-Report-Version", values: [ "${REPORT_FORMAT_VERSION}" ] }
+          ]
+        ) 
+        {
+          edges {
+            node {
+              id
+            }
+          }
+        }
+      }`,
     };
+
     const response = await this.arweave.api.post('/graphql', queryObject);
 
     // Return the first report TX ID if it exists
