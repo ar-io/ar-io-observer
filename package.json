@@ -13,7 +13,6 @@
     "@ardrive/ardrive-promise-cache": "^1.1.4",
     "@ardrive/turbo-sdk": "^1.0.1",
     "@permaweb/aoconnect": "^0.0.56",
-    "ajv": "^8.12.0",
     "arbundles": "0.11.0",
     "arweave": "1.13.7",
     "cors": "^2.8.5",
@@ -29,7 +28,6 @@
     "p-map": "^6.0.0",
     "prom-client": "^14.0.1",
     "swagger-ui-express": "^5.0.0",
-    "wait": "^0.4.2",
     "winston": "^3.7.2",
     "yaml": "^2.3.1",
     "yargs": "^17.7.2"
