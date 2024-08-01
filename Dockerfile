@@ -7,10 +7,10 @@ FROM node:${NODE_VERSION}-bullseye-slim AS builder
 WORKDIR /app
 RUN apt-get update && apt-get install build-essential python3 -y
 COPY . .
-RUN yarn install --ignore-engines \
+RUN yarn install \
     && yarn build \
     && rm -rf node_modules \
-    && yarn install --production --ignore-engines
+    && yarn install --production
 
 # Runtime
 FROM gcr.io/distroless/nodejs${NODE_VERSION_SHORT}-debian11
