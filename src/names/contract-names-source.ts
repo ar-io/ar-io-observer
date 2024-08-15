@@ -34,9 +34,17 @@ export class ContractNamesSource implements ArnsNamesSource, ArnsNameList {
 
   // we don't use height here, but it's required by the interface
   async getAllNames(_height: number): Promise<string[]> {
-    const names = await this.contract.getArNSRecords();
-    const namesArray = Object.keys(names).sort();
-    return namesArray;
+    let cursor;
+    const namesArray: string[] = [];
+    do {
+      const result = await this.contract.getArNSRecords({
+        cursor,
+        limit: 1000,
+      });
+      cursor = result.nextCursor;
+      namesArray.concat(Object.keys(result.items));
+    } while (cursor !== undefined);
+    return namesArray.sort();
   }
 
   async getName(height: number, index: number): Promise<string> {
