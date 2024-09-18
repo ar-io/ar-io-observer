@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { AoIORead, AoIOWrite, IO } from '@ar.io/sdk/node';
+import { AOProcess, AoIORead, AoIOWrite, IO } from '@ar.io/sdk/node';
+import { connect } from '@permaweb/aoconnect';
 import { Tag } from 'arweave/node/lib/transaction.js';
 import * as winston from 'winston';
 
-import { IO_PROCESS_ID } from '../config.js';
+import * as config from '../config.js';
 import { ObserverReport, ReportInfo, ReportSink } from '../types.js';
 
 const MAX_FAILED_GATEWAY_SUMMARY_BYTES = 1280;
@@ -47,7 +48,17 @@ export async function interactionAlreadySaved({
   observerWallet,
   epochIndex,
   failedGatewaySummaries,
-  contract = IO.init({ processId: IO_PROCESS_ID }),
+  contract = IO.init({
+    process: new AOProcess({
+      processId: config.IO_PROCESS_ID,
+      ao: connect({
+        CU_URL: config.AO_CU_URL,
+        MU_URL: config.AO_MU_URL,
+        GATEWAY_URL: config.AO_GATEWAY_URL,
+        GRAPHQL_URL: config.AO_GRAPHQL_URL,
+      }),
+    }),
+  }),
 }: {
   observerWallet: string;
   epochIndex: number;
@@ -57,9 +68,11 @@ export async function interactionAlreadySaved({
   const observations = await contract.getObservations({
     epochIndex,
   });
+
   if (observations === undefined) {
     return false;
   }
+
   const epochFailureSummaries = observations.failureSummaries;
   if (
     observations === undefined ||

@@ -15,14 +15,19 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { AOProcess, IO, IOWriteable, WeightedObserver } from '@ar.io/sdk/node';
+import {
+  AOProcess,
+  AoWeightedObserver,
+  IO,
+  IOWriteable,
+} from '@ar.io/sdk/node';
 import {
   TurboAuthenticatedClient,
   TurboFactory,
   defaultTurboConfiguration,
 } from '@ardrive/turbo-sdk/node';
+import { ArweaveSigner, JWKInterface } from '@dha-team/arbundles/node';
 import { connect } from '@permaweb/aoconnect';
-import { ArweaveSigner, JWKInterface } from 'arbundles/node';
 import Arweave from 'arweave';
 import { default as NodeCache } from 'node-cache';
 import * as fs from 'node:fs';
@@ -100,7 +105,6 @@ const networkContract = IO.init({
   process: new AOProcess({
     processId: config.IO_PROCESS_ID,
     ao: connect({
-      // @permaweb/aoconnect defaults will be used if these are not provided
       MU_URL: config.AO_MU_URL,
       CU_URL: config.AO_CU_URL,
       GRAPHQL_URL: config.AO_GRAPHQL_URL,
@@ -291,10 +295,10 @@ export async function updateAndSaveCurrentReport() {
     // Get selected observers for the current epoch from the contract
     const observers: string[] = await networkContract
       .getPrescribedObservers({ epochIndex: report.epochIndex })
-      .then((observers: WeightedObserver[]) => {
+      .then((observers: AoWeightedObserver[]) => {
         log.info(`Retrieved ${observers.length} observers from contract state`);
         return observers.map(
-          (observer: WeightedObserver) => observer.observerAddress,
+          (observer: AoWeightedObserver) => observer.observerAddress,
         );
       })
       .catch((error: any) => {
