@@ -61,7 +61,7 @@ export const OBSERVER_WALLET = env.varOrDefault('OBSERVER_WALLET', '<example>');
 
 export const REFERENCE_GATEWAY_HOST = env.varOrDefault(
   'REFERENCE_GATEWAY_HOST',
-  args.referenceGateway ?? 'arweave.dev',
+  args.referenceGateway ?? 'arweave.net',
 );
 
 export const OBSERVED_GATEWAY_HOSTS = env
