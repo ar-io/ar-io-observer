@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import { TurboAuthenticatedClient } from '@ardrive/turbo-sdk/node';
-import { ArweaveSigner, createData } from 'arbundles/node';
+import { ArweaveSigner, createData } from '@dha-team/arbundles/node';
 import Arweave from 'arweave';
 import { promisify } from 'node:util';
 import zlib from 'node:zlib';

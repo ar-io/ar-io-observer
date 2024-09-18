@@ -480,7 +480,7 @@ export class Observer {
     >({
       cacheParams: {
         cacheCapacity: prescribedNames.length + chosenNames.length,
-        cacheTTL: 5 * 60_000,
+        cacheTTL: 5 * 60_000, // 5 minutes
       },
       readThroughFunction: async (name: string) =>
         getArnsResolution({
