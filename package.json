@@ -9,9 +9,9 @@
     "url": "https://github.com/ar-io/ar-io-observer"
   },
   "dependencies": {
-    "@ar.io/sdk": "^2.0.2",
+    "@ar.io/sdk": "^2.2.0",
     "@ardrive/ardrive-promise-cache": "^1.1.4",
-    "@ardrive/turbo-sdk": "^1.0.1",
+    "@ardrive/turbo-sdk": "^1.17.0",
     "@dha-team/arbundles": "^1.0.1",
     "@permaweb/aoconnect": "^0.0.56",
     "arweave": "1.13.7",
