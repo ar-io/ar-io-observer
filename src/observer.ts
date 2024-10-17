@@ -134,7 +134,9 @@ export async function getArnsResolution({
 
   const getHashWithinFirstMiB = () => {
     return new Promise<ArnsResolution>((resolve, reject) => {
-      const stream = got.stream.get(url);
+      const stream = got.stream.get(url, {
+        headers: { 'Accept-Encoding': 'identity' },
+      });
       let response: any;
       let streamBytesProcessed = 0;
 
@@ -192,6 +194,7 @@ export async function getArnsResolution({
             responseType: 'buffer',
             headers: {
               Range: `bytes=${range}`,
+              'Accept-Encoding': 'identity',
             },
           }),
         ),
