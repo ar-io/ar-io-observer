@@ -194,6 +194,7 @@ export async function getArnsResolution({
             responseType: 'buffer',
             headers: {
               Range: `bytes=${range}`,
+              'Accept-Encoding': 'identity',
             },
           }),
         ),
