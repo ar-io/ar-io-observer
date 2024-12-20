@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { AoARIORead, ARIO } from '@ar.io/sdk/node';
+import { ARIO, AoARIORead } from '@ar.io/sdk/node';
 import winston from 'winston';
 
 import * as config from '../config.js';
