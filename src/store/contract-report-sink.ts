@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { AOProcess, AoIORead, AoIOWrite, IO } from '@ar.io/sdk/node';
+import { AOProcess, AoARIOWrite, ARIO, AoARIORead } from '@ar.io/sdk/node';
 import { connect } from '@permaweb/aoconnect';
 import { Tag } from 'arweave/node/lib/transaction.js';
 import * as winston from 'winston';
@@ -48,7 +48,7 @@ export async function interactionAlreadySaved({
   observerWallet,
   epochIndex,
   failedGatewaySummaries,
-  contract = IO.init({
+  contract = ARIO.init({
     process: new AOProcess({
       processId: config.IO_PROCESS_ID,
       ao: connect({
@@ -63,7 +63,7 @@ export async function interactionAlreadySaved({
   observerWallet: string;
   epochIndex: number;
   failedGatewaySummaries: string[];
-  contract?: AoIORead;
+  contract?: AoARIORead;
 }): Promise<boolean> {
   const observations = await contract.getObservations({
     epochIndex,
@@ -124,7 +124,7 @@ function splitArrayBySize(array: string[], maxSizeInBytes: number): string[][] {
 export class ContractReportSink implements ReportSink {
   // Dependencies
   private log: winston.Logger;
-  private contract: AoIOWrite;
+  private contract: AoARIOWrite;
   private readonly walletAddress: string;
 
   constructor({
@@ -133,7 +133,7 @@ export class ContractReportSink implements ReportSink {
     walletAddress,
   }: {
     log: winston.Logger;
-    contract: AoIOWrite;
+    contract: AoARIOWrite;
     walletAddress: string;
   }) {
     this.log = log;

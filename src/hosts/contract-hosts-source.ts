@@ -15,21 +15,21 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { AoIORead } from '@ar.io/sdk';
+import { AoARIORead } from '@ar.io/sdk/node';
 import winston from 'winston';
 
 import defaultLogger from '../log.js';
 import { GatewayHost, GatewayHostsSource } from '../types.js';
 
 export class ContractHostsSource implements GatewayHostsSource {
-  private contract: AoIORead;
+  private contract: AoARIORead;
   private log: winston.Logger;
 
   constructor({
     contract,
     log = defaultLogger,
   }: {
-    contract: AoIORead;
+    contract: AoARIORead;
     log?: winston.Logger;
   }) {
     this.contract = contract;

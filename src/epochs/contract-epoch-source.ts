@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { AoIORead, IO } from '@ar.io/sdk';
+import { AoARIORead, ARIO } from '@ar.io/sdk/node';
 import winston from 'winston';
 
 import * as config from '../config.js';
@@ -24,19 +24,19 @@ import { BlockSource, EpochTimestampParams, HeightSource } from '../types.js';
 import { EpochTimestampSource as IEpochTimestampSource } from '../types.js';
 
 export class ContractEpochSource implements IEpochTimestampSource {
-  private contract: AoIORead;
+  private contract: AoARIORead;
   private blockSource: BlockSource;
   private heightSource: HeightSource;
   private epochParams: EpochTimestampParams | undefined;
   private log: winston.Logger;
 
   constructor({
-    contract = IO.init({ processId: config.IO_PROCESS_ID }),
+    contract = ARIO.init({ processId: config.IO_PROCESS_ID }),
     blockSource,
     heightSource,
     log = defaultLogger,
   }: {
-    contract?: AoIORead;
+    contract?: AoARIORead;
     blockSource: BlockSource;
     heightSource: HeightSource;
     log?: winston.Logger;

@@ -15,13 +15,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { AoIORead } from '@ar.io/sdk';
+import { AoARIORead } from '@ar.io/sdk/node';
 
 import { ArnsNameList, ArnsNamesSource } from '../types.js';
 
 export class ContractNamesSource implements ArnsNamesSource, ArnsNameList {
-  private contract: AoIORead;
-  constructor({ contract }: { contract: AoIORead }) {
+  private contract: AoARIORead;
+  constructor({ contract }: { contract: AoARIORead }) {
     this.contract = contract;
   }
 
