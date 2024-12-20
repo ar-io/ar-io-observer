@@ -17,9 +17,10 @@
  */
 import {
   AOProcess,
+  ARIO,
+  ARIOWriteable,
   AoWeightedObserver,
-  IO,
-  IOWriteable,
+  Logger,
 } from '@ar.io/sdk/node';
 import {
   TurboAuthenticatedClient,
@@ -100,7 +101,7 @@ const chainSource = new ChainSource({
 const signer =
   walletJwk !== undefined ? new ArweaveSigner(walletJwk) : undefined;
 
-const networkContract = IO.init({
+const networkContract = ARIO.init({
   ...(signer !== undefined ? { signer } : {}),
   process: new AOProcess({
     processId: config.IO_PROCESS_ID,
@@ -239,7 +240,7 @@ if (turboReportSink !== undefined) {
 }
 
 export const contractReportSink =
-  networkContract !== undefined && networkContract instanceof IOWriteable
+  networkContract !== undefined && networkContract instanceof ARIOWriteable
     ? new ContractReportSink({
         log,
         contract: networkContract,
