@@ -20,7 +20,6 @@ import {
   ARIO,
   ARIOWriteable,
   AoWeightedObserver,
-  Logger,
 } from '@ar.io/sdk/node';
 import {
   TurboAuthenticatedClient,

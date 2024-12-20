@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { AOProcess, AoARIOWrite, ARIO, AoARIORead } from '@ar.io/sdk/node';
+import { AOProcess, ARIO, AoARIORead, AoARIOWrite } from '@ar.io/sdk/node';
 import { connect } from '@permaweb/aoconnect';
 import { Tag } from 'arweave/node/lib/transaction.js';
 import * as winston from 'winston';
