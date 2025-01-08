@@ -1,5 +1,5 @@
-ARG NODE_VERSION=18.18.0
-ARG NODE_VERSION_SHORT=18
+ARG NODE_VERSION=20.18.1
+ARG NODE_VERSION_SHORT=20
 
 FROM node:${NODE_VERSION}-bullseye-slim AS builder
 
@@ -13,7 +13,7 @@ RUN yarn install \
     && yarn install --production
 
 # Runtime
-FROM gcr.io/distroless/nodejs${NODE_VERSION_SHORT}-debian11
+FROM gcr.io/distroless/nodejs${NODE_VERSION_SHORT}-debian12
 WORKDIR /app
 
 # Add sh for healtcheck script
