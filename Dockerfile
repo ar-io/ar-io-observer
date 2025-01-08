@@ -1,5 +1,4 @@
 ARG NODE_VERSION=22.13.0
-ARG NODE_VERSION_SHORT=22
 
 FROM node:${NODE_VERSION}-bullseye-slim AS builder
 
@@ -13,11 +12,8 @@ RUN yarn install \
     && yarn install --production
 
 # Runtime
-FROM gcr.io/distroless/nodejs${NODE_VERSION_SHORT}-debian12
+FROM node:${NODE_VERSION}-bullseye-slim
 WORKDIR /app
-
-# Add sh for healtcheck script
-COPY --from=busybox:1.37-uclibc /bin/sh /bin/sh
 
 # Copy build files
 COPY --from=builder /app/node_modules ./node_modules/
