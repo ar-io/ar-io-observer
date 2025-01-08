@@ -17,7 +17,7 @@ FROM gcr.io/distroless/nodejs${NODE_VERSION_SHORT}-debian12
 WORKDIR /app
 
 # Add sh for healtcheck script
-COPY --from=busybox:1.35.0-uclibc /bin/sh /bin/sh
+COPY --from=busybox:1.37-uclibc /bin/sh /bin/sh
 
 # Copy build files
 COPY --from=builder /app/node_modules ./node_modules/
