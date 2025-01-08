@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import dotenv from 'dotenv';
+import path from 'node:path';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 
@@ -59,6 +60,8 @@ export const IO_PROCESS_ID = env.varOrDefault(
 
 export const OBSERVER_WALLET = env.varOrDefault('OBSERVER_WALLET', '<example>');
 
+export const WALLETS_PATH = env.varOrDefault('WALLETS_PATH', './wallets');
+
 export const REFERENCE_GATEWAY_HOST = env.varOrDefault(
   'REFERENCE_GATEWAY_HOST',
   args.referenceGateway ?? 'arweave.net',
@@ -92,7 +95,7 @@ export const NAME_ASSESSMENT_CONCURRENCY = +env.varOrDefault(
 );
 
 // Wallet used to upload reports and interact with the contract
-export const KEY_FILE = './wallets/' + OBSERVER_WALLET + '.json';
+export const KEY_FILE = path.join(WALLETS_PATH, OBSERVER_WALLET + '.json');
 export const JWK = env.varOrUndefined('OBSERVER_JWK');
 
 export const SUBMIT_CONTRACT_INTERACTIONS =
