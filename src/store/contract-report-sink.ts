@@ -31,14 +31,14 @@ export function getFailedGatewaySummaryFromReport(
   const failedGatewaySummary: Set<string> = new Set();
   Object.values(observerReport.gatewayAssessments).forEach(
     (gatewayAssessment) => {
-      // Add expected wallets that do not match the observed wallet to the failed set
-      gatewayAssessment.ownershipAssessment.expectedWallets.forEach(
-        (wallet) => {
-          if (gatewayAssessment.ownershipAssessment.observedWallet !== wallet) {
-            failedGatewaySummary.add(wallet);
-          }
-        },
-      );
+      // if the assessment failed, add the expected wallets to the failedGatewaySummary
+      if (gatewayAssessment.pass === false) {
+        // add the expected wallets as failed
+        for (const wallet of gatewayAssessment.ownershipAssessment
+          .expectedWallets) {
+          failedGatewaySummary.add(wallet);
+        }
+      }
     },
   );
   return [...failedGatewaySummary].sort();
@@ -148,6 +148,10 @@ export class ContractReportSink implements ReportSink {
     const { report, reportTxId } = reportInfo;
     const failedGatewaySummaries: string[] =
       getFailedGatewaySummaryFromReport(report);
+
+    this.log.debug('Gateways that failed observation', {
+      failedGatewaySummaries: failedGatewaySummaries,
+    });
 
     // split up the failed gateway summaries if they are bigger than the max individual summary size
     const splitFailedGatewaySummaries = splitArrayBySize(
