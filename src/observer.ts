@@ -50,7 +50,7 @@ interface ArnsResolution {
 const client = got.extend({
   timeout: {
     lookup: 5000,
-    connect: 2000,
+    connect: 5000,
     secureConnect: 2000,
     socket: 2000,
   },
