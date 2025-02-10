@@ -52,7 +52,7 @@ const client = got.extend({
     lookup: 5000,
     connect: 5000,
     secureConnect: 2000,
-    socket: 2000,
+    socket: 5000,
   },
 });
 
