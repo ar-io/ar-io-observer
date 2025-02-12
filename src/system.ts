@@ -197,6 +197,22 @@ export const turboClient: TurboAuthenticatedClient | undefined = (() => {
     return TurboFactory.authenticated({
       privateKey: walletJwk,
       ...defaultTurboConfiguration,
+      ...(config.TURBO_UPLOAD_SERVICE_URL !== undefined
+        ? {
+            uploadServiceConfig: {
+              url: config.TURBO_UPLOAD_SERVICE_URL,
+              token: 'arweave',
+            },
+          }
+        : {}),
+      ...(config.TURBO_PAYMENT_SERVICE_URL !== undefined
+        ? {
+            uploadServiceConfig: {
+              url: config.TURBO_PAYMENT_SERVICE_URL,
+              token: 'arweave',
+            },
+          }
+        : {}),
     });
   } else {
     return undefined;
