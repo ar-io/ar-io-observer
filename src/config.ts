@@ -70,6 +70,8 @@ export const TURBO_PAYMENT_SERVICE_URL = env.varOrUndefined(
   'TURBO_PAYMENT_SERVICE_URL',
 );
 
+export const REPORT_DATA_SINK = env.varOrDefault('REPORT_DATA_SINK', 'turbo');
+
 export const REFERENCE_GATEWAY_HOST = env.varOrDefault(
   'REFERENCE_GATEWAY_HOST',
   args.referenceGateway ?? 'arweave.net',
