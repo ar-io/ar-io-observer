@@ -50,6 +50,7 @@ import { ContractNamesSource } from './names/contract-names-source.js';
 import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
 import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
+import { ArweaveReportSink } from './store/arweave-report-sink.js';
 import { ContractReportSink } from './store/contract-report-sink.js';
 import { FsReportStore } from './store/fs-report-store.js';
 import {
@@ -242,15 +243,40 @@ const turboReportSink =
       })
     : undefined;
 
+const arweaveReportSink = new ArweaveReportSink({
+  log,
+  arweave,
+  walletJwk,
+});
+
 const stores: ReportSinkEntry[] = [];
 stores.push({
   name: 'FsReportStore',
   sink: fsReportStore,
 });
-if (turboReportSink !== undefined) {
-  stores.push({
-    name: 'TurboReportSink',
-    sink: turboReportSink,
+if (config.REPORT_DATA_SINK === 'turbo') {
+  if (turboReportSink !== undefined) {
+    stores.push({
+      name: 'TurboReportSink',
+      sink: turboReportSink,
+    });
+  } else {
+    log.warn('TurboReportSink not configured - report data will not be saved');
+  }
+} else if (config.REPORT_DATA_SINK === 'arweave') {
+  if (walletJwk !== undefined) {
+    stores.push({
+      name: 'ArweaveReportSink',
+      sink: arweaveReportSink,
+    });
+  } else {
+    log.warn(
+      'ArweaveReportSink not configured - report data will not be saved',
+    );
+  }
+} else {
+  log.error('Invalid REPORT_DATA_SINK value', {
+    REPORT_DATA_SINK: config.REPORT_DATA_SINK,
   });
 }
 
