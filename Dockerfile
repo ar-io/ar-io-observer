@@ -12,7 +12,7 @@ RUN yarn install \
     && yarn install --production
 
 # Runtime
-FROM node:${NODE_VERSION}-bookworm-slim AS builder
+FROM node:${NODE_VERSION}-bookworm-slim
 WORKDIR /app
 
 # Copy build files
