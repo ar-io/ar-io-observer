@@ -1,6 +1,6 @@
 ARG NODE_VERSION=22.13.0
 
-FROM node:${NODE_VERSION}-bullseye-slim AS builder
+FROM node:${NODE_VERSION}-bookworm-slim AS builder
 
 # Build
 WORKDIR /app
@@ -12,7 +12,7 @@ RUN yarn install \
     && yarn install --production
 
 # Runtime
-FROM node:${NODE_VERSION}-bullseye-slim
+FROM node:${NODE_VERSION}-bookworm-slim AS builder
 WORKDIR /app
 
 # Copy build files
