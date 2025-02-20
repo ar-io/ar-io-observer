@@ -55,7 +55,7 @@ export const ARWEAVE_URL = env.varOrDefault(
 
 export const IO_PROCESS_ID = env.varOrDefault(
   'IO_PROCESS_ID',
-  'agYcCFJtrMG6cqMuZfskIkFTGvUPddICmtQSBIoPdiA',
+  'qNvAoz0TgcH7DMg8BCVn8jF32QH5L6T29VjHxhHqqGE',
 );
 
 export const OBSERVER_WALLET = env.varOrDefault('OBSERVER_WALLET', '<example>');
