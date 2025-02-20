@@ -321,8 +321,8 @@ const START_HEIGHT_END_OFFSET_MS = 2 * MAX_FORK_DEPTH * AVERAGE_BLOCK_TIME_MS;
 export async function updateAndSaveCurrentReport() {
   try {
     // check that epochs have started
-    const epochIndex = await epochSource.getEpochIndex();
-    if (epochIndex === undefined) {
+    const { epochZeroStartTimestamp } = await epochSource.getEpochSettings();
+    if (Date.now() < epochZeroStartTimestamp) {
       log.info('First epoch has not started yet. Not generating report.');
       return;
     }

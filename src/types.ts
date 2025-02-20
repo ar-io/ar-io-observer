@@ -31,6 +31,11 @@ export interface HeightSource {
 // Epochs
 //
 
+export interface EpochSettings {
+  epochZeroStartTimestamp: number;
+  durationMs: number;
+}
+
 export interface EpochTimestampParams {
   epochStartTimestamp: number;
   epochStartHeight: number;
@@ -45,6 +50,7 @@ export interface EpochHeightSource {
 }
 
 export interface EpochTimestampSource {
+  getEpochSettings(): Promise<EpochSettings>;
   getEpochStartHeight(): Promise<number>;
   getEpochStartTimestamp(): Promise<number>;
   getEpochEndTimestamp(): Promise<number>;

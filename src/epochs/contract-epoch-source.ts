@@ -20,7 +20,12 @@ import winston from 'winston';
 
 import * as config from '../config.js';
 import defaultLogger from '../log.js';
-import { BlockSource, EpochTimestampParams, HeightSource } from '../types.js';
+import {
+  BlockSource,
+  EpochSettings,
+  EpochTimestampParams,
+  HeightSource,
+} from '../types.js';
 import { EpochTimestampSource as IEpochTimestampSource } from '../types.js';
 
 export class ContractEpochSource implements IEpochTimestampSource {
@@ -45,6 +50,14 @@ export class ContractEpochSource implements IEpochTimestampSource {
     this.blockSource = blockSource;
     this.heightSource = heightSource;
     this.log = log.child({ class: 'ContractEpochSource' });
+  }
+
+  async getEpochSettings(): Promise<EpochSettings> {
+    const epochSettings = await this.contract.getEpochSettings();
+    return {
+      epochZeroStartTimestamp: epochSettings.epochZeroStartTimestamp,
+      durationMs: epochSettings.durationMs,
+    };
   }
 
   async getEpochParams(): Promise<EpochTimestampParams> {
