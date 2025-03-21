@@ -13,6 +13,7 @@
     "@ardrive/ardrive-promise-cache": "^1.1.4",
     "@ardrive/turbo-sdk": "^1.17.0",
     "@dha-team/arbundles": "^1.0.1",
+    "@opentelemetry/auto-instrumentations-node": "^0.57.0",
     "@permaweb/aoconnect": "^0.0.56",
     "arweave": "1.13.7",
     "cors": "^2.8.5",
