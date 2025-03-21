@@ -122,5 +122,7 @@ export const AR_IO_NODE_RELEASE = env.varOrDefault('AR_IO_NODE_RELEASE', 'dev');
 
 export const AO_MU_URL = env.varOrUndefined('AO_MU_URL');
 export const AO_CU_URL = env.varOrUndefined('AO_CU_URL');
+export const NETWORK_AO_CU_URL =
+  env.varOrUndefined('NETWORK_AO_CU_URL') ?? AO_CU_URL;
 export const AO_GRAPHQL_URL = env.varOrUndefined('AO_GRAPHQL_URL');
 export const AO_GATEWAY_URL = env.varOrUndefined('AO_GATEWAY_URL');

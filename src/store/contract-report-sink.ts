@@ -52,7 +52,7 @@ export async function interactionAlreadySaved({
     process: new AOProcess({
       processId: config.IO_PROCESS_ID,
       ao: connect({
-        CU_URL: config.AO_CU_URL,
+        CU_URL: config.NETWORK_AO_CU_URL,
         MU_URL: config.AO_MU_URL,
         GATEWAY_URL: config.AO_GATEWAY_URL,
         GRAPHQL_URL: config.AO_GRAPHQL_URL,

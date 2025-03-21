@@ -18,6 +18,7 @@
 import { Logger } from '@ar.io/sdk/node';
 import { createLogger, format, transports } from 'winston';
 
+import * as config from './config.js';
 import * as env from './lib/env.js';
 
 // observer internal log level
@@ -35,6 +36,7 @@ const log = createLogger({
   level: LOG_LEVEL,
   defaultMeta: {
     instanceId: INSTANCE_ID,
+    networkCuUrl: config.NETWORK_AO_CU_URL ?? '<sdk default>',
   },
   format: format.combine(
     format((info) => {
