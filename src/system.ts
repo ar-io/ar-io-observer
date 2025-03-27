@@ -53,6 +53,7 @@ import { Observer } from './observer.js';
 import { ArweaveReportSink } from './store/arweave-report-sink.js';
 import { ContractReportSink } from './store/contract-report-sink.js';
 import { FsReportStore } from './store/fs-report-store.js';
+import { LogReportSink } from './store/log-report-sink.js';
 import {
   PipelineReportSink,
   ReportSinkEntry,
@@ -303,6 +304,26 @@ if (!config.SUBMIT_CONTRACT_INTERACTIONS) {
     name: 'ContractReportSink',
     sink: contractReportSink,
   });
+}
+
+// Add the log report sink if enabled
+if (config.ENABLE_LOG_REPORT_SINK) {
+  const logReportSink = new LogReportSink({
+    log,
+  });
+
+  stores.push({
+    name: 'LogReportSink',
+    sink: logReportSink,
+  });
+
+  log.verbose(
+    'LogReportSink enabled - detailed assessment logs will be shown at info level',
+  );
+} else {
+  log.verbose(
+    'LogReportSink disabled - set ENABLE_LOG_REPORT_SINK=true to enable detailed assessment logs',
+  );
 }
 
 export const reportSink = new PipelineReportSink({
