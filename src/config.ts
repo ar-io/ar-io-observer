@@ -126,3 +126,7 @@ export const NETWORK_AO_CU_URL =
   env.varOrUndefined('NETWORK_AO_CU_URL') ?? AO_CU_URL;
 export const AO_GRAPHQL_URL = env.varOrUndefined('AO_GRAPHQL_URL');
 export const AO_GATEWAY_URL = env.varOrUndefined('AO_GATEWAY_URL');
+
+// Whether to enable the LogReportSink that logs assessment details at info level
+export const ENABLE_LOG_REPORT_SINK =
+  env.varOrDefault('ENABLE_LOG_REPORT_SINK', 'false') === 'true';
