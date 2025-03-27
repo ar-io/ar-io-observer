@@ -24,7 +24,7 @@ if (config.RUN_OBSERVER) {
   setInterval(updateAndSaveCurrentReport, config.REPORT_GENERATION_INTERVAL_MS);
 
   app.listen(config.PORT, () => {
-    log.info(`Listening on port ${config.PORT}`);
+    log.verbose(`Listening on port ${config.PORT}`);
   });
 
   updateAndSaveCurrentReport();

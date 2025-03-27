@@ -48,15 +48,15 @@ export class PipelineReportSink implements ReportSink {
       epochStartHeight: report.epochStartHeight,
     });
 
-    log.info('Saving report...');
+    log.verbose('Saving report...');
     let lastReportInfo = reportInfo;
     for (const { name, sink } of this.sinks) {
       try {
-        log.info(`Saving report using ${name}...`);
+        log.verbose(`Saving report using ${name}...`);
         lastReportInfo = await sink.saveReport(lastReportInfo);
 
         // Setting report to undefined to avoid verbose logging
-        log.info(`Report saved using ${name}`, {
+        log.verbose(`Report saved using ${name}`, {
           ...lastReportInfo,
           report: undefined,
         });
