@@ -15,6 +15,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+import './tracing.js';
+
 import {
   AOProcess,
   ARIO,
@@ -59,7 +61,6 @@ import {
   ReportSinkEntry,
 } from './store/pipeline-report-sink.js';
 import { TurboReportSink } from './store/turbo-report-sink.js';
-import './tracing.js';
 
 const REPORT_CACHE_TTL_SECONDS = 60 * 60 * 2.5; // 2.5 hours
 
