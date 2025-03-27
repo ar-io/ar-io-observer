@@ -168,7 +168,7 @@ export class ContractReportSink implements ReportSink {
         contract: this.contract,
       });
       if (isInteractionAlreadySaved) {
-        this.log.info('Observation interactions already saved');
+        this.log.verbose('Observation interactions already saved');
         return reportInfo;
       }
     } catch (error: any) {
@@ -180,7 +180,7 @@ export class ContractReportSink implements ReportSink {
     }
 
     // Processes each failed gateway summary using the same observation report tx id.
-    this.log.info('Saving observation interactions...');
+    this.log.verbose('Saving observation interactions...');
     const saveObservationsTxIds: string[] = [];
     for (const failedGatewaySummary of splitFailedGatewaySummaries) {
       if (reportTxId === undefined) {
@@ -211,7 +211,7 @@ export class ContractReportSink implements ReportSink {
       saveObservationsTxIds.push(saveObservationsTxId);
     }
 
-    this.log.info('Observation interactions saved', {
+    this.log.verbose('Observation interactions saved', {
       interactionIds: saveObservationsTxIds,
     });
 

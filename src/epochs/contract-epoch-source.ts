@@ -82,7 +82,7 @@ export class ContractEpochSource implements IEpochTimestampSource {
       endTimestamp === undefined &&
       epochIndex === undefined
     ) {
-      this.log.info('No epoch data available.');
+      this.log.verbose('No epoch data available');
       return {
         epochStartTimestamp: startTimestamp,
         epochStartHeight: startHeight,
@@ -90,7 +90,7 @@ export class ContractEpochSource implements IEpochTimestampSource {
         epochIndex: epochIndex,
       };
     }
-    this.log.info('Setting epoch params.', {
+    this.log.verbose('Setting epoch params.', {
       startTimestamp: startTimestamp,
       startHeight: startHeight,
       endTimestamp: endTimestamp,

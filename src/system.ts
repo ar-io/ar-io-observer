@@ -62,12 +62,12 @@ import './tracing.js';
 
 const REPORT_CACHE_TTL_SECONDS = 60 * 60 * 2.5; // 2.5 hours
 
-log.info(`Using wallet ${config.OBSERVER_WALLET}`);
+log.verbose(`Using wallet ${config.OBSERVER_WALLET}`);
 export const walletJwk: JWKInterface | undefined = (() => {
   if (config.JWK !== undefined) {
     try {
       const jwk = JSON.parse(config.JWK);
-      log.info('Key loaded from environment');
+      log.verbose('Key loaded from environment');
       return jwk;
     } catch (error: any) {
       log.error('Unable to load key from environment:', {
@@ -77,11 +77,11 @@ export const walletJwk: JWKInterface | undefined = (() => {
   }
 
   try {
-    log.info('Loading key file...', {
+    log.verbose('Loading key file...', {
       keyFile: config.KEY_FILE,
     });
     const jwk = JSON.parse(fs.readFileSync(config.KEY_FILE).toString());
-    log.info('Key file loaded', {
+    log.verbose('Key file loaded', {
       keyFile: config.KEY_FILE,
     });
     return jwk;
@@ -115,7 +115,7 @@ const networkContract = ARIO.init({
   }),
 });
 
-log.info(
+log.verbose(
   `Using process ${config.IO_PROCESS_ID} to fetch contract information`,
   {
     processId: config.IO_PROCESS_ID,
@@ -291,11 +291,13 @@ export const contractReportSink =
     : undefined;
 
 if (!config.SUBMIT_CONTRACT_INTERACTIONS) {
-  log.info(
+  log.verbose(
     'SUBMIT_CONTRACT_INTERACTIONS is false - contract interactions will not be saved',
   );
 } else if (contractReportSink === undefined) {
-  log.info('Wallet not configured - contract interactions will not be saved');
+  log.verbose(
+    'Wallet not configured - contract interactions will not be saved',
+  );
 } else {
   stores.push({
     name: 'ContractReportSink',
@@ -324,22 +326,24 @@ export async function updateAndSaveCurrentReport() {
     // check that epochs have started
     const { epochZeroStartTimestamp } = await epochSource.getEpochSettings();
     if (Date.now() < epochZeroStartTimestamp) {
-      log.info('First epoch has not started yet. Not generating report.');
+      log.verbose('First epoch has not started yet. Not generating report.');
       return;
     }
-    log.info('Generating report...');
+    log.verbose('Generating report...');
     const reportStartTime = Date.now();
     const report = await observer.generateReport();
-    log.info(`Report generated in ${Date.now() - reportStartTime}ms`);
+    log.verbose(`Report generated in ${Date.now() - reportStartTime}ms`);
     reportCache.set('current', report);
-    log.info('Report cached');
+    log.verbose('Report cached');
 
-    log.info('Getting observers from contract state...');
+    log.verbose('Getting observers from contract state...');
     // Get selected observers for the current epoch from the contract
     const observers: string[] = await networkContract
       .getPrescribedObservers({ epochIndex: report.epochIndex })
       .then((observers: AoWeightedObserver[]) => {
-        log.info(`Retrieved ${observers.length} observers from contract state`);
+        log.verbose(
+          `Retrieved ${observers.length} observers from contract state`,
+        );
         return observers.map(
           (observer: AoWeightedObserver) => observer.observerAddress,
         );
@@ -378,7 +382,7 @@ export async function updateAndSaveCurrentReport() {
     const currentBlockTimestamp = block.timestamp * 1000;
 
     if (!observers.includes(config.OBSERVER_WALLET)) {
-      log.info('Not saving report - not selected as an observer');
+      log.verbose('Not saving report - not selected as an observer');
     } else if (
       currentBlockTimestamp >
       report.epochEndTimestamp - MAX_FORK_DEPTH * AVERAGE_BLOCK_TIME_MS
@@ -389,13 +393,13 @@ export async function updateAndSaveCurrentReport() {
       // within MAX_FORK_DEPTH blocks of the end of the epoch. If users ever
       // need to override this they can use the CLI to manually save the
       // report.
-      log.info('Not saving report - too close to end of epoch', {
+      log.verbose('Not saving report - too close to end of epoch', {
         currentHeight,
         currentBlockTimestamp,
         epochEndTimestamp: report.epochEndTimestamp,
       });
     } else if (currentBlockTimestamp < saveAfterTimestamp) {
-      log.info('Not saving report - save timestamp not reached', {
+      log.verbose('Not saving report - save timestamp not reached', {
         currentHeight,
         saveAfterTimestamp,
         currentBlockTimestamp,
@@ -422,11 +426,11 @@ process.on('uncaughtException', (error: any) => {
 });
 
 process.on('SIGTERM', () => {
-  log.info('SIGTERM received, exiting...');
+  log.verbose('SIGTERM received, exiting...');
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
-  log.info('SIGINT received, exiting...');
+  log.verbose('SIGINT received, exiting...');
   process.exit(0);
 });

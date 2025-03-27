@@ -49,7 +49,7 @@ export class FsReportStore implements ReportSink, ReportStore {
 
     const savedReport = await this.getReport(report.epochStartHeight);
     if (savedReport !== null) {
-      log.info('Using previously saved report');
+      log.verbose('Using previously saved report');
       report = savedReport;
       return {
         ...reportInfo,
@@ -58,7 +58,7 @@ export class FsReportStore implements ReportSink, ReportStore {
     }
 
     const reportFile = `${this.baseDir}/${report.epochStartHeight}.json`;
-    log.info('Saving report...', {
+    log.verbose('Saving report...', {
       reportFile,
     });
     if (!fs.existsSync(reportFile)) {
@@ -67,7 +67,7 @@ export class FsReportStore implements ReportSink, ReportStore {
         JSON.stringify(report),
       );
     }
-    log.info('Report saved', {
+    log.verbose('Report saved', {
       reportFile,
     });
 

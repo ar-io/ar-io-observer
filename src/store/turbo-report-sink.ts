@@ -110,7 +110,7 @@ export class TurboReportSink implements ReportSink {
     try {
       const reportTxId = await this.getReportTxId(report);
       if (reportTxId !== undefined) {
-        log.info('Report already saved, skipping upload');
+        log.verbose('Report already saved, skipping upload');
         return {
           ...reportInfo,
           reportTxId,
@@ -135,7 +135,7 @@ export class TurboReportSink implements ReportSink {
           dataItemSizeFactory: () => signedDataItem.getRaw().length,
         });
 
-      log.info('Report saved using Turbo', {
+      log.verbose('Report saved using Turbo', {
         id,
         owner,
         dataCaches,
@@ -151,7 +151,7 @@ export class TurboReportSink implements ReportSink {
       throw new Error(`Error saving report: ${error}`);
     } finally {
       const { winc: newBalance } = await this.turboClient.getBalance();
-      log.info(`New Turbo balance: ${newBalance}`, {
+      log.verbose(`New Turbo balance: ${newBalance}`, {
         newBalance,
       });
     }

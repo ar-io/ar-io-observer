@@ -57,7 +57,7 @@ export class ArweaveReportSink implements ReportSink {
       // Return existing TX ID if the report was already saved
       const existingTxId = await this.getReportTxId(report);
       if (existingTxId !== undefined) {
-        log.info('Report already saved, skipping upload');
+        log.verbose('Report already saved, skipping upload');
         return {
           ...reportInfo,
           reportTxId: existingTxId,
@@ -104,7 +104,7 @@ export class ArweaveReportSink implements ReportSink {
         log.debug(`Upload progress: ${uploader.pctComplete}%`);
       }
 
-      log.info('Report saved to Arweave', { txId: transaction.id });
+      log.verbose('Report saved to Arweave', { txId: transaction.id });
 
       return {
         ...reportInfo,
