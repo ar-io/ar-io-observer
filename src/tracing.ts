@@ -15,8 +15,12 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+import { SeverityNumber } from '@opentelemetry/api-logs';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+import { WinstonInstrumentation } from '@opentelemetry/instrumentation-winston';
+import opentelemetry from '@opentelemetry/sdk-node';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import dotenv from 'dotenv';
 import fs from 'node:fs';
@@ -32,13 +36,19 @@ if (headersFile !== undefined && headersFile !== '') {
 
 const sdk: NodeSDK = new NodeSDK({
   traceExporter: new OTLPTraceExporter(),
+  logRecordProcessor: new opentelemetry.logs.SimpleLogRecordProcessor(
+    new OTLPLogExporter(),
+  ),
   instrumentations: [
     getNodeAutoInstrumentations({
-      // We recommend disabling fs automatic instrumentation because
-      // it can be noisy and expensive during startup
+      // Disable fs automatic instrumentation because it can be noisy and
+      // expensive during startup (recommended by Honeycomb)
       '@opentelemetry/instrumentation-fs': {
         enabled: false,
       },
+    }),
+    new WinstonInstrumentation({
+      logSeverity: SeverityNumber.INFO,
     }),
   ],
 });
