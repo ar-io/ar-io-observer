@@ -200,7 +200,7 @@ export async function getArnsResolution({
         ),
       )
         .then((rangeResponses) => {
-          rangeResponses.forEach((response) => {
+          rangeResponses.forEach((response: Response<Buffer>) => {
             dataHash.update(response.body);
           });
 
