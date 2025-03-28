@@ -121,11 +121,11 @@ export async function getArnsResolution({
     contentType:
       response.statusCode === 404
         ? null
-        : (response.headers['content-type'] as string | undefined) ?? null,
+        : ((response.headers['content-type'] as string | undefined) ?? null),
     contentLength:
       response.statusCode === 404
         ? null
-        : response.headers['content-length'] ?? null,
+        : (response.headers['content-length'] ?? null),
     dataHashDigest: dataHashDigest ?? null,
     timings: response.timings,
   });
@@ -359,9 +359,8 @@ export class Observer {
       throw new Error('Reference gateway resolution cache not set');
     }
 
-    const referenceResolution = await this.referenceGatewayResolutionCache.get(
-      arnsName,
-    );
+    const referenceResolution =
+      await this.referenceGatewayResolutionCache.get(arnsName);
 
     const gatewayResolution = await getArnsResolution({
       url: `https://${arnsName}.${host}/`,

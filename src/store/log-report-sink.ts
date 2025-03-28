@@ -48,7 +48,7 @@ export class LogReportSink implements ReportSink {
     const { timings } = assessment;
 
     log.info(`${type} ArNS name assessment: ${arnsName}`, {
-      name: "ArNSNameAssessment",
+      name: 'ArNSNameAssessment',
       arnsName,
       pass: assessment.pass,
       expectedId: assessment.expectedId,
@@ -128,7 +128,7 @@ export class LogReportSink implements ReportSink {
     });
 
     assessmentLog.info('Assessment report summary', {
-      name: "AssessmentReportSummary",
+      name: 'AssessmentReportSummary',
       observerAddress: report.observerAddress,
       epochStartTimestamp: report.epochStartTimestamp,
       epochEndTimestamp: report.epochEndTimestamp,
@@ -144,7 +144,7 @@ export class LogReportSink implements ReportSink {
 
       // Log ownership assessment
       gatewayLog.info('Gateway ownership assessment', {
-        name: "GatewayOwnershipAssessment",
+        name: 'GatewayOwnershipAssessment',
         expectedWallets: assessment.ownershipAssessment.expectedWallets,
         observedWallet: assessment.ownershipAssessment.observedWallet,
         ownershipPass: assessment.ownershipAssessment.pass,
@@ -166,7 +166,7 @@ export class LogReportSink implements ReportSink {
 
       // Log ArNS assessments summary
       gatewayLog.info('Gateway ArNS assessments summary', {
-        name: "GatewayArNSAssessmentsSummary",
+        name: 'GatewayArNSAssessmentsSummary',
         // Prescribed names stats
         prescribedNamesCount: Object.keys(
           assessment.arnsAssessments.prescribedNames,
