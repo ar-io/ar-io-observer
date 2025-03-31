@@ -130,3 +130,7 @@ export const AO_GATEWAY_URL = env.varOrUndefined('AO_GATEWAY_URL');
 // Whether to enable the LogReportSink that logs assessment details at info level
 export const ENABLE_LOG_REPORT_SINK =
   env.varOrDefault('ENABLE_LOG_REPORT_SINK', 'false') === 'true';
+
+// Whether to always save reports regardless of other conditions
+export const ALWAYS_SAVE_REPORTS =
+  env.varOrDefault('ALWAYS_SAVE_REPORTS', 'false') === 'true';

@@ -403,7 +403,12 @@ export async function updateAndSaveCurrentReport() {
     const block = await chainSource.getBlockByHeight(currentHeight);
     const currentBlockTimestamp = block.timestamp * 1000;
 
-    if (!observers.includes(config.OBSERVER_WALLET)) {
+    if (config.ALWAYS_SAVE_REPORTS) {
+      log.verbose(
+        'Always save reports enabled - saving report regardless of conditions',
+      );
+      reportSink.saveReport({ report });
+    } else if (!observers.includes(config.OBSERVER_WALLET)) {
       log.verbose('Not saving report - not selected as an observer');
     } else if (
       currentBlockTimestamp >
