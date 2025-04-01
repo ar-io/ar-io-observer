@@ -421,7 +421,7 @@ export async function updateAndSaveCurrentReport() {
         currentHeight,
         currentBlockTimestamp,
         epochEndTimestamp: report.epochEndTimestamp,
-        reportSaveOffsetMs: config.REPORT_SAVE_OFFSET_MS,
+        reportSaveOffsetMs: config.REPORT_SAVE_EPOCH_END_OFFSET_MS,
       });
     } else if (currentBlockTimestamp < saveAfterTimestamp) {
       log.verbose('Not saving report - save timestamp not reached', {
