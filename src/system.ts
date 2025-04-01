@@ -407,18 +407,16 @@ export async function updateAndSaveCurrentReport() {
       log.verbose('Not saving report - not selected as an observer');
     } else if (
       currentBlockTimestamp >
-      report.epochEndTimestamp - MAX_FORK_DEPTH * AVERAGE_BLOCK_TIME_MS
+      report.epochEndTimestamp - config.REPORT_SAVE_EPOCH_END_OFFSET_MS
     ) {
-      // Contract state is based on the current height so to avoid potential
-      // inconsistencies where we generate a report for one epoch, but get
-      // contract state from the next one, we don't save the report if we're
-      // within MAX_FORK_DEPTH blocks of the end of the epoch. If users ever
-      // need to override this they can use the CLI to manually save the
-      // report.
+      // The contract protects against saving reports too close to the end of
+      // the epoch, but allow for configurable buffer to account for any
+      // potential issues with the contract state.
       log.verbose('Not saving report - too close to end of epoch', {
         currentHeight,
         currentBlockTimestamp,
         epochEndTimestamp: report.epochEndTimestamp,
+        reportSaveOffsetMs: config.REPORT_SAVE_OFFSET_MS,
       });
     } else if (currentBlockTimestamp < saveAfterTimestamp) {
       log.verbose('Not saving report - save timestamp not reached', {
