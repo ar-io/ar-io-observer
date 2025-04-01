@@ -24,8 +24,20 @@ import opentelemetry from '@opentelemetry/sdk-node';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import dotenv from 'dotenv';
 import fs from 'node:fs';
+import * as env from './lib/env.js';
 
 dotenv.config();
+
+// NOTE: These are declared here instead of config.ts because tracing needs to
+// be setup before logging and we may start logging in config.ts in the future.
+const OTEL_BATCH_LOG_PROCESSOR_SCHEDULED_DELAY_MS = +env.varOrDefault(
+  'OTEL_BATCH_LOG_PROCESSOR_SCHEDULED_DELAY_MS',
+  '2000', // 2 seconds
+);
+const OTEL_BATCH_LOG_PROCESSOR_MAX_EXPORT_BATCH_SIZE = +env.varOrDefault(
+  'OTEL_BATCH_LOG_PROCESSOR_MAX_EXPORT_BATCH_SIZE',
+  '10000',
+);
 
 const headersFile = process.env.OTEL_EXPORTER_OTLP_HEADERS_FILE;
 if (headersFile !== undefined && headersFile !== '') {
@@ -36,8 +48,12 @@ if (headersFile !== undefined && headersFile !== '') {
 
 const sdk: NodeSDK = new NodeSDK({
   traceExporter: new OTLPTraceExporter(),
-  logRecordProcessor: new opentelemetry.logs.SimpleLogRecordProcessor(
+  logRecordProcessor: new opentelemetry.logs.BatchLogRecordProcessor(
     new OTLPLogExporter(),
+    {
+      scheduledDelayMillis: OTEL_BATCH_LOG_PROCESSOR_SCHEDULED_DELAY_MS,
+      maxExportBatchSize: OTEL_BATCH_LOG_PROCESSOR_MAX_EXPORT_BATCH_SIZE,
+    },
   ),
   instrumentations: [
     getNodeAutoInstrumentations({
