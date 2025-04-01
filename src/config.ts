@@ -72,9 +72,11 @@ export const TURBO_PAYMENT_SERVICE_URL = env.varOrUndefined(
 
 export const REPORT_DATA_SINK = env.varOrDefault('REPORT_DATA_SINK', 'turbo');
 
-export const REPORT_SAVE_EPOCH_END_OFFSET_MS = +env.varOrDefault(
-  'REPORT_SAVE_EPOCH_END_OFFSET_MS',
-  `${1000 * 60 * 5}`, // 5 minutes
+export const REPORT_SAVE_EPOCH_END_OFFSET_MS = Math.abs(
+  +env.varOrDefault(
+    'REPORT_SAVE_EPOCH_END_OFFSET_MS',
+    `${1000 * 60 * 5}`, // 5 minutes
+  ),
 );
 
 export const REFERENCE_GATEWAY_HOST = env.varOrDefault(
