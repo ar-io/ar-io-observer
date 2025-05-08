@@ -81,7 +81,7 @@ export const REPORT_SAVE_EPOCH_END_OFFSET_MS = Math.abs(
 
 export const REFERENCE_GATEWAY_HOST = env.varOrDefault(
   'REFERENCE_GATEWAY_HOST',
-  args.referenceGateway ?? 'arweave.net',
+  args.referenceGateway ?? 'ar-io.net',
 );
 
 export const OBSERVED_GATEWAY_HOSTS = env
