@@ -24,6 +24,7 @@ import * as config from '../config.js';
 import { ObserverReport, ReportInfo, ReportSink } from '../types.js';
 
 const MAX_FAILED_GATEWAY_SUMMARY_BYTES = 1280;
+const GATEWAY_FAILURE_THRESHOLD = 0.8;
 
 export function getFailedGatewaySummaryFromReport(
   observerReport: ObserverReport,
@@ -152,6 +153,26 @@ export class ContractReportSink implements ReportSink {
     this.log.debug('Gateways that failed observation', {
       failedGatewaySummaries: failedGatewaySummaries,
     });
+
+    // Check if more than 80% of gateways failed
+    const totalGateways = Object.keys(report.gatewayAssessments).length;
+    const failedGateways = Object.values(report.gatewayAssessments).filter(
+      (assessment) => assessment.pass === false,
+    ).length;
+    const failurePercentage = failedGateways / totalGateways;
+
+    if (failurePercentage > GATEWAY_FAILURE_THRESHOLD) {
+      this.log.error(
+        'More than 80% of gateways failed - not reporting failures',
+        {
+          totalGateways,
+          failedGateways,
+          failurePercentage: (failurePercentage * 100).toFixed(2) + '%',
+          threshold: (GATEWAY_FAILURE_THRESHOLD * 100).toFixed(0) + '%',
+        },
+      );
+      return reportInfo;
+    }
 
     // split up the failed gateway summaries if they are bigger than the max individual summary size
     const splitFailedGatewaySummaries = splitArrayBySize(
