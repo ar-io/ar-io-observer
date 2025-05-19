@@ -163,7 +163,7 @@ export class ContractReportSink implements ReportSink {
 
     if (failurePercentage > GATEWAY_FAILURE_THRESHOLD) {
       this.log.error(
-        'More than 80% of gateways failed - not reporting failures',
+        'More than ${GATEWAY_FAILURE_THRESHOLD * 100.toFixed(0)}% of gateways failed - not reporting failures',
         {
           totalGateways,
           failedGateways,
