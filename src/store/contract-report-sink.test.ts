@@ -15,204 +15,229 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+import { AoARIOWrite } from '@ar.io/sdk/node';
+import { assert, expect } from 'chai';
+import * as sinon from 'sinon';
+import * as winston from 'winston';
 
-/**
- * 
- * TODO: come back to these tests with AO mocks
- * 
-import { ArIO, ArIOState, RemoteContract } from '@ar.io/sdk';
-import { expect } from 'chai';
-import nock from 'nock';
+import { ObserverReport } from '../types.js';
+import { ContractReportSink } from './contract-report-sink.js';
 
-import { interactionAlreadySaved } from './contract-report-sink.js';
+describe('ContractReportSink', function () {
+  let logStub: winston.Logger;
+  let contractStub: AoARIOWrite;
+  let contractReportSink: ContractReportSink;
+  const walletAddress = 'test-wallet-address';
 
-const observerWallet = 'test';
-const epochStartHeight = 1234567890;
-const contractCacheUrl = 'http://example.com';
-const contractId = '123';
-const networkCallPath = `/v1/contract/${contractId}`;
-const contract = ArIO.init({
-  contract: new RemoteContract<ArIOState>({
-    contractTxId: contractId,
-    cacheUrl: contractCacheUrl,
-  }),
-});
-
-const failedGatewaySummaries = [
-  'gateway-address',
-  'gateway-address2',
-  'gateway-address3',
-];
-
-describe('interactionAlreadySaved', function () {
   beforeEach(function () {
-    nock.cleanAll();
-  });
+    logStub = {
+      debug: sinon.stub(),
+      verbose: sinon.stub(),
+      error: sinon.stub(),
+    } as any;
 
-  it('should return true if all the failure gateway summaries are in the contract state', async function () {
-    nock(contractCacheUrl)
-      .get(networkCallPath)
-      .reply(200, {
-        state: {
-          observations: {
-            [epochStartHeight]: {
-              failureSummaries: {
-                [failedGatewaySummaries[0]]: [observerWallet],
-                [failedGatewaySummaries[1]]: [observerWallet],
-                [failedGatewaySummaries[2]]: [observerWallet],
-              },
-            },
-          },
-        },
-      });
+    contractStub = {
+      saveObservations: sinon.stub().resolves({ id: 'test-tx-id' }),
+      getObservations: sinon.stub().resolves(undefined),
+    } as any;
 
-    const result = await interactionAlreadySaved({
-      observerWallet,
-      epochStartHeight,
-      failedGatewaySummaries,
-      contract,
+    contractReportSink = new ContractReportSink({
+      log: logStub,
+      contract: contractStub,
+      walletAddress,
     });
-
-    expect(result).to.be.true;
   });
 
-  it('should return false if all failure gateway summary is not in the contract state', async function () {
-    nock(contractCacheUrl)
-      .get(networkCallPath)
-      .reply(200, {
-        state: {
-          observations: {
-            [epochStartHeight]: {
-              failureSummaries: {
-                [failedGatewaySummaries[0]]: ['observer'],
-                [failedGatewaySummaries[1]]: ['another-observer'],
-                [failedGatewaySummaries[2]]: ['yet-another-observer'],
-              },
-            },
-          },
+  afterEach(function () {
+    sinon.restore();
+  });
+
+  function createMockReport(
+    totalGateways: number,
+    failedGateways: number,
+  ): ObserverReport {
+    const gatewayAssessments: any = {};
+
+    // Create passing gateways
+    for (let i = 0; i < totalGateways - failedGateways; i++) {
+      gatewayAssessments[`gateway${i}.com`] = {
+        ownershipAssessment: {
+          expectedWallets: [`wallet${i}`],
+          observedWallet: `wallet${i}`,
+          pass: true,
         },
-      });
-
-    const result = await interactionAlreadySaved({
-      observerWallet,
-      epochStartHeight,
-      failedGatewaySummaries,
-      contract,
-    });
-
-    expect(result).to.be.false;
-  });
-
-  it('should return false if only some of the observer wallets match', async function () {
-    nock(contractCacheUrl)
-      .get(networkCallPath)
-      .reply(200, {
-        state: {
-          observations: {
-            [epochStartHeight]: {
-              failureSummaries: {
-                [failedGatewaySummaries[0]]: [observerWallet],
-                [failedGatewaySummaries[1]]: ['another-observer'],
-                [failedGatewaySummaries[2]]: ['yet-another-observer'],
-              },
-            },
-          },
+        arnsAssessments: {
+          prescribedNames: {},
+          chosenNames: {},
+          pass: true,
         },
-      });
-
-    const result = await interactionAlreadySaved({
-      observerWallet,
-      epochStartHeight,
-      failedGatewaySummaries,
-      contract,
-    });
-
-    expect(result).to.be.false;
-  });
-
-  it('should return false when failedGatewaySummaries is empty', async function () {
-    nock(contractCacheUrl)
-      .get(networkCallPath)
-      .reply(200, {
-        state: {
-          observations: {
-            [epochStartHeight]: {
-              failureSummaries: {},
-            },
-          },
-        },
-      });
-
-    const result = await interactionAlreadySaved({
-      observerWallet,
-      epochStartHeight,
-      failedGatewaySummaries: [],
-      contract,
-    });
-
-    expect(result).to.be.false;
-  });
-
-  it('should return false when there are no observations for the provided failure gateway summaries', async function () {
-    nock(contractCacheUrl)
-      .get(networkCallPath)
-      .reply(200, {
-        state: {
-          observations: {},
-        },
-      });
-
-    const result = await interactionAlreadySaved({
-      observerWallet,
-      epochStartHeight,
-      failedGatewaySummaries,
-      contract,
-    });
-
-    expect(result).to.be.false;
-  });
-
-  // by default the SDK will retry 5 times
-  it('should gracefully handle network errors', async function () {
-    nock(contractCacheUrl)
-      .get(networkCallPath)
-      .replyWithError('Network error')
-      .get(networkCallPath)
-      .replyWithError('Network error')
-      .get(networkCallPath)
-      .replyWithError('Network error')
-      .get(networkCallPath)
-      .replyWithError('Network error')
-      .get(networkCallPath)
-      .replyWithError('Network error')
-      .get(networkCallPath)
-      .replyWithError('Network error');
-
-    try {
-      await interactionAlreadySaved({
-        observerWallet,
-        epochStartHeight,
-        failedGatewaySummaries,
-        contract,
-      });
-    } catch (error: any) {
-      expect(error.message).to.include('Network error');
+        pass: true,
+      };
     }
-  });
 
-  it('should handle invalid JSON response gracefully', async function () {
-    nock(contractCacheUrl).get(networkCallPath).reply(200, 'Invalid JSON');
-
-    try {
-      await interactionAlreadySaved({
-        observerWallet,
-        epochStartHeight,
-        failedGatewaySummaries,
-        contract,
-      });
-    } catch (error) {
-      expect(error).to.exist;
+    // Create failing gateways
+    for (let i = totalGateways - failedGateways; i < totalGateways; i++) {
+      gatewayAssessments[`gateway${i}.com`] = {
+        ownershipAssessment: {
+          expectedWallets: [`wallet${i}`],
+          observedWallet: null,
+          failureReason: 'Test failure',
+          pass: false,
+        },
+        arnsAssessments: {
+          prescribedNames: {},
+          chosenNames: {},
+          pass: false,
+        },
+        pass: false,
+      };
     }
+
+    return {
+      formatVersion: 2,
+      observerAddress: walletAddress,
+      epochIndex: 1,
+      epochStartTimestamp: 1000000,
+      epochStartHeight: 100,
+      epochEndTimestamp: 2000000,
+      generatedAt: 1500000,
+      gatewayAssessments,
+    };
+  }
+
+  describe('saveReport', function () {
+    it('should save report normally when less than 80% of gateways fail', async function () {
+      // Test with 50% failure rate (5 out of 10)
+      const report = createMockReport(10, 5);
+      const reportInfo = { report, reportTxId: 'test-report-tx-id' };
+
+      const result = await contractReportSink.saveReport(reportInfo);
+
+      expect(result.interactionTxIds).to.include('test-tx-id');
+      expect((contractStub.saveObservations as sinon.SinonStub).called).to.be
+        .true;
+      expect((logStub.error as sinon.SinonStub).called).to.be.false;
+    });
+
+    it('should save report when exactly 80% of gateways fail', async function () {
+      // Test with 80% failure rate (8 out of 10) - should still save since threshold is > 80%, not >= 80%
+      const report = createMockReport(10, 8);
+      const reportInfo = { report, reportTxId: 'test-report-tx-id' };
+
+      const result = await contractReportSink.saveReport(reportInfo);
+
+      expect(result.interactionTxIds).to.include('test-tx-id');
+      expect((contractStub.saveObservations as sinon.SinonStub).called).to.be
+        .true;
+      expect((logStub.error as sinon.SinonStub).called).to.be.false;
+    });
+
+    it('should not save report when more than 80% of gateways fail', async function () {
+      // Test with 90% failure rate (9 out of 10)
+      const report = createMockReport(10, 9);
+      const reportInfo = { report, reportTxId: 'test-report-tx-id' };
+
+      const result = await contractReportSink.saveReport(reportInfo);
+
+      expect(result).to.equal(reportInfo);
+      expect((contractStub.saveObservations as sinon.SinonStub).called).to.be
+        .false;
+      expect((logStub.error as sinon.SinonStub).calledOnce).to.be.true;
+
+      const errorCall = (logStub.error as sinon.SinonStub).firstCall;
+      expect(errorCall.args[0]).to.include('More than 80% of gateways failed');
+      expect(errorCall.args[1]).to.deep.include({
+        totalGateways: 10,
+        failedGateways: 9,
+        failurePercentage: '90.00%',
+        threshold: '80%',
+      });
+    });
+
+    it('should not save report when all gateways fail', async function () {
+      // Test with 100% failure rate (10 out of 10)
+      const report = createMockReport(10, 10);
+      const reportInfo = { report, reportTxId: 'test-report-tx-id' };
+
+      const result = await contractReportSink.saveReport(reportInfo);
+
+      expect(result).to.equal(reportInfo);
+      expect((contractStub.saveObservations as sinon.SinonStub).called).to.be
+        .false;
+      expect((logStub.error as sinon.SinonStub).calledOnce).to.be.true;
+
+      const errorCall = (logStub.error as sinon.SinonStub).firstCall;
+      expect(errorCall.args[0]).to.include('More than 80% of gateways failed');
+      expect(errorCall.args[1]).to.deep.include({
+        totalGateways: 10,
+        failedGateways: 10,
+        failurePercentage: '100.00%',
+        threshold: '80%',
+      });
+    });
+
+    it('should handle edge case with single gateway', async function () {
+      // Test with 1 gateway failing (100% failure rate)
+      const report = createMockReport(1, 1);
+      const reportInfo = { report, reportTxId: 'test-report-tx-id' };
+
+      const result = await contractReportSink.saveReport(reportInfo);
+
+      expect(result).to.equal(reportInfo);
+      expect((contractStub.saveObservations as sinon.SinonStub).called).to.be
+        .false;
+      expect((logStub.error as sinon.SinonStub).calledOnce).to.be.true;
+    });
+
+    it('should handle edge case with zero gateways', async function () {
+      const report = createMockReport(0, 0);
+      const reportInfo = { report, reportTxId: 'test-report-tx-id' };
+
+      const result = await contractReportSink.saveReport(reportInfo);
+
+      // With zero gateways, failurePercentage is NaN (0/0), and NaN > 0.8 is false
+      // Since no gateways failed, splitFailedGatewaySummaries will be empty, so no saves
+      expect(result.interactionTxIds).to.deep.equal([]);
+      expect((contractStub.saveObservations as sinon.SinonStub).called).to.be
+        .false;
+    });
+
+    it('should handle reports without reportTxId when threshold not exceeded', async function () {
+      const report = createMockReport(10, 5);
+      const reportInfo = { report };
+
+      try {
+        await contractReportSink.saveReport(reportInfo);
+        assert.fail('Should have thrown an error');
+      } catch (error: any) {
+        expect(error.message).to.equal('Report TX ID is undefined');
+      }
+    });
+
+    it('should check if interaction already saved before processing', async function () {
+      (contractStub.getObservations as sinon.SinonStub).resolves({
+        failureSummaries: {
+          wallet5: [walletAddress],
+          wallet6: [walletAddress],
+          wallet7: [walletAddress],
+          wallet8: [walletAddress],
+          wallet9: [walletAddress],
+        },
+      });
+
+      const report = createMockReport(10, 5);
+      const reportInfo = { report, reportTxId: 'test-report-tx-id' };
+
+      const result = await contractReportSink.saveReport(reportInfo);
+
+      expect(result).to.equal(reportInfo);
+      expect((contractStub.saveObservations as sinon.SinonStub).called).to.be
+        .false;
+      expect(
+        (logStub.verbose as sinon.SinonStub).calledWith(
+          'Observation interactions already saved',
+        ),
+      ).to.be.true;
+    });
   });
 });
-**/
