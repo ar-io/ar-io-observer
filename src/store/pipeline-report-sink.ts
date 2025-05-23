@@ -19,6 +19,8 @@ import * as winston from 'winston';
 
 import { ReportInfo, ReportSink } from '../types.js';
 
+const MAX_GATEWAY_FAILURE_THRESHOLD = 0.8;
+
 export interface ReportSinkEntry {
   name: string;
   sink: ReportSink;
@@ -47,6 +49,26 @@ export class PipelineReportSink implements ReportSink {
       epochIndex: report.epochIndex,
       epochStartHeight: report.epochStartHeight,
     });
+
+    // Check if more than 80% of gateways failed
+    const totalGateways = Object.keys(report.gatewayAssessments).length;
+    const failedGateways = Object.values(report.gatewayAssessments).filter(
+      (assessment) => assessment.pass === false,
+    ).length;
+    const failurePercentage = failedGateways / totalGateways;
+
+    if (failurePercentage > MAX_GATEWAY_FAILURE_THRESHOLD) {
+      log.error(
+        `More than ${(MAX_GATEWAY_FAILURE_THRESHOLD * 100).toFixed(0)}% of gateways failed - not reporting failures. Please check your observer configuration for potential issues.`,
+        {
+          totalGateways,
+          failedGateways,
+          failurePercentage: (failurePercentage * 100).toFixed(2) + '%',
+          threshold: (MAX_GATEWAY_FAILURE_THRESHOLD * 100).toFixed(0) + '%',
+        },
+      );
+      return reportInfo;
+    }
 
     log.verbose('Saving report...');
     let lastReportInfo = reportInfo;

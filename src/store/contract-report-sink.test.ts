@@ -120,7 +120,7 @@ describe('ContractReportSink', function () {
     });
 
     it('should save report when exactly 80% of gateways fail', async function () {
-      // Test with 80% failure rate (8 out of 10) - should still save since threshold is > 80%, not >= 80%
+      // Test with 80% failure rate (8 out of 10)
       const report = createMockReport(10, 8);
       const reportInfo = { report, reportTxId: 'test-report-tx-id' };
 
@@ -132,61 +132,43 @@ describe('ContractReportSink', function () {
       expect((logStub.error as sinon.SinonStub).called).to.be.false;
     });
 
-    it('should not save report when more than 80% of gateways fail', async function () {
-      // Test with 90% failure rate (9 out of 10)
+    it('should save report when more than 80% of gateways fail', async function () {
+      // Test with 90% failure rate (9 out of 10) - threshold check moved to pipeline
       const report = createMockReport(10, 9);
       const reportInfo = { report, reportTxId: 'test-report-tx-id' };
 
       const result = await contractReportSink.saveReport(reportInfo);
 
-      expect(result).to.equal(reportInfo);
+      expect(result.interactionTxIds).to.include('test-tx-id');
       expect((contractStub.saveObservations as sinon.SinonStub).called).to.be
-        .false;
-      expect((logStub.error as sinon.SinonStub).calledOnce).to.be.true;
-
-      const errorCall = (logStub.error as sinon.SinonStub).firstCall;
-      expect(errorCall.args[0]).to.include('More than 80% of gateways failed');
-      expect(errorCall.args[1]).to.deep.include({
-        totalGateways: 10,
-        failedGateways: 9,
-        failurePercentage: '90.00%',
-        threshold: '80%',
-      });
+        .true;
+      expect((logStub.error as sinon.SinonStub).called).to.be.false;
     });
 
-    it('should not save report when all gateways fail', async function () {
-      // Test with 100% failure rate (10 out of 10)
+    it('should save report when all gateways fail', async function () {
+      // Test with 100% failure rate (10 out of 10) - threshold check moved to pipeline
       const report = createMockReport(10, 10);
       const reportInfo = { report, reportTxId: 'test-report-tx-id' };
 
       const result = await contractReportSink.saveReport(reportInfo);
 
-      expect(result).to.equal(reportInfo);
+      expect(result.interactionTxIds).to.include('test-tx-id');
       expect((contractStub.saveObservations as sinon.SinonStub).called).to.be
-        .false;
-      expect((logStub.error as sinon.SinonStub).calledOnce).to.be.true;
-
-      const errorCall = (logStub.error as sinon.SinonStub).firstCall;
-      expect(errorCall.args[0]).to.include('More than 80% of gateways failed');
-      expect(errorCall.args[1]).to.deep.include({
-        totalGateways: 10,
-        failedGateways: 10,
-        failurePercentage: '100.00%',
-        threshold: '80%',
-      });
+        .true;
+      expect((logStub.error as sinon.SinonStub).called).to.be.false;
     });
 
     it('should handle edge case with single gateway', async function () {
-      // Test with 1 gateway failing (100% failure rate)
+      // Test with 1 gateway failing (100% failure rate) - threshold check moved to pipeline
       const report = createMockReport(1, 1);
       const reportInfo = { report, reportTxId: 'test-report-tx-id' };
 
       const result = await contractReportSink.saveReport(reportInfo);
 
-      expect(result).to.equal(reportInfo);
+      expect(result.interactionTxIds).to.include('test-tx-id');
       expect((contractStub.saveObservations as sinon.SinonStub).called).to.be
-        .false;
-      expect((logStub.error as sinon.SinonStub).calledOnce).to.be.true;
+        .true;
+      expect((logStub.error as sinon.SinonStub).called).to.be.false;
     });
 
     it('should handle edge case with zero gateways', async function () {
