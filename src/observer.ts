@@ -28,6 +28,7 @@ import {
   EntropySource,
   EpochTimestampSource,
   GatewayAssessments,
+  GatewayHost,
   GatewayHostsSource,
   ObserverReport,
   OwnershipAssessment,
@@ -448,33 +449,23 @@ export class Observer {
     });
   }
 
-  async generateReport(): Promise<ObserverReport> {
-    const epochStartTimestamp = await this.epochSource.getEpochStartTimestamp();
-    const epochEndTimestamp = await this.epochSource.getEpochEndTimestamp();
-    const epochStartHeight = await this.epochSource.getEpochStartHeight();
-    const epochIndex = await this.epochSource.getEpochIndex();
-    const prescribedNames = await this.prescribedNamesSource.getNames({
-      epochIndex: epochIndex,
-    });
-    // observer will choose names based on the epoch start height
-    const chosenNames = await this.chosenNamesSource.getNames({
-      height: epochStartHeight,
-    });
-
-    // Assess gateway
+  private async runSingleObservation(
+    epochStartTimestamp: number,
+    epochEndTimestamp: number,
+    epochStartHeight: number,
+    epochIndex: number,
+    prescribedNames: string[],
+    chosenNames: string[],
+    gatewayHosts: GatewayHost[],
+    hostWallets: { [key: string]: string[] },
+    entropy: Buffer,
+  ): Promise<ObserverReport> {
     const gatewayAssessments: GatewayAssessments = {};
-    const gatewayHosts = await this.observedGatewayHostList.getHosts();
 
-    // Create map of FQDN => hosts to handle duplicates
-    const hostWallets: { [key: string]: string[] } = {};
-    gatewayHosts.forEach((host) => {
-      (hostWallets[host.fqdn] ||= []).push(host.wallet);
-    });
-
-    // use the epoch start height to compute entropy for
-    const entropy = await this.entropySource.getEntropy({
-      height: epochStartHeight,
-    });
+    // Shuffle the gateway hosts for this observation
+    const shuffledGatewayHosts = [...gatewayHosts].sort(
+      () => Math.random() - 0.5,
+    );
 
     this.referenceGatewayResolutionCache = new ReadThroughPromiseCache<
       string,
@@ -493,7 +484,7 @@ export class Observer {
     });
 
     await pMap(
-      gatewayHosts,
+      shuffledGatewayHosts,
       async (host) => {
         const ownershipAssessment = await assessOwnership({
           host: host.fqdn,
@@ -546,5 +537,100 @@ export class Observer {
       generatedAt: +(Date.now() / 1000).toFixed(0),
       gatewayAssessments,
     };
+  }
+
+  private calculateFailureRate(report: ObserverReport): number {
+    let totalAssessments = 0;
+    let failedAssessments = 0;
+
+    Object.values(report.gatewayAssessments).forEach((gatewayAssessment) => {
+      // Count ownership assessment
+      totalAssessments++;
+      if (!gatewayAssessment.ownershipAssessment.pass) {
+        failedAssessments++;
+      }
+
+      // Count prescribed name assessments
+      Object.values(gatewayAssessment.arnsAssessments.prescribedNames).forEach(
+        (assessment) => {
+          totalAssessments++;
+          if (!assessment.pass) {
+            failedAssessments++;
+          }
+        },
+      );
+
+      // Count chosen name assessments
+      Object.values(gatewayAssessment.arnsAssessments.chosenNames).forEach(
+        (assessment) => {
+          totalAssessments++;
+          if (!assessment.pass) {
+            failedAssessments++;
+          }
+        },
+      );
+    });
+
+    return totalAssessments > 0 ? failedAssessments / totalAssessments : 0;
+  }
+
+  async generateReport(): Promise<ObserverReport> {
+    const epochStartTimestamp = await this.epochSource.getEpochStartTimestamp();
+    const epochEndTimestamp = await this.epochSource.getEpochEndTimestamp();
+    const epochStartHeight = await this.epochSource.getEpochStartHeight();
+    const epochIndex = await this.epochSource.getEpochIndex();
+    const prescribedNames = await this.prescribedNamesSource.getNames({
+      epochIndex: epochIndex,
+    });
+    // observer will choose names based on the epoch start height
+    const chosenNames = await this.chosenNamesSource.getNames({
+      height: epochStartHeight,
+    });
+
+    // Assess gateway
+    const gatewayHosts = await this.observedGatewayHostList.getHosts();
+
+    // Create map of FQDN => hosts to handle duplicates
+    const hostWallets: { [key: string]: string[] } = {};
+    gatewayHosts.forEach((host) => {
+      (hostWallets[host.fqdn] ||= []).push(host.wallet);
+    });
+
+    // use the epoch start height to compute entropy for
+    const entropy = await this.entropySource.getEntropy({
+      height: epochStartHeight,
+    });
+
+    // Run 2 observations serially
+    const observations: ObserverReport[] = [];
+
+    for (let i = 0; i < 2; i++) {
+      const observation = await this.runSingleObservation(
+        epochStartTimestamp,
+        epochEndTimestamp,
+        epochStartHeight,
+        epochIndex,
+        prescribedNames,
+        chosenNames,
+        gatewayHosts,
+        hostWallets,
+        entropy,
+      );
+      observations.push(observation);
+    }
+
+    // Calculate failure rates and select the observation with the lowest rate
+    let bestObservation = observations[0];
+    let lowestFailureRate = this.calculateFailureRate(observations[0]);
+
+    for (let i = 1; i < observations.length; i++) {
+      const failureRate = this.calculateFailureRate(observations[i]);
+      if (failureRate < lowestFailureRate) {
+        lowestFailureRate = failureRate;
+        bestObservation = observations[i];
+      }
+    }
+
+    return bestObservation;
   }
 }
