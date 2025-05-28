@@ -253,10 +253,32 @@ const arweaveReportSink = new ArweaveReportSink({
 });
 
 const stores: ReportSinkEntry[] = [];
+
+// Add the log report sink if enabled
+if (config.ENABLE_LOG_REPORT_SINK) {
+  const logReportSink = new LogReportSink({
+    log,
+  });
+
+  stores.push({
+    name: 'LogReportSink',
+    sink: logReportSink,
+  });
+
+  log.verbose(
+    'LogReportSink enabled - detailed assessment logs will be shown at info level',
+  );
+} else {
+  log.verbose(
+    'LogReportSink disabled - set ENABLE_LOG_REPORT_SINK=true to enable detailed assessment logs',
+  );
+}
+
 stores.push({
   name: 'FsReportStore',
   sink: fsReportStore,
 });
+
 if (config.REPORT_DATA_SINK === 'turbo') {
   if (turboReportSink !== undefined) {
     stores.push({
@@ -305,26 +327,6 @@ if (!config.SUBMIT_CONTRACT_INTERACTIONS) {
     name: 'ContractReportSink',
     sink: contractReportSink,
   });
-}
-
-// Add the log report sink if enabled
-if (config.ENABLE_LOG_REPORT_SINK) {
-  const logReportSink = new LogReportSink({
-    log,
-  });
-
-  stores.push({
-    name: 'LogReportSink',
-    sink: logReportSink,
-  });
-
-  log.verbose(
-    'LogReportSink enabled - detailed assessment logs will be shown at info level',
-  );
-} else {
-  log.verbose(
-    'LogReportSink disabled - set ENABLE_LOG_REPORT_SINK=true to enable detailed assessment logs',
-  );
 }
 
 export const reportSink = new PipelineReportSink({
