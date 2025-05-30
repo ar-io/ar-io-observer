@@ -32,7 +32,7 @@ async function createReportDataItem(
   report: ObserverReport,
 ) {
   const reportBuffer = Buffer.from(JSON.stringify(report), 'utf-8');
-  const gzipReportBuffer = await gzip(reportBuffer);
+  const gzipReportBuffer = await gzip(reportBuffer, { level: 9 });
   const signedDataItem = createData(gzipReportBuffer, signer, {
     tags: [
       { name: 'App-Name', value: 'AR-IO Observer' },
