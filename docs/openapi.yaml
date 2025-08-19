@@ -15,6 +15,9 @@ components:
     ArweaveId:
       type: string
       nullable: true
+    ReportSink:
+      type: string
+      nullable: true
     DataHash:
       type: string
       nullable: true
@@ -36,6 +39,7 @@ components:
      properties: 
        wallet: { '$ref': '#/components/schemas/ArweaveWallet' }
        processId: { '$ref': '#/components/schemas/ArweaveId' }
+       reportSink: { '$ref': '#/components/schemas/ReportSink' }
     OwnershipAssessment:
       type: object
       properties:
