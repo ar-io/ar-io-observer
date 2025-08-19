@@ -23,13 +23,13 @@
     "@types/json-schema" "^7.0.15"
     js-yaml "^4.1.0"
 
-"@ar.io/sdk@3.9.1-alpha.2":
-  version "3.9.1-alpha.2"
-  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-3.9.1-alpha.2.tgz#4b0964fd51ae3e95c52575ad4d7537725690e9a6"
-  integrity sha512-NYU3VrdMPtzJBS2t9LIcwYI3iBYVetRveKr8bhY0ei7zpq0NysmKUiyYzqw/YapnytUJbCEmWtwRzjaFkzCVxQ==
+"@ar.io/sdk@^3.18.1":
+  version "3.18.1"
+  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-3.18.1.tgz#e76b541b2074b01162ee943c8b26a9acc472852e"
+  integrity sha512-28tEt0Vjj8phbeufRAXKY3SqceznxgiRw9zG3jh93FrAFWOUk8NqAAv4cq5S5Fv8seDyvVkv6hWD2epjlUqv+Q==
   dependencies:
     "@dha-team/arbundles" "^1.0.1"
-    "@permaweb/aoconnect" "^0.0.57"
+    "@permaweb/aoconnect" "0.0.68"
     arweave "1.15.5"
     axios "1.8.4"
     axios-retry "^4.3.0"
@@ -37,6 +37,7 @@
     eventemitter3 "^5.0.1"
     plimit-lit "^3.0.1"
     prompts "^2.4.2"
+    uuid "^11.1.0"
     winston "^3.13.0"
     zod "^3.23.8"
 
@@ -2067,7 +2068,7 @@
     "@opentelemetry/api-logs" "^0.57.1"
     winston-transport "4.*"
 
-"@permaweb/ao-scheduler-utils@~0.0.16", "@permaweb/ao-scheduler-utils@~0.0.20":
+"@permaweb/ao-scheduler-utils@~0.0.16":
   version "0.0.25"
   resolved "https://registry.yarnpkg.com/@permaweb/ao-scheduler-utils/-/ao-scheduler-utils-0.0.25.tgz#50c96a411d59f58010ace322d6abd3cd5e11e4cd"
   integrity sha512-b0UYSTgnLMIYLScrfNBgcqK7ZMmd78L3J0Jz4RIsIq2P5PtkdRqQ7fYqLlltg7bD1f3dvl4TkO1925ED4ei7LA==
@@ -2075,6 +2076,31 @@
     lru-cache "^10.2.2"
     ramda "^0.30.0"
     zod "^3.23.5"
+
+"@permaweb/ao-scheduler-utils@~0.0.25":
+  version "0.0.27"
+  resolved "https://registry.yarnpkg.com/@permaweb/ao-scheduler-utils/-/ao-scheduler-utils-0.0.27.tgz#5bbac7374cc5a8bf7e16d2fd905fd352cec84c84"
+  integrity sha512-KvdSDf/J65zCy7ymo9WfxNIv57Qy3omdL6uD6v66cV6h2KTUnyjhQJ6QqlXz8C5uIn9Zjm3Bu03NIjUKrwut2g==
+  dependencies:
+    lru-cache "^10.2.2"
+    ramda "^0.30.0"
+    zod "^3.23.5"
+
+"@permaweb/aoconnect@0.0.68":
+  version "0.0.68"
+  resolved "https://registry.yarnpkg.com/@permaweb/aoconnect/-/aoconnect-0.0.68.tgz#216ad607929e92d5cf4de6a7ff6a41442ff2500d"
+  integrity sha512-QK8VJ/rbmyZ7esuk6O2F4uJG0AKiYNzDuQNzsdgCLH7kt+0FlKTS4MKM1KH9fvXivqXdXYs02OxmzkkWprNxog==
+  dependencies:
+    "@permaweb/ao-scheduler-utils" "~0.0.25"
+    "@permaweb/protocol-tag-utils" "~0.0.2"
+    buffer "^6.0.3"
+    debug "^4.4.0"
+    http-message-signatures "^1.0.4"
+    hyper-async "^1.1.2"
+    mnemonist "^0.39.8"
+    ramda "^0.30.1"
+    warp-arbundles "^1.0.4"
+    zod "^3.24.1"
 
 "@permaweb/aoconnect@^0.0.56":
   version "0.0.56"
@@ -2090,19 +2116,10 @@
     warp-arbundles "^1.0.4"
     zod "^3.22.4"
 
-"@permaweb/aoconnect@^0.0.57":
-  version "0.0.57"
-  resolved "https://registry.yarnpkg.com/@permaweb/aoconnect/-/aoconnect-0.0.57.tgz#dd779563e1b994e78509251b74df64dc89ea62ea"
-  integrity sha512-l1+47cZuQ8pOIMOdRXymcegCmefXjqR8Bc2MY6jIzWv9old/tG6mfCue2W1QviGyhjP3zEVQgr7YofkY2lq35Q==
-  dependencies:
-    "@permaweb/ao-scheduler-utils" "~0.0.20"
-    buffer "^6.0.3"
-    debug "^4.3.5"
-    hyper-async "^1.1.2"
-    mnemonist "^0.39.8"
-    ramda "^0.30.1"
-    warp-arbundles "^1.0.4"
-    zod "^3.23.8"
+"@permaweb/protocol-tag-utils@~0.0.2":
+  version "0.0.2"
+  resolved "https://registry.yarnpkg.com/@permaweb/protocol-tag-utils/-/protocol-tag-utils-0.0.2.tgz#c8a2eddf7da15d70a6e60aecff839730cb59aee3"
+  integrity sha512-2IiKu71W7pkHKIzxabCGQ5q8DSppZaE/sPcPF2hn+OWwfe04M7b5X5LHRXQNPRuxHWuioieGdPQb3F7apOlffQ==
 
 "@pkgjs/parseargs@^0.11.0":
   version "0.11.0"
@@ -3693,6 +3710,13 @@ debug@4, debug@^4, debug@^4.1.1, debug@^4.3.1, debug@^4.3.2, debug@^4.3.4, debug
   dependencies:
     ms "^2.1.3"
 
+debug@^4.4.0:
+  version "4.4.1"
+  resolved "https://registry.yarnpkg.com/debug/-/debug-4.4.1.tgz#e5a8bc6cbc4c6cd3e64308b0693a3d4fa550189b"
+  integrity sha512-KcKCqiftBJcZr++7ykoDIEwSa3XWowTfNPo92BYxjXiyYEVrUQh2aLyhxBCwww+heortUFxEJYcRzosstTEBYQ==
+  dependencies:
+    ms "^2.1.3"
+
 decamelize@^4.0.0:
   version "4.0.0"
   resolved "https://registry.yarnpkg.com/decamelize/-/decamelize-4.0.0.tgz#aa472d7bf660eb15f3494efd531cab7f2a709837"
@@ -4663,6 +4687,13 @@ http-errors@2.0.0:
     setprototypeof "1.2.0"
     statuses "2.0.1"
     toidentifier "1.0.1"
+
+http-message-signatures@^1.0.4:
+  version "1.0.4"
+  resolved "https://registry.yarnpkg.com/http-message-signatures/-/http-message-signatures-1.0.4.tgz#3d1f614977d3a435af7c1d35a75e1e48d9094075"
+  integrity sha512-gavCQWnxHFg0BVlKs6CmYK7hNSH1o0x0mHTC68yBAHYOYuTVXPv52mEE7QuT5TenfiagTdOa/zPJzen4lEX7Rg==
+  dependencies:
+    structured-headers "^1.0.1"
 
 http-proxy-agent@^7.0.2:
   version "7.0.2"
@@ -6604,6 +6635,11 @@ strip-json-comments@^3.1.1:
   resolved "https://registry.yarnpkg.com/strip-json-comments/-/strip-json-comments-3.1.1.tgz#31f1281b3832630434831c310c01cccda8cbe006"
   integrity sha512-6fPc+R4ihwqP6N/aIv2f1gMH8lOVtWQHoqC4yK6oSDVVocumAsfCqjkXnqiYMhmMwS/mEHLp7Vehlt3ql6lEig==
 
+structured-headers@^1.0.1:
+  version "1.0.1"
+  resolved "https://registry.yarnpkg.com/structured-headers/-/structured-headers-1.0.1.tgz#1821e434e0fe45bdd78f07c779b16519ab520415"
+  integrity sha512-QYBxdBtA4Tl5rFPuqmbmdrS9kbtren74RTJTcs0VSQNVV5iRhJD4QlYTLD0+81SBwUQctjEQzjTRI3WG4DzICA==
+
 superstruct@^2.0.2:
   version "2.0.2"
   resolved "https://registry.yarnpkg.com/superstruct/-/superstruct-2.0.2.tgz#3f6d32fbdc11c357deff127d591a39b996300c54"
@@ -6975,6 +7011,11 @@ utils-merge@1.0.1:
   resolved "https://registry.yarnpkg.com/utils-merge/-/utils-merge-1.0.1.tgz#9f95710f50a267947b2ccc124741c1028427e713"
   integrity sha512-pMZTvIkT1d+TFGvDOqodOclx0QWkkgi6Tdoa8gC8ffGAAqz9pzPTZWAybbsHHoED/ztMtkv/VoYTYyShUn81hA==
 
+uuid@^11.1.0:
+  version "11.1.0"
+  resolved "https://registry.yarnpkg.com/uuid/-/uuid-11.1.0.tgz#9549028be1753bb934fc96e2bca09bb4105ae912"
+  integrity sha512-0/A9rDy9P7cJ+8w1c9WD9V//9Wj15Ce2MPz8Ri6032usz+NfePxx5AcN3bN+r6ZL6jEo066/yNYB3tn4pQEx+A==
+
 uuid@^8.3.2:
   version "8.3.2"
   resolved "https://registry.yarnpkg.com/uuid/-/uuid-8.3.2.tgz#80d5b5ced271bb9af6c445f21a1a04c606cefbe2"
@@ -7249,3 +7290,8 @@ zod@^3.22.4, zod@^3.23.5, zod@^3.23.8:
   version "3.24.2"
   resolved "https://registry.yarnpkg.com/zod/-/zod-3.24.2.tgz#8efa74126287c675e92f46871cfc8d15c34372b3"
   integrity sha512-lY7CDW43ECgW9u1TcT3IoXHflywfVqDYze4waEz812jR/bZ8FHDsl7pFQoSZTz5N+2NqRXs8GBwnAwo3ZNxqhQ==
+
+zod@^3.24.1:
+  version "3.25.76"
+  resolved "https://registry.yarnpkg.com/zod/-/zod-3.25.76.tgz#26841c3f6fd22a6a2760e7ccb719179768471e34"
+  integrity sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==
