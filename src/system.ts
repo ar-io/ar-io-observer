@@ -185,6 +185,7 @@ export const observer = new Observer({
   nameAssessmentConcurrency: config.NAME_ASSESSMENT_CONCURRENCY,
   nodeReleaseVersion: config.AR_IO_NODE_RELEASE,
   entropySource: chainEntropySource,
+  heightSource: chainSource,
 });
 
 export const reportCache = new NodeCache({

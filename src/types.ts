@@ -134,10 +134,28 @@ export interface GatewayArnsAssessments {
   pass: boolean;
 }
 
+export interface OffsetSamplingAssessment {
+  assessedAt: number;
+  offset: number;
+  chunkData?: string;
+  chunkHash?: string;
+  validated: boolean;
+  pass: boolean;
+  failureReason?: string;
+}
+
+export interface GatewayOffsetAssessments {
+  plannedOffsets: number[];
+  assessments: OffsetSamplingAssessment[];
+  validatedOffset?: number;
+  pass: boolean;
+}
+
 export interface GatewayAssessments {
   [gatewayHost: string]: {
     ownershipAssessment: OwnershipAssessment;
     arnsAssessments: GatewayArnsAssessments;
+    offsetAssessments?: GatewayOffsetAssessments;
     pass: boolean;
   };
 }

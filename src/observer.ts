@@ -17,9 +17,14 @@
  */
 import { ReadThroughPromiseCache } from '@ardrive/ardrive-promise-cache';
 import { Timings } from '@szmarczak/http-timer';
+import { validatePath } from 'arweave/node/lib/merkle.js';
 import got, { Got, RequestError, Response } from 'got';
 import crypto from 'node:crypto';
 import pMap from 'p-map';
+
+import { MAX_FORK_DEPTH } from './arweave.js';
+import * as config from './config.js';
+import log from './log.js';
 
 import {
   ArnsNameAssessment,
@@ -30,7 +35,10 @@ import {
   GatewayAssessments,
   GatewayHost,
   GatewayHostsSource,
+  GatewayOffsetAssessments,
+  HeightSource,
   ObserverReport,
+  OffsetSamplingAssessment,
   OwnershipAssessment,
 } from './types.js';
 
@@ -46,6 +54,23 @@ interface ArnsResolution {
   contentType: string | null;
   dataHashDigest: string | null;
   timings: Timings | null;
+}
+
+interface ArweaveBlock {
+  height: number;
+  weave_size: string;
+  txs: string[];
+}
+
+interface ArweaveTransactionOffset {
+  size: string;
+  offset: string;
+}
+
+interface ArweaveTransaction {
+  id: string;
+  data_root: string;
+  data_size: string;
 }
 
 const client = got.extend({
@@ -301,11 +326,18 @@ export class Observer {
   private nameAssessmentConcurrency: number;
   private nodeReleaseVersion: string;
   private entropySource: EntropySource;
+  private heightSource: HeightSource;
   private gotClient: Got;
   private referenceGatewayResolutionCache?: ReadThroughPromiseCache<
     string,
     ArnsResolution
   >;
+  // Caches for binary search data to avoid repeated API calls
+  private blockCache: Map<string, ArweaveBlock> = new Map(); // key: "host:height"
+  private blockOffsetCache: Map<string, number> = new Map(); // key: "host:height" -> weave_size
+  private transactionOffsetCache: Map<string, ArweaveTransactionOffset> =
+    new Map(); // key: "host:txId"
+  private transactionCache: Map<string, ArweaveTransaction> = new Map(); // key: "host:txId"
 
   constructor({
     observerAddress,
@@ -318,6 +350,7 @@ export class Observer {
     nameAssessmentConcurrency,
     nodeReleaseVersion,
     entropySource,
+    heightSource,
   }: {
     observerAddress: string;
     referenceGatewayHost: string;
@@ -329,6 +362,7 @@ export class Observer {
     nameAssessmentConcurrency: number;
     nodeReleaseVersion: string;
     entropySource: EntropySource;
+    heightSource: HeightSource;
   }) {
     this.observerAddress = observerAddress;
     this.referenceGatewayHost = referenceGatewayHost;
@@ -340,9 +374,917 @@ export class Observer {
     this.nameAssessmentConcurrency = nameAssessmentConcurrency;
     this.nodeReleaseVersion = nodeReleaseVersion;
     this.entropySource = entropySource;
+    this.heightSource = heightSource;
     this.gotClient = client.extend({
       headers: { 'X-AR-IO-Node-Release': this.nodeReleaseVersion },
     });
+  }
+
+  private async getMaxStableOffset(): Promise<number> {
+    const currentHeight = await this.heightSource.getHeight();
+    const stableHeight = Math.max(1, currentHeight - MAX_FORK_DEPTH);
+
+    // Use the reference gateway to get the stable block's weave_size
+    const block = await this.getBlockByHeight(
+      this.referenceGatewayHost,
+      stableHeight,
+    );
+    return parseInt(block.weave_size, 10);
+  }
+
+  private async getBlockByHeight(
+    targetHost: string,
+    height: number,
+  ): Promise<ArweaveBlock> {
+    const cacheKey = `${targetHost}:${height}`;
+
+    // Check cache first
+    const cachedBlock = this.blockCache.get(cacheKey);
+    if (cachedBlock !== undefined) {
+      // Also ensure the block offset is cached
+      const weaveOffset = parseInt(cachedBlock.weave_size, 10);
+      this.blockOffsetCache.set(cacheKey, weaveOffset);
+
+      log.debug('Block data retrieved from cache', {
+        targetHost,
+        height,
+        weaveSizeStr: cachedBlock.weave_size,
+        weaveOffset,
+        txCount: cachedBlock.txs.length,
+      });
+      return cachedBlock;
+    }
+
+    const url = `https://${targetHost}/block/height/${height}`;
+
+    log.debug('Fetching block data', {
+      targetHost,
+      height,
+      url,
+    });
+
+    try {
+      const response = await this.gotClient.get(url, {
+        timeout: { request: 5000 },
+        responseType: 'json',
+      });
+
+      const block = response.body as ArweaveBlock;
+
+      // Cache the result
+      this.blockCache.set(cacheKey, block);
+
+      // Also cache the block offset for efficient lookups
+      const weaveOffset = parseInt(block.weave_size, 10);
+      this.blockOffsetCache.set(cacheKey, weaveOffset);
+
+      log.debug('Block data fetched and cached successfully', {
+        targetHost,
+        height,
+        weaveSizeStr: block.weave_size,
+        weaveOffset,
+        txCount: block.txs.length,
+      });
+
+      return block;
+    } catch (error: any) {
+      const failureReason = error?.message?.slice(0, 512) || 'Unknown error';
+
+      log.debug('Block fetch failed', {
+        targetHost,
+        height,
+        error: failureReason,
+        statusCode: error?.response?.statusCode,
+      });
+
+      throw new Error(`Failed to fetch block ${height}: ${failureReason}`);
+    }
+  }
+
+  private async getTransactionOffset(
+    targetHost: string,
+    txId: string,
+  ): Promise<ArweaveTransactionOffset> {
+    const cacheKey = `${targetHost}:${txId}`;
+
+    // Check cache first
+    const cachedOffset = this.transactionOffsetCache.get(cacheKey);
+    if (cachedOffset !== undefined) {
+      log.debug('Transaction offset retrieved from cache', {
+        targetHost,
+        txId: txId.slice(0, 12) + '...',
+        offset: cachedOffset.offset,
+        size: cachedOffset.size,
+      });
+      return cachedOffset;
+    }
+
+    const url = `https://${targetHost}/tx/${txId}/offset`;
+
+    log.debug('Fetching transaction offset', {
+      targetHost,
+      txId: txId.slice(0, 12) + '...',
+      url,
+    });
+
+    try {
+      const response = await this.gotClient.get(url, {
+        timeout: { request: 5000 },
+        responseType: 'json',
+      });
+
+      const offset = response.body as ArweaveTransactionOffset;
+
+      // Cache the result
+      this.transactionOffsetCache.set(cacheKey, offset);
+
+      log.debug('Transaction offset fetched and cached successfully', {
+        targetHost,
+        txId: txId.slice(0, 12) + '...',
+        offset: offset.offset,
+        size: offset.size,
+      });
+
+      return offset;
+    } catch (error: any) {
+      const failureReason = error?.message?.slice(0, 512) || 'Unknown error';
+
+      log.debug('Transaction offset fetch failed', {
+        targetHost,
+        txId: txId.slice(0, 12) + '...',
+        error: failureReason,
+        statusCode: error?.response?.statusCode,
+      });
+
+      throw new Error(
+        `Failed to fetch transaction offset for ${txId}: ${failureReason}`,
+      );
+    }
+  }
+
+  private async getTransaction(
+    targetHost: string,
+    txId: string,
+  ): Promise<ArweaveTransaction> {
+    const cacheKey = `${targetHost}:${txId}`;
+
+    // Check cache first
+    const cachedTransaction = this.transactionCache.get(cacheKey);
+    if (cachedTransaction !== undefined) {
+      log.debug('Transaction data retrieved from cache', {
+        targetHost,
+        txId: txId.slice(0, 12) + '...',
+        hasDataRoot: cachedTransaction.data_root !== undefined,
+        dataSize: cachedTransaction.data_size,
+      });
+      return cachedTransaction;
+    }
+
+    const url = `https://${targetHost}/tx/${txId}`;
+
+    log.debug('Fetching transaction data', {
+      targetHost,
+      txId: txId.slice(0, 12) + '...',
+      url,
+    });
+
+    try {
+      const response = await this.gotClient.get(url, {
+        timeout: { request: 5000 },
+        responseType: 'json',
+      });
+
+      const transaction = response.body as ArweaveTransaction;
+
+      // Cache the result
+      this.transactionCache.set(cacheKey, transaction);
+
+      log.debug('Transaction data fetched and cached successfully', {
+        targetHost,
+        txId: txId.slice(0, 12) + '...',
+        hasDataRoot: transaction.data_root !== undefined,
+        dataSize: transaction.data_size,
+      });
+
+      return transaction;
+    } catch (error: any) {
+      const failureReason = error?.message?.slice(0, 512) || 'Unknown error';
+
+      log.debug('Transaction fetch failed', {
+        targetHost,
+        txId: txId.slice(0, 12) + '...',
+        error: failureReason,
+        statusCode: error?.response?.statusCode,
+      });
+
+      throw new Error(`Failed to fetch transaction ${txId}: ${failureReason}`);
+    }
+  }
+
+  private async binarySearchBlocks(
+    targetHost: string,
+    targetOffset: number,
+    minHeight: number,
+    maxHeight: number,
+  ): Promise<number> {
+    log.debug('Starting binary search for blocks', {
+      targetHost,
+      targetOffset,
+      minHeight,
+      maxHeight,
+      range: maxHeight - minHeight,
+    });
+
+    let left = minHeight;
+    let right = maxHeight;
+
+    while (left <= right) {
+      const mid = Math.floor((left + right) / 2);
+
+      log.debug('Binary search iteration - checking block', {
+        targetHost,
+        targetOffset,
+        currentHeight: mid,
+        left,
+        right,
+      });
+
+      try {
+        // Use reference gateway for trusted block data
+        const block = await this.getBlockByHeight(
+          this.referenceGatewayHost,
+          mid,
+        );
+        const weaveSizeNum = parseInt(block.weave_size, 10);
+
+        // Check if this is the containing block
+        if (targetOffset <= weaveSizeNum) {
+          // Check if the previous block (if it exists) has a smaller weave_size
+          if (mid === minHeight) {
+            // This is the first block we're checking, it contains the offset
+            log.debug('Found containing block (first in range)', {
+              targetHost,
+              targetOffset,
+              blockHeight: mid,
+              weaveSizeNum,
+            });
+            return mid;
+          }
+
+          // Check previous block
+          try {
+            // Use reference gateway for trusted block data
+            const prevBlock = await this.getBlockByHeight(
+              this.referenceGatewayHost,
+              mid - 1,
+            );
+            const prevWeaveSizeNum = parseInt(prevBlock.weave_size, 10);
+
+            if (targetOffset > prevWeaveSizeNum) {
+              // Target offset is between previous and current block
+              log.debug('Found containing block', {
+                targetHost,
+                targetOffset,
+                blockHeight: mid,
+                weaveSizeNum,
+                prevWeaveSizeNum,
+              });
+              return mid;
+            } else {
+              // Target offset is in an earlier block
+              right = mid - 1;
+            }
+          } catch (prevBlockError) {
+            // If we can't fetch the previous block, assume current block contains it
+            log.debug(
+              'Cannot fetch previous block, assuming current contains offset',
+              {
+                targetHost,
+                targetOffset,
+                blockHeight: mid,
+                weaveSizeNum,
+                prevBlockError: (prevBlockError as any)?.message,
+              },
+            );
+            return mid;
+          }
+        } else {
+          // Target offset is beyond this block's weave_size, search higher
+          left = mid + 1;
+        }
+      } catch (blockError: any) {
+        log.debug('Failed to fetch block during binary search', {
+          targetHost,
+          targetOffset,
+          blockHeight: mid,
+          error: blockError?.message,
+        });
+        // Skip this block and continue searching
+        if (targetOffset > 0) {
+          left = mid + 1;
+        } else {
+          right = mid - 1;
+        }
+      }
+    }
+
+    throw new Error(
+      `Could not find block containing offset ${targetOffset} in range ${minHeight}-${maxHeight}`,
+    );
+  }
+
+  private async binarySearchTransactions(
+    targetHost: string,
+    targetOffset: number,
+    txIds: string[],
+  ): Promise<string> {
+    log.debug('Starting binary search for transactions', {
+      targetHost,
+      targetOffset,
+      txCount: txIds.length,
+    });
+
+    let left = 0;
+    let right = txIds.length - 1;
+
+    while (left <= right) {
+      const mid = Math.floor((left + right) / 2);
+      const txId = txIds[mid];
+
+      log.debug('Binary search iteration - checking transaction', {
+        targetHost,
+        targetOffset,
+        currentIndex: mid,
+        txId: txId.slice(0, 12) + '...',
+        left,
+        right,
+      });
+
+      try {
+        // Use reference gateway for trusted transaction data
+        const txOffset = await this.getTransactionOffset(
+          this.referenceGatewayHost,
+          txId,
+        );
+        const txEndOffset = parseInt(txOffset.offset, 10);
+        const txSize = parseInt(txOffset.size, 10);
+        const txStartOffset = txEndOffset - txSize + 1;
+
+        log.debug('Transaction boundaries calculated', {
+          targetHost,
+          targetOffset,
+          txId: txId.slice(0, 12) + '...',
+          txStartOffset,
+          txEndOffset,
+          txSize,
+        });
+
+        if (targetOffset >= txStartOffset && targetOffset <= txEndOffset) {
+          // Found the containing transaction
+          log.debug('Found containing transaction', {
+            targetHost,
+            targetOffset,
+            txId: txId.slice(0, 12) + '...',
+            txStartOffset,
+            txEndOffset,
+          });
+          return txId;
+        } else if (targetOffset < txStartOffset) {
+          // Target offset is before this transaction, search left half
+          right = mid - 1;
+        } else {
+          // Target offset is after this transaction, search right half
+          left = mid + 1;
+        }
+      } catch (txError: any) {
+        log.debug('Failed to fetch transaction offset during binary search', {
+          targetHost,
+          targetOffset,
+          txId: txId.slice(0, 12) + '...',
+          error: txError?.message,
+        });
+        // Skip this transaction and continue searching
+        left = mid + 1;
+      }
+    }
+
+    throw new Error(
+      `Could not find transaction containing offset ${targetOffset} in ${txIds.length} transactions`,
+    );
+  }
+
+  private async findTransactionForOffset(
+    targetHost: string,
+    targetOffset: number,
+  ): Promise<{
+    txId: string;
+    dataRoot: string;
+    txStartOffset: number;
+    txEndOffset: number;
+  }> {
+    log.debug('Starting transaction search for offset', {
+      targetHost,
+      targetOffset,
+    });
+
+    try {
+      // Get current height and determine search range
+      // Search from genesis block to stable blocks only (avoid fork zone)
+      const currentHeight = await this.heightSource.getHeight();
+      const minHeight = 1;
+      const maxHeight = Math.max(1, currentHeight - MAX_FORK_DEPTH);
+
+      log.debug('Determined block search range', {
+        targetHost,
+        targetOffset,
+        currentHeight,
+        minHeight,
+        maxHeight,
+        searchRange: maxHeight - minHeight,
+      });
+
+      // Binary search for the containing block
+      const containingBlockHeight = await this.binarySearchBlocks(
+        targetHost,
+        targetOffset,
+        minHeight,
+        maxHeight,
+      );
+
+      // Get the block data using reference gateway
+      const block = await this.getBlockByHeight(
+        this.referenceGatewayHost,
+        containingBlockHeight,
+      );
+
+      log.debug('Found containing block, searching transactions', {
+        targetHost,
+        targetOffset,
+        blockHeight: containingBlockHeight,
+        txCount: block.txs.length,
+      });
+
+      // Binary search for the containing transaction within the block
+      const txId = await this.binarySearchTransactions(
+        targetHost,
+        targetOffset,
+        block.txs,
+      );
+
+      // Get the transaction data to extract data_root and calculate boundaries using reference gateway
+      const transaction = await this.getTransaction(
+        this.referenceGatewayHost,
+        txId,
+      );
+
+      if (
+        transaction.data_root === undefined ||
+        transaction.data_root === null
+      ) {
+        throw new Error(
+          `Transaction ${txId} has no data_root - cannot validate chunks`,
+        );
+      }
+
+      // Get the transaction offset to calculate boundaries using reference gateway
+      const txOffset = await this.getTransactionOffset(
+        this.referenceGatewayHost,
+        txId,
+      );
+      const txEndOffset = parseInt(txOffset.offset, 10);
+      const txSize = parseInt(txOffset.size, 10);
+      const txStartOffset = txEndOffset - txSize + 1;
+
+      log.debug('Successfully found transaction and data_root', {
+        targetHost,
+        targetOffset,
+        txId: txId.slice(0, 12) + '...',
+        blockHeight: containingBlockHeight,
+        hasDataRoot: true,
+        txStartOffset,
+        txEndOffset,
+        txSize,
+      });
+
+      return {
+        txId,
+        dataRoot: transaction.data_root,
+        txStartOffset,
+        txEndOffset,
+      };
+    } catch (error: any) {
+      log.debug('Failed to find transaction for offset', {
+        targetHost,
+        targetOffset,
+        error: error?.message,
+        stack: error?.stack,
+      });
+      throw error;
+    }
+  }
+
+  private async validateChunkAtOffset({
+    targetHost,
+    offset,
+  }: {
+    targetHost: string;
+    offset: number;
+  }): Promise<OffsetSamplingAssessment> {
+    const assessedAt = +(Date.now() / 1000).toFixed(0);
+
+    const url = `https://${targetHost}/chunk/${offset}`;
+
+    log.debug('Starting chunk validation', {
+      targetHost,
+      offset,
+      url,
+    });
+
+    const startTime = Date.now();
+
+    try {
+      // Fetch chunk data and proof from gateway
+
+      const response = await this.gotClient.get(url, {
+        timeout: { request: 5000 },
+        responseType: 'json',
+      });
+
+      const chunkResponse = response.body as {
+        chunk: string;
+        data_path: string;
+        tx_path?: string;
+        packing?: string;
+      };
+
+      const chunkData = Buffer.from(chunkResponse.chunk, 'base64url');
+      const chunkHash = crypto
+        .createHash('sha256')
+        .update(chunkData)
+        .digest('base64url');
+
+      const duration = Date.now() - startTime;
+      const sizeKB = Math.round(chunkData.length / 1024);
+
+      log.debug('Chunk fetched successfully', {
+        targetHost,
+        offset,
+        url,
+        chunkHash,
+        sizeKB,
+        durationMs: duration,
+        statusCode: response.statusCode,
+      });
+
+      // Get the data_root for validation using binary search
+      let effectiveDataRoot: Uint8Array | undefined = undefined;
+      let effectiveTxId: string | undefined = undefined;
+      let txStartOffset: number | undefined = undefined;
+      let txEndOffset: number | undefined = undefined;
+
+      try {
+        log.debug('Finding transaction for offset using binary search', {
+          targetHost,
+          offset,
+        });
+
+        const transactionInfo = await this.findTransactionForOffset(
+          targetHost,
+          offset,
+        );
+
+        effectiveTxId = transactionInfo.txId;
+        effectiveDataRoot = Buffer.from(transactionInfo.dataRoot, 'base64url');
+        txStartOffset = transactionInfo.txStartOffset;
+        txEndOffset = transactionInfo.txEndOffset;
+
+        log.debug('Found transaction and data_root via binary search', {
+          targetHost,
+          offset,
+          txId: effectiveTxId.slice(0, 12) + '...',
+          dataRootLength: effectiveDataRoot.length,
+          txStartOffset,
+          txEndOffset,
+        });
+      } catch (searchError: any) {
+        log.debug('Binary search for transaction failed', {
+          targetHost,
+          offset,
+          error: searchError?.message,
+        });
+      }
+
+      // Get chunk proof from the data_path field in the response
+      let proof: Uint8Array | null = null;
+
+      if (chunkResponse.data_path && chunkResponse.data_path.length > 0) {
+        try {
+          proof = Buffer.from(chunkResponse.data_path, 'base64url');
+          log.debug('Found chunk proof in response data_path', {
+            targetHost,
+            offset,
+            proofLength: proof.length,
+          });
+        } catch (proofError: any) {
+          log.debug('Failed to parse proof from data_path', {
+            targetHost,
+            offset,
+            dataPath: chunkResponse.data_path.slice(0, 50) + '...',
+            error: proofError?.message,
+          });
+        }
+      } else {
+        log.debug('No data_path found in chunk response', {
+          targetHost,
+          offset,
+          responseKeys: Object.keys(chunkResponse),
+        });
+      }
+
+      // Attempt validation if we have all required components
+      if (
+        effectiveDataRoot &&
+        proof &&
+        proof.length > 0 &&
+        txStartOffset !== undefined &&
+        txEndOffset !== undefined
+      ) {
+        try {
+          // Calculate relative offset within the transaction and transaction size
+          const relativeOffset = offset - txStartOffset;
+          const txSize = txEndOffset - txStartOffset + 1;
+
+          // Use ar-io-node pattern: relativeOffset with bounds [0, txSize]
+          const result = await validatePath(
+            effectiveDataRoot,
+            relativeOffset,
+            0,
+            txSize,
+            proof,
+          );
+
+          if (result !== false) {
+            log.debug('Chunk validation succeeded', {
+              targetHost,
+              offset,
+              relativeOffset,
+              txSize,
+              txStartOffset,
+              txEndOffset,
+              validationResult: result,
+            });
+
+            log.verbose(
+              `Chunk validation PASSED for ${targetHost} at offset ${offset}`,
+            );
+
+            return {
+              assessedAt,
+              offset,
+              chunkData: chunkData.toString('base64'),
+              chunkHash,
+              validated: true,
+              pass: true,
+            };
+          } else {
+            log.debug('Chunk validation failed - validatePath returned false', {
+              targetHost,
+              offset,
+              relativeOffset,
+              txSize,
+              txStartOffset,
+              txEndOffset,
+              dataRootLength: effectiveDataRoot.length,
+              proofLength: proof.length,
+            });
+
+            log.verbose(
+              `Chunk validation FAILED for ${targetHost} at offset ${offset}`,
+            );
+
+            return {
+              assessedAt,
+              offset,
+              chunkData: chunkData.toString('base64'),
+              chunkHash,
+              validated: true,
+              pass: false,
+              failureReason: 'Merkle proof validation failed',
+            };
+          }
+        } catch (validationError: any) {
+          log.debug('Chunk validation threw error', {
+            targetHost,
+            offset,
+            error: validationError?.message,
+            stack: validationError?.stack,
+          });
+
+          return {
+            assessedAt,
+            offset,
+            chunkData: chunkData.toString('base64'),
+            chunkHash,
+            validated: true,
+            pass: false,
+            failureReason: `Validation error: ${validationError?.message}`,
+          };
+        }
+      } else {
+        // Missing required validation components
+        const missing: string[] = [];
+        if (!effectiveDataRoot) missing.push('data_root');
+        if (proof === null || proof.length === 0) missing.push('proof');
+        if (txStartOffset === undefined || txEndOffset === undefined)
+          missing.push('transaction_bounds');
+
+        log.debug('Cannot validate chunk - missing required components', {
+          targetHost,
+          offset,
+          missing,
+          hasDataRoot: !!effectiveDataRoot,
+          hasProof: proof !== null,
+          proofLength: proof !== null ? proof.length : 0,
+          hasTxBounds: txStartOffset !== undefined && txEndOffset !== undefined,
+        });
+
+        return {
+          assessedAt,
+          offset,
+          chunkData: chunkData.toString('base64'),
+          chunkHash,
+          validated: false,
+          pass: false,
+          failureReason: `Missing validation components: ${missing.join(', ')}`,
+        };
+      }
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      const failureReason = error?.message?.slice(0, 512) || 'Unknown error';
+
+      log.debug('Chunk validation failed with error', {
+        targetHost,
+        offset,
+        url,
+        error: failureReason,
+        statusCode: error?.response?.statusCode,
+        durationMs: duration,
+      });
+
+      log.verbose(
+        `Chunk fetch failed from ${url}: ${error?.response?.statusCode || 'network error'}`,
+      );
+
+      return {
+        assessedAt,
+        offset,
+        validated: false,
+        pass: false,
+        failureReason: `Network error: ${failureReason}`,
+      };
+    }
+  }
+
+  private async assessGatewayOffsets({
+    targetHost,
+    entropy,
+    offsetSampleCount,
+  }: {
+    targetHost: string;
+    entropy: Buffer;
+    offsetSampleCount: number;
+  }): Promise<GatewayOffsetAssessments> {
+    log.verbose(`Starting offset validation for gateway: ${targetHost}`);
+
+    log.debug('Gateway offset assessment parameters', {
+      targetHost,
+      offsetSampleCount,
+      entropyLength: entropy.length,
+    });
+
+    try {
+      const maxStableOffset = await this.getMaxStableOffset();
+
+      log.debug('Max stable offset calculated', {
+        targetHost,
+        maxStableOffset,
+      });
+
+      if (maxStableOffset <= 0) {
+        log.debug(
+          'Max stable offset is zero or negative, skipping assessment',
+          {
+            targetHost,
+            maxStableOffset,
+          },
+        );
+
+        return {
+          plannedOffsets: [],
+          assessments: [],
+          pass: false,
+        };
+      }
+
+      // Generate random offsets using deterministic PRNG
+      const offsetSeed = Buffer.concat([entropy, Buffer.from(targetHost)]);
+      const rng = customHashPRNG(offsetSeed);
+
+      const plannedOffsets: number[] = [];
+      for (let i = 0; i < offsetSampleCount; i++) {
+        const randomOffset = Math.floor(rng() * maxStableOffset);
+        plannedOffsets.push(randomOffset);
+      }
+
+      log.debug('Random offsets selected deterministically', {
+        targetHost,
+        plannedOffsets,
+        maxStableOffset,
+        offsetSampleCount,
+        seedLength: offsetSeed.length,
+      });
+
+      // Validate each offset with early stopping
+      const startTime = Date.now();
+      const assessments: OffsetSamplingAssessment[] = [];
+      let validatedOffset: number | undefined;
+
+      for (const offset of plannedOffsets) {
+        log.debug('Validating offset', {
+          targetHost,
+          offset,
+          attemptNumber: assessments.length + 1,
+          totalPlanned: plannedOffsets.length,
+        });
+
+        const assessment = await this.validateChunkAtOffset({
+          targetHost,
+          offset,
+        });
+
+        assessments.push(assessment);
+
+        // Early stopping: if validation passes, we're done
+        if (assessment.pass) {
+          validatedOffset = offset;
+
+          log.debug('Chunk validated successfully - early stopping', {
+            targetHost,
+            validatedOffset,
+            attemptNumber: assessments.length,
+            totalPlanned: plannedOffsets.length,
+          });
+
+          break;
+        }
+
+        log.debug('Chunk validation failed, trying next offset', {
+          targetHost,
+          failedOffset: offset,
+          failureReason: assessment.failureReason,
+          remainingOffsets: plannedOffsets.length - assessments.length,
+        });
+      }
+
+      const totalDuration = Date.now() - startTime;
+      const pass = validatedOffset !== undefined;
+
+      log.debug('Offset validation completed', {
+        targetHost,
+        plannedOffsets: plannedOffsets.length,
+        actualAssessments: assessments.length,
+        validatedOffset,
+        pass,
+        totalDurationMs: totalDuration,
+      });
+
+      log.verbose(
+        `Offset validation completed for ${targetHost}: ${pass ? 'PASS' : 'FAIL'}` +
+          (validatedOffset !== undefined
+            ? ` (validated offset: ${validatedOffset})`
+            : '') +
+          ` (${assessments.length}/${plannedOffsets.length} offsets checked)`,
+      );
+
+      return {
+        plannedOffsets,
+        assessments,
+        validatedOffset,
+        pass,
+      };
+    } catch (error: any) {
+      log.debug('Gateway offset assessment failed with error', {
+        targetHost,
+        error: error?.message,
+        stack: error?.stack,
+      });
+
+      return {
+        plannedOffsets: [],
+        assessments: [],
+        pass: false,
+      };
+    }
   }
 
   async assessArnsName({
@@ -514,6 +1456,42 @@ export class Observer {
         );
         const namesPass = namePassCount >= nameCount * NAME_PASS_THRESHOLD;
 
+        // Perform offset sampling if enabled
+        let offsetAssessments: GatewayOffsetAssessments | undefined = undefined;
+        if (config.OFFSET_SAMPLING_ENABLED) {
+          log.debug('Offset validation enabled, starting assessment', {
+            targetHost: host.fqdn,
+            offsetSampleCount: config.OFFSET_SAMPLE_COUNT,
+          });
+
+          try {
+            offsetAssessments = await this.assessGatewayOffsets({
+              targetHost: host.fqdn,
+              entropy,
+              offsetSampleCount: config.OFFSET_SAMPLE_COUNT,
+            });
+
+            log.verbose(
+              `Offset sampling completed for ${host.fqdn}: ${offsetAssessments.pass ? 'PASS' : 'FAIL'}`,
+            );
+          } catch (error: any) {
+            // Log the error but don't fail the assessment
+            log.warn('Offset sampling failed for gateway', {
+              targetHost: host.fqdn,
+              error: error?.message,
+              stack: error?.stack,
+            });
+
+            // Keep console.warn for backward compatibility
+            console.warn(
+              `Offset sampling failed for ${host.fqdn}:`,
+              error?.message,
+            );
+          }
+        } else {
+          log.verbose(`Offset sampling disabled, skipping for ${host.fqdn}`);
+        }
+
         gatewayAssessments[host.fqdn] = {
           ownershipAssessment,
           arnsAssessments: {
@@ -521,6 +1499,7 @@ export class Observer {
             chosenNames: chosenAssessments,
             pass: namesPass,
           },
+          ...(offsetAssessments !== undefined ? { offsetAssessments } : {}),
           pass: ownershipAssessment.pass && namesPass,
         };
       },
