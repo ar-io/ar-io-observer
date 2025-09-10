@@ -413,6 +413,7 @@ describe('Observer', function () {
     let prescribedNamesSourceStub: sinon.SinonStubbedInstance<ArnsNamesSource>;
     let chosenNamesSourceStub: sinon.SinonStubbedInstance<ArnsNamesSource>;
     let entropySourceStub: sinon.SinonStubbedInstance<EntropySource>;
+    let heightSourceStub: sinon.SinonStubbedInstance<any>;
 
     beforeEach(function () {
       epochSourceStub = {
@@ -437,6 +438,9 @@ describe('Observer', function () {
       entropySourceStub = {
         getEntropy: sinon.stub(),
       };
+      heightSourceStub = {
+        getHeight: sinon.stub().returns(Promise.resolve(1000)),
+      };
 
       observer = new Observer({
         observerAddress: 'test-observer',
@@ -449,6 +453,7 @@ describe('Observer', function () {
         nameAssessmentConcurrency: 10,
         nodeReleaseVersion: 'test-version',
         entropySource: entropySourceStub as any,
+        heightSource: heightSourceStub as any,
       });
     });
 
@@ -729,6 +734,71 @@ describe('Observer', function () {
         // The test verifies that the implementation calls runSingleObservation twice,
         // and each call would shuffle the gateway hosts array internally
         expect(callCount).to.equal(2);
+      });
+    });
+
+    describe('offset sampling', function () {
+      it('should calculate max stable offset correctly', async function () {
+        // Mock height source to return 1000
+        heightSourceStub.getHeight.returns(Promise.resolve(1000));
+
+        // Access private method for testing
+        const maxStableOffset = await (observer as any).getMaxStableOffset();
+
+        // MAX_FORK_DEPTH is 18, so stable height is 1000 - 18 = 982
+        // The method should return the weave_size from that block, which is mocked to be 599058
+        expect(maxStableOffset).to.equal(599058);
+      });
+
+      it('should handle edge case where current height is less than MAX_FORK_DEPTH', async function () {
+        // Mock height source to return a value less than MAX_FORK_DEPTH
+        heightSourceStub.getHeight.returns(Promise.resolve(10));
+
+        const maxStableOffset = await (observer as any).getMaxStableOffset();
+
+        // Should return the weave_size from block 1 (since Math.max(1, 10 - 18) = 1)
+        // Block 1 is mocked to have weave_size 0
+        expect(maxStableOffset).to.equal(0);
+      });
+
+      it('should generate random offsets deterministically', async function () {
+        heightSourceStub.getHeight.returns(Promise.resolve(1000));
+
+        const entropy = Buffer.from('test-entropy');
+
+        // Mock chunk requests to fail (network error)
+        nock('https://gateway1.com')
+          .get(/\/chunk\/\d+/)
+          .times(4) // 2 calls * 2 offsets each
+          .replyWithError('ENOTFOUND');
+
+        // Call assessGatewayOffsets twice with same parameters
+        const result1 = await (observer as any).assessGatewayOffsets({
+          targetHost: 'gateway1.com',
+          entropy,
+          offsetSampleCount: 2,
+        });
+
+        const result2 = await (observer as any).assessGatewayOffsets({
+          targetHost: 'gateway1.com',
+          entropy,
+          offsetSampleCount: 2,
+        });
+
+        // Results should be deterministic (same offsets selected)
+        expect(result1.plannedOffsets).to.deep.equal(result2.plannedOffsets);
+        expect(result1.assessments.length).to.equal(result2.assessments.length);
+
+        // Both should fail due to network errors
+        expect(result1.pass).to.be.false;
+        expect(result2.pass).to.be.false;
+
+        // Should have tried the same offsets
+        if (result1.assessments.length > 0 && result2.assessments.length > 0) {
+          expect(result1.assessments[0].offset).to.equal(
+            result2.assessments[0].offset,
+          );
+        }
       });
     });
   });
