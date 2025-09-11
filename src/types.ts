@@ -137,7 +137,6 @@ export interface GatewayArnsAssessments {
 export interface OffsetSamplingAssessment {
   assessedAt: number;
   offset: number;
-  validated: boolean;
   pass: boolean;
   failureReason?: string;
 }
