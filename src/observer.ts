@@ -1041,8 +1041,6 @@ export class Observer {
             return {
               assessedAt,
               offset,
-              chunkData: chunkData.toString('base64'),
-              chunkHash,
               validated: true,
               pass: true,
             };
@@ -1065,8 +1063,6 @@ export class Observer {
             return {
               assessedAt,
               offset,
-              chunkData: chunkData.toString('base64'),
-              chunkHash,
               validated: true,
               pass: false,
               failureReason: 'Merkle proof validation failed',
@@ -1083,8 +1079,6 @@ export class Observer {
           return {
             assessedAt,
             offset,
-            chunkData: chunkData.toString('base64'),
-            chunkHash,
             validated: true,
             pass: false,
             failureReason: `Validation error: ${validationError?.message}`,
@@ -1111,8 +1105,6 @@ export class Observer {
         return {
           assessedAt,
           offset,
-          chunkData: chunkData.toString('base64'),
-          chunkHash,
           validated: false,
           pass: false,
           failureReason: `Missing validation components: ${missing.join(', ')}`,

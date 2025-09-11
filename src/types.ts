@@ -137,8 +137,6 @@ export interface GatewayArnsAssessments {
 export interface OffsetSamplingAssessment {
   assessedAt: number;
   offset: number;
-  chunkData?: string;
-  chunkHash?: string;
   validated: boolean;
   pass: boolean;
   failureReason?: string;
