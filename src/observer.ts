@@ -335,23 +335,22 @@ export class Observer {
   >;
   // Caches for binary search data to avoid repeated API calls
   // LRU caches to prevent memory issues - store minimal data only
+  // Optimized sizes: since we use the same maxStableOffset across all gateways,
+  // cache efficiency is much higher due to shared search space
   private blockCache = new LRUCache<
     string,
     { weave_size: string; txIds: string[] }
   >({
-    max: 100, // Max 100 blocks cached
-  });
-  private blockOffsetCache = new LRUCache<string, number>({
-    max: 1000, // Max 1000 block offsets cached
+    max: 2000, // Increased cache size - binary search benefits from more cached blocks
   });
   private transactionOffsetCache = new LRUCache<
     string,
     ArweaveTransactionOffset
   >({
-    max: 1000, // Max 1000 transaction offsets cached
+    max: 2000, // 2x increase - small objects, high reuse across gateways
   });
   private transactionCache = new LRUCache<string, { data_root: string }>({
-    max: 500, // Max 500 transactions cached
+    max: 2000, // 4x increase - just data_root strings, highly reusable
   });
 
   constructor({
@@ -395,17 +394,6 @@ export class Observer {
     });
   }
 
-  private async getMaxStableOffset(): Promise<number> {
-    const currentHeight = await this.heightSource.getHeight();
-    const stableHeight = Math.max(1, currentHeight - MAX_FORK_DEPTH);
-
-    // Use the reference gateway to get the stable block's weave_size
-    const block = await this.getBlockByHeight(
-      this.referenceGatewayHost,
-      stableHeight,
-    );
-    return parseInt(block.weave_size, 10);
-  }
 
   private async getBlockByHeight(
     targetHost: string,
@@ -416,13 +404,12 @@ export class Observer {
     // Check cache first
     const cachedBlock = this.blockCache.get(cacheKey);
     if (cachedBlock !== undefined) {
-      // Also ensure the block offset is cached
       const weaveOffset = parseInt(cachedBlock.weave_size, 10);
-      this.blockOffsetCache.set(cacheKey, weaveOffset);
 
       log.debug('Block data retrieved from cache', {
         targetHost,
         height,
+        cacheHit: true,
         weaveSizeStr: cachedBlock.weave_size,
         weaveOffset,
         txCount: cachedBlock.txIds.length,
@@ -441,6 +428,7 @@ export class Observer {
     log.debug('Fetching block data', {
       targetHost,
       height,
+      cacheHit: false,
       url,
     });
 
@@ -459,9 +447,7 @@ export class Observer {
       };
       this.blockCache.set(cacheKey, lightweightBlock);
 
-      // Also cache the block offset for efficient lookups
       const weaveOffset = parseInt(block.weave_size, 10);
-      this.blockOffsetCache.set(cacheKey, weaveOffset);
 
       log.debug('Block data fetched and cached successfully', {
         targetHost,
@@ -498,6 +484,7 @@ export class Observer {
       log.debug('Transaction offset retrieved from cache', {
         targetHost,
         txId: txId.slice(0, 12) + '...',
+        cacheHit: true,
         offset: cachedOffset.offset,
         size: cachedOffset.size,
       });
@@ -509,6 +496,7 @@ export class Observer {
     log.debug('Fetching transaction offset', {
       targetHost,
       txId: txId.slice(0, 12) + '...',
+      cacheHit: false,
       url,
     });
 
@@ -559,6 +547,7 @@ export class Observer {
       log.debug('Transaction data retrieved from cache', {
         targetHost,
         txId: txId.slice(0, 12) + '...',
+        cacheHit: true,
         hasDataRoot: cachedTransaction.data_root !== undefined,
       });
 
@@ -573,6 +562,7 @@ export class Observer {
     log.debug('Fetching transaction data', {
       targetHost,
       txId: txId.slice(0, 12) + '...',
+      cacheHit: false,
       url,
     });
 
@@ -807,6 +797,7 @@ export class Observer {
   private async findTransactionForOffset(
     targetHost: string,
     targetOffset: number,
+    maxSearchHeight: number,
   ): Promise<{
     txId: string;
     dataRoot: string;
@@ -819,16 +810,13 @@ export class Observer {
     });
 
     try {
-      // Get current height and determine search range
-      // Search from genesis block to stable blocks only (avoid fork zone)
-      const currentHeight = await this.heightSource.getHeight();
+      // Use pre-calculated stable search range for consistency and cache efficiency
       const minHeight = 1;
-      const maxHeight = Math.max(1, currentHeight - MAX_FORK_DEPTH);
+      const maxHeight = maxSearchHeight;
 
-      log.debug('Determined block search range', {
+      log.debug('Using pre-calculated block search range', {
         targetHost,
         targetOffset,
-        currentHeight,
         minHeight,
         maxHeight,
         searchRange: maxHeight - minHeight,
@@ -917,9 +905,11 @@ export class Observer {
   private async validateChunkAtOffset({
     targetHost,
     offset,
+    maxSearchHeight,
   }: {
     targetHost: string;
     offset: number;
+    maxSearchHeight: number;
   }): Promise<OffsetSamplingAssessment> {
     const assessedAt = +(Date.now() / 1000).toFixed(0);
 
@@ -1025,6 +1015,7 @@ export class Observer {
         const transactionInfo = await this.findTransactionForOffset(
           targetHost,
           offset,
+          maxSearchHeight,
         );
 
         effectiveTxId = transactionInfo.txId;
@@ -1221,12 +1212,17 @@ export class Observer {
     targetHost,
     entropy,
     offsetSampleCount,
+    maxStableOffset,
+    maxSearchHeight,
   }: {
     targetHost: string;
     entropy: Buffer;
     offsetSampleCount: number;
+    maxStableOffset: number;
+    maxSearchHeight: number;
   }): Promise<GatewayOffsetAssessments> {
     log.verbose(`Starting offset validation for gateway: ${targetHost}`);
+
 
     log.debug('Gateway offset assessment parameters', {
       targetHost,
@@ -1235,9 +1231,7 @@ export class Observer {
     });
 
     try {
-      const maxStableOffset = await this.getMaxStableOffset();
-
-      log.debug('Max stable offset calculated', {
+      log.debug('Using pre-calculated max stable offset', {
         targetHost,
         maxStableOffset,
       });
@@ -1292,6 +1286,7 @@ export class Observer {
         const assessment = await this.validateChunkAtOffset({
           targetHost,
           offset,
+          maxSearchHeight,
         });
 
         assessments.push(assessment);
@@ -1476,6 +1471,29 @@ export class Observer {
   ): Promise<ObserverReport> {
     const gatewayAssessments: GatewayAssessments = {};
 
+    // Calculate stable search parameters once for the entire observation
+    // All gateways will use the same search space for consistency and cache efficiency
+    let maxStableOffset = 0;
+    let maxSearchHeight = 1;
+    
+    if (config.OFFSET_SAMPLING_ENABLED) {
+      const currentHeight = await this.heightSource.getHeight();
+      maxSearchHeight = Math.max(1, currentHeight - MAX_FORK_DEPTH);
+      
+      // Get the weave size at the stable height to determine max stable offset
+      const stableBlock = await this.getBlockByHeight(
+        this.referenceGatewayHost,
+        maxSearchHeight,
+      );
+      maxStableOffset = parseInt(stableBlock.weave_size, 10);
+
+      log.debug('Stable search parameters calculated for observation', {
+        currentHeight,
+        maxSearchHeight,
+        maxStableOffset,
+      });
+    }
+
     // Shuffle the gateway hosts for this observation
     const shuffledGatewayHosts = [...gatewayHosts].sort(
       () => Math.random() - 0.5,
@@ -1500,22 +1518,77 @@ export class Observer {
     await pMap(
       shuffledGatewayHosts,
       async (host) => {
-        const ownershipAssessment = await assessOwnership({
-          host: host.fqdn,
-          expectedWallets: hostWallets[host.fqdn].sort(),
-        });
+        // Run all assessments in parallel for faster execution
+        const [
+          ownershipAssessment,
+          [prescribedAssessments, chosenAssessments],
+          offsetAssessments,
+        ] = await Promise.all([
+          // Ownership assessment
+          assessOwnership({
+            host: host.fqdn,
+            expectedWallets: hostWallets[host.fqdn].sort(),
+          }),
 
-        const [prescribedAssessments, chosenAssessments] = await Promise.all([
-          await this.assessArnsNames({
-            host: host.fqdn,
-            names: prescribedNames,
-            entropy,
-          }),
-          await this.assessArnsNames({
-            host: host.fqdn,
-            names: chosenNames,
-            entropy,
-          }),
+          // ArNS name assessments (prescribed and chosen in parallel)
+          Promise.all([
+            this.assessArnsNames({
+              host: host.fqdn,
+              names: prescribedNames,
+              entropy,
+            }),
+            this.assessArnsNames({
+              host: host.fqdn,
+              names: chosenNames,
+              entropy,
+            }),
+          ]),
+
+          // Offset sampling (if enabled)
+          config.OFFSET_SAMPLING_ENABLED
+            ? (async () => {
+                log.debug('Offset validation enabled, starting assessment', {
+                  targetHost: host.fqdn,
+                  offsetSampleCount: config.OFFSET_SAMPLE_COUNT,
+                });
+
+                try {
+                  const result = await this.assessGatewayOffsets({
+                    targetHost: host.fqdn,
+                    entropy,
+                    offsetSampleCount: config.OFFSET_SAMPLE_COUNT,
+                    maxStableOffset,
+                    maxSearchHeight,
+                  });
+
+                  log.verbose(
+                    `Offset sampling completed for ${host.fqdn}: ${result.pass ? 'PASS' : 'FAIL'}`,
+                  );
+
+                  return result;
+                } catch (error: any) {
+                  // Log the error but don't fail the assessment
+                  log.warn('Offset sampling failed for gateway', {
+                    targetHost: host.fqdn,
+                    error: error?.message,
+                    stack: error?.stack,
+                  });
+
+                  // Keep console.warn for backward compatibility
+                  console.warn(
+                    `Offset sampling failed for ${host.fqdn}:`,
+                    error?.message,
+                  );
+
+                  return undefined;
+                }
+              })()
+            : (async () => {
+                log.verbose(
+                  `Offset sampling disabled, skipping for ${host.fqdn}`,
+                );
+                return undefined;
+              })(),
         ]);
 
         const nameCount = new Set([...prescribedNames, ...chosenNames]).size;
@@ -1527,42 +1600,6 @@ export class Observer {
           0,
         );
         const namesPass = namePassCount >= nameCount * NAME_PASS_THRESHOLD;
-
-        // Perform offset sampling if enabled
-        let offsetAssessments: GatewayOffsetAssessments | undefined = undefined;
-        if (config.OFFSET_SAMPLING_ENABLED) {
-          log.debug('Offset validation enabled, starting assessment', {
-            targetHost: host.fqdn,
-            offsetSampleCount: config.OFFSET_SAMPLE_COUNT,
-          });
-
-          try {
-            offsetAssessments = await this.assessGatewayOffsets({
-              targetHost: host.fqdn,
-              entropy,
-              offsetSampleCount: config.OFFSET_SAMPLE_COUNT,
-            });
-
-            log.verbose(
-              `Offset sampling completed for ${host.fqdn}: ${offsetAssessments.pass ? 'PASS' : 'FAIL'}`,
-            );
-          } catch (error: any) {
-            // Log the error but don't fail the assessment
-            log.warn('Offset sampling failed for gateway', {
-              targetHost: host.fqdn,
-              error: error?.message,
-              stack: error?.stack,
-            });
-
-            // Keep console.warn for backward compatibility
-            console.warn(
-              `Offset sampling failed for ${host.fqdn}:`,
-              error?.message,
-            );
-          }
-        } else {
-          log.verbose(`Offset sampling disabled, skipping for ${host.fqdn}`);
-        }
 
         gatewayAssessments[host.fqdn] = {
           ownershipAssessment,
