@@ -19,6 +19,7 @@ import { ReadThroughPromiseCache } from '@ardrive/ardrive-promise-cache';
 import { Timings } from '@szmarczak/http-timer';
 import { validatePath } from 'arweave/node/lib/merkle.js';
 import got, { Got, RequestError, Response } from 'got';
+import { LRUCache } from 'lru-cache';
 import crypto from 'node:crypto';
 import pMap from 'p-map';
 
@@ -333,11 +334,25 @@ export class Observer {
     ArnsResolution
   >;
   // Caches for binary search data to avoid repeated API calls
-  private blockCache: Map<string, ArweaveBlock> = new Map(); // key: "host:height"
-  private blockOffsetCache: Map<string, number> = new Map(); // key: "host:height" -> weave_size
-  private transactionOffsetCache: Map<string, ArweaveTransactionOffset> =
-    new Map(); // key: "host:txId"
-  private transactionCache: Map<string, ArweaveTransaction> = new Map(); // key: "host:txId"
+  // LRU caches to prevent memory issues - store minimal data only
+  private blockCache = new LRUCache<
+    string,
+    { weave_size: string; txIds: string[] }
+  >({
+    max: 100, // Max 100 blocks cached
+  });
+  private blockOffsetCache = new LRUCache<string, number>({
+    max: 1000, // Max 1000 block offsets cached
+  });
+  private transactionOffsetCache = new LRUCache<
+    string,
+    ArweaveTransactionOffset
+  >({
+    max: 1000, // Max 1000 transaction offsets cached
+  });
+  private transactionCache = new LRUCache<string, { data_root: string }>({
+    max: 500, // Max 500 transactions cached
+  });
 
   constructor({
     observerAddress,
@@ -410,9 +425,15 @@ export class Observer {
         height,
         weaveSizeStr: cachedBlock.weave_size,
         weaveOffset,
-        txCount: cachedBlock.txs.length,
+        txCount: cachedBlock.txIds.length,
       });
-      return cachedBlock;
+
+      // Return a minimal ArweaveBlock object with only the fields we need
+      return {
+        height,
+        weave_size: cachedBlock.weave_size,
+        txs: cachedBlock.txIds,
+      };
     }
 
     const url = `https://${targetHost}/block/height/${height}`;
@@ -431,8 +452,12 @@ export class Observer {
 
       const block = response.body as ArweaveBlock;
 
-      // Cache the result
-      this.blockCache.set(cacheKey, block);
+      // Cache only the minimal data we need to reduce memory usage
+      const lightweightBlock = {
+        weave_size: block.weave_size,
+        txIds: block.txs, // txs is already string[] according to our interface
+      };
+      this.blockCache.set(cacheKey, lightweightBlock);
 
       // Also cache the block offset for efficient lookups
       const weaveOffset = parseInt(block.weave_size, 10);
@@ -535,9 +560,12 @@ export class Observer {
         targetHost,
         txId: txId.slice(0, 12) + '...',
         hasDataRoot: cachedTransaction.data_root !== undefined,
-        dataSize: cachedTransaction.data_size,
       });
-      return cachedTransaction;
+
+      // Return a minimal ArweaveTransaction object with only the fields we need
+      return {
+        data_root: cachedTransaction.data_root,
+      } as ArweaveTransaction;
     }
 
     const url = `https://${targetHost}/tx/${txId}`;
@@ -556,8 +584,11 @@ export class Observer {
 
       const transaction = response.body as ArweaveTransaction;
 
-      // Cache the result
-      this.transactionCache.set(cacheKey, transaction);
+      // Cache only the data we need to reduce memory usage
+      const lightweightTransaction = {
+        data_root: transaction.data_root,
+      };
+      this.transactionCache.set(cacheKey, lightweightTransaction);
 
       log.debug('Transaction data fetched and cached successfully', {
         targetHost,
