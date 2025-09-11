@@ -1041,7 +1041,6 @@ export class Observer {
             return {
               assessedAt,
               offset,
-              validated: true,
               pass: true,
             };
           } else {
@@ -1063,7 +1062,6 @@ export class Observer {
             return {
               assessedAt,
               offset,
-              validated: true,
               pass: false,
               failureReason: 'Merkle proof validation failed',
             };
@@ -1079,7 +1077,6 @@ export class Observer {
           return {
             assessedAt,
             offset,
-            validated: true,
             pass: false,
             failureReason: `Validation error: ${validationError?.message}`,
           };
@@ -1105,7 +1102,6 @@ export class Observer {
         return {
           assessedAt,
           offset,
-          validated: false,
           pass: false,
           failureReason: `Missing validation components: ${missing.join(', ')}`,
         };
@@ -1130,7 +1126,6 @@ export class Observer {
       return {
         assessedAt,
         offset,
-        validated: false,
         pass: false,
         failureReason: `Network error: ${failureReason}`,
       };
