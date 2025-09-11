@@ -21,6 +21,7 @@ import nock from 'nock';
 import crypto from 'node:crypto';
 import sinon from 'sinon';
 
+import * as config from './config.js';
 import {
   customHashPRNG,
   generateRandomRanges,
@@ -738,28 +739,6 @@ describe('Observer', function () {
     });
 
     describe('offset sampling', function () {
-      it('should calculate max stable offset correctly', async function () {
-        // Mock height source to return 1000
-        heightSourceStub.getHeight.returns(Promise.resolve(1000));
-
-        // Access private method for testing
-        const maxStableOffset = await (observer as any).getMaxStableOffset();
-
-        // MAX_FORK_DEPTH is 18, so stable height is 1000 - 18 = 982
-        // The method should return the weave_size from that block, which is mocked to be 599058
-        expect(maxStableOffset).to.equal(599058);
-      });
-
-      it('should handle edge case where current height is less than MAX_FORK_DEPTH', async function () {
-        // Mock height source to return a value less than MAX_FORK_DEPTH
-        heightSourceStub.getHeight.returns(Promise.resolve(10));
-
-        const maxStableOffset = await (observer as any).getMaxStableOffset();
-
-        // Should return the weave_size from block 1 (since Math.max(1, 10 - 18) = 1)
-        // Block 1 is mocked to have weave_size 0
-        expect(maxStableOffset).to.equal(0);
-      });
 
       it('should generate random offsets deterministically', async function () {
         heightSourceStub.getHeight.returns(Promise.resolve(1000));
@@ -777,12 +756,14 @@ describe('Observer', function () {
           targetHost: 'gateway1.com',
           entropy,
           offsetSampleCount: 2,
+          maxStableOffset: 599058, // Use the same mocked value as in other tests
         });
 
         const result2 = await (observer as any).assessGatewayOffsets({
           targetHost: 'gateway1.com',
           entropy,
           offsetSampleCount: 2,
+          maxStableOffset: 599058, // Use the same mocked value as in other tests
         });
 
         // Results should be deterministic (same offsets selected)
