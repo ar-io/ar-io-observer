@@ -154,9 +154,9 @@ export const ENABLE_LOG_REPORT_SINK =
 export const ALWAYS_SAVE_REPORTS =
   env.varOrDefault('ALWAYS_SAVE_REPORTS', 'false') === 'true';
 
-// Offset sampling configuration
-export const OFFSET_SAMPLING_ENABLED =
-  env.varOrDefault('OFFSET_SAMPLING_ENABLED', 'true') === 'true';
+// Offset observation configuration
+export const OFFSET_OBSERVATION_ENABLED =
+  env.varOrDefault('OFFSET_OBSERVATION_ENABLED', 'true') === 'true';
 
 export const OFFSET_SAMPLE_COUNT = +env.varOrDefault(
   'OFFSET_SAMPLE_COUNT',
