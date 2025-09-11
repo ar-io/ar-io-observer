@@ -139,6 +139,7 @@ export interface OffsetSamplingAssessment {
   offset: number;
   pass: boolean;
   failureReason?: string;
+  referenceGatewayAvailable?: boolean;
 }
 
 export interface GatewayOffsetAssessments {

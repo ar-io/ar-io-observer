@@ -936,6 +936,49 @@ export class Observer {
         statusCode: response.statusCode,
       });
 
+      // Check if reference gateway also has this chunk (for comparison)
+      let referenceGatewayAvailable: boolean | undefined = undefined;
+      try {
+        const referenceUrl = `https://${this.referenceGatewayHost}/chunk/${offset}`;
+        log.debug('Checking reference gateway chunk availability', {
+          targetHost,
+          referenceHost: this.referenceGatewayHost,
+          offset,
+          referenceUrl,
+        });
+
+        const referenceResponse = await this.gotClient.get(referenceUrl, {
+          timeout: { request: 5000 },
+          responseType: 'json',
+        });
+
+        // Consider it available if we get a successful response with valid structure
+        const referenceChunkResponse = referenceResponse.body as {
+          chunk?: string;
+          data_path?: string;
+        };
+
+        referenceGatewayAvailable =
+          referenceResponse.statusCode === 200 &&
+          referenceChunkResponse.chunk !== undefined;
+
+        log.debug('Reference gateway chunk check completed', {
+          targetHost,
+          referenceHost: this.referenceGatewayHost,
+          offset,
+          available: referenceGatewayAvailable,
+          statusCode: referenceResponse.statusCode,
+        });
+      } catch (referenceError: any) {
+        referenceGatewayAvailable = false;
+        log.debug('Reference gateway chunk check failed', {
+          targetHost,
+          referenceHost: this.referenceGatewayHost,
+          offset,
+          error: referenceError?.message,
+        });
+      }
+
       // Get the data_root for validation using binary search
       let effectiveDataRoot: Uint8Array | undefined = undefined;
       let effectiveTxId: string | undefined = undefined;
@@ -1035,13 +1078,17 @@ export class Observer {
             });
 
             log.verbose(
-              `Chunk validation PASSED for ${targetHost} at offset ${offset}`,
+              `Chunk validation PASSED for ${targetHost} at offset ${offset}` +
+                (referenceGatewayAvailable !== undefined
+                  ? ` (reference gateway: ${referenceGatewayAvailable ? 'available' : 'unavailable'})`
+                  : ''),
             );
 
             return {
               assessedAt,
               offset,
               pass: true,
+              referenceGatewayAvailable,
             };
           } else {
             log.debug('Chunk validation failed - validatePath returned false', {
@@ -1056,7 +1103,10 @@ export class Observer {
             });
 
             log.verbose(
-              `Chunk validation FAILED for ${targetHost} at offset ${offset}`,
+              `Chunk validation FAILED for ${targetHost} at offset ${offset}` +
+                (referenceGatewayAvailable !== undefined
+                  ? ` (reference gateway: ${referenceGatewayAvailable ? 'available' : 'unavailable'})`
+                  : ''),
             );
 
             return {
@@ -1064,6 +1114,7 @@ export class Observer {
               offset,
               pass: false,
               failureReason: 'Merkle proof validation failed',
+              referenceGatewayAvailable,
             };
           }
         } catch (validationError: any) {
@@ -1079,6 +1130,7 @@ export class Observer {
             offset,
             pass: false,
             failureReason: `Validation error: ${validationError?.message}`,
+            referenceGatewayAvailable,
           };
         }
       } else {
@@ -1104,6 +1156,7 @@ export class Observer {
           offset,
           pass: false,
           failureReason: `Missing validation components: ${missing.join(', ')}`,
+          referenceGatewayAvailable,
         };
       }
     } catch (error: any) {
@@ -1128,6 +1181,7 @@ export class Observer {
         offset,
         pass: false,
         failureReason: `Network error: ${failureReason}`,
+        referenceGatewayAvailable: undefined, // Can't check reference gateway if target fetch failed
       };
     }
   }
