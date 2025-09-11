@@ -1476,7 +1476,7 @@ export class Observer {
     let maxStableOffset = 0;
     let maxSearchHeight = 1;
     
-    if (config.OFFSET_SAMPLING_ENABLED) {
+    if (config.OFFSET_OBSERVATION_ENABLED) {
       const currentHeight = await this.heightSource.getHeight();
       maxSearchHeight = Math.max(1, currentHeight - MAX_FORK_DEPTH);
       
@@ -1545,7 +1545,7 @@ export class Observer {
           ]),
 
           // Offset sampling (if enabled)
-          config.OFFSET_SAMPLING_ENABLED
+          config.OFFSET_OBSERVATION_ENABLED
             ? (async () => {
                 log.debug('Offset validation enabled, starting assessment', {
                   targetHost: host.fqdn,
