@@ -739,7 +739,6 @@ describe('Observer', function () {
     });
 
     describe('offset sampling', function () {
-
       it('should generate random offsets deterministically', async function () {
         heightSourceStub.getHeight.returns(Promise.resolve(1000));
 

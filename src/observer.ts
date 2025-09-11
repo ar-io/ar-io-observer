@@ -394,7 +394,6 @@ export class Observer {
     });
   }
 
-
   private async getBlockByHeight(
     targetHost: string,
     height: number,
@@ -1223,7 +1222,6 @@ export class Observer {
   }): Promise<GatewayOffsetAssessments> {
     log.verbose(`Starting offset validation for gateway: ${targetHost}`);
 
-
     log.debug('Gateway offset assessment parameters', {
       targetHost,
       offsetSampleCount,
@@ -1475,11 +1473,11 @@ export class Observer {
     // All gateways will use the same search space for consistency and cache efficiency
     let maxStableOffset = 0;
     let maxSearchHeight = 1;
-    
+
     if (config.OFFSET_OBSERVATION_ENABLED) {
       const currentHeight = await this.heightSource.getHeight();
       maxSearchHeight = Math.max(1, currentHeight - MAX_FORK_DEPTH);
-      
+
       // Get the weave size at the stable height to determine max stable offset
       const stableBlock = await this.getBlockByHeight(
         this.referenceGatewayHost,
@@ -1498,6 +1496,54 @@ export class Observer {
     const shuffledGatewayHosts = [...gatewayHosts].sort(
       () => Math.random() - 0.5,
     );
+
+    // Deterministically select gateways for offset observations based on sample rate
+    const selectedGatewaysForOffset = new Set<string>();
+    if (
+      config.OFFSET_OBSERVATION_ENABLED &&
+      config.OFFSET_OBSERVATION_SAMPLE_RATE > 0
+    ) {
+      const gatewayCount = shuffledGatewayHosts.length;
+      const offsetObservationCount = Math.max(
+        1, // Always test at least 1 gateway if sampling is enabled
+        Math.ceil(gatewayCount * config.OFFSET_OBSERVATION_SAMPLE_RATE),
+      );
+
+      // Use entropy to deterministically select gateways
+      // Create a deterministic seed by combining observation entropy with a constant
+      const selectionSeed = Buffer.concat([
+        entropy,
+        Buffer.from('offset-selection'),
+      ]);
+      const prng = customHashPRNG(selectionSeed);
+
+      // Create a copy of gateway hosts for selection (don't modify the original shuffle)
+      const gatewaySelection = [...shuffledGatewayHosts];
+
+      // Fisher-Yates shuffle with deterministic PRNG to select subset
+      for (
+        let i = 0;
+        i < offsetObservationCount && i < gatewaySelection.length;
+        i++
+      ) {
+        const randomIndex =
+          Math.floor(prng() * (gatewaySelection.length - i)) + i;
+        const selected = gatewaySelection[randomIndex];
+
+        // Swap selected gateway to position i
+        gatewaySelection[randomIndex] = gatewaySelection[i];
+        gatewaySelection[i] = selected;
+
+        selectedGatewaysForOffset.add(selected.fqdn);
+      }
+
+      log.debug('Selected gateways for offset observations', {
+        totalGateways: gatewayCount,
+        sampleRate: config.OFFSET_OBSERVATION_SAMPLE_RATE,
+        selectedCount: selectedGatewaysForOffset.size,
+        selectedGateways: Array.from(selectedGatewaysForOffset).sort(),
+      });
+    }
 
     this.referenceGatewayResolutionCache = new ReadThroughPromiseCache<
       string,
@@ -1544,8 +1590,9 @@ export class Observer {
             }),
           ]),
 
-          // Offset sampling (if enabled)
-          config.OFFSET_OBSERVATION_ENABLED
+          // Offset sampling (if enabled and gateway is selected)
+          config.OFFSET_OBSERVATION_ENABLED &&
+          selectedGatewaysForOffset.has(host.fqdn)
             ? (async () => {
                 log.debug('Offset validation enabled, starting assessment', {
                   targetHost: host.fqdn,
@@ -1584,8 +1631,11 @@ export class Observer {
                 }
               })()
             : (async () => {
+                const reason = !config.OFFSET_OBSERVATION_ENABLED
+                  ? 'disabled'
+                  : 'not selected for sampling';
                 log.verbose(
-                  `Offset sampling disabled, skipping for ${host.fqdn}`,
+                  `Offset sampling ${reason}, skipping for ${host.fqdn}`,
                 );
                 return undefined;
               })(),
