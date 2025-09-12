@@ -20,6 +20,8 @@ import * as winston from 'winston';
 import {
   ArnsNameAssessment,
   ArnsNameAssessments,
+  GatewayOffsetAssessments,
+  OffsetSamplingAssessment,
   ReportInfo,
   ReportSink,
 } from '../types.js';
@@ -71,6 +73,27 @@ export class LogReportSink implements ReportSink {
   }
 
   /**
+   * Helper method to log a single offset assessment
+   * @param log The logger to use
+   * @param offset The offset being assessed
+   * @param assessment The assessment data
+   */
+  private logOffsetAssessment(
+    log: winston.Logger,
+    offset: number,
+    assessment: OffsetSamplingAssessment,
+  ): void {
+    log.info(`Chunk offset assessment: ${offset}`, {
+      name: 'ChunkOffsetAssessment',
+      offset,
+      pass: assessment.pass,
+      failureReason: assessment.failureReason,
+      referenceGatewayAvailable: assessment.referenceGatewayAvailable,
+      assessedAt: assessment.assessedAt,
+    });
+  }
+
+  /**
    * Process and log all assessments of a specific type
    * @param log The logger to use
    * @param type The type of assessments (Prescribed or Chosen)
@@ -118,6 +141,51 @@ export class LogReportSink implements ReportSink {
     }
 
     return { passedNames, failedNames };
+  }
+
+  /**
+   * Process and log all offset assessments for a gateway
+   * @param log The logger to use
+   * @param offsetAssessments The gateway offset assessments to log
+   * @returns Object containing passed and failed offset assessments information
+   */
+  private logAllOffsetAssessments(
+    log: winston.Logger,
+    offsetAssessments: GatewayOffsetAssessments,
+  ): {
+    passedOffsets: number[];
+    failedOffsets: Array<{
+      offset: number;
+      failureReason?: string;
+      referenceGatewayAvailable?: boolean;
+    }>;
+  } {
+    // Count passed and failed assessments
+    const passedOffsets: number[] = [];
+    const failedOffsets: Array<{
+      offset: number;
+      failureReason?: string;
+      referenceGatewayAvailable?: boolean;
+    }> = [];
+
+    // Process each assessment
+    for (const assessment of offsetAssessments.assessments) {
+      // Log the assessment
+      this.logOffsetAssessment(log, assessment.offset, assessment);
+
+      // Track passed/failed status
+      if (assessment.pass) {
+        passedOffsets.push(assessment.offset);
+      } else {
+        failedOffsets.push({
+          offset: assessment.offset,
+          failureReason: assessment.failureReason,
+          referenceGatewayAvailable: assessment.referenceGatewayAvailable,
+        });
+      }
+    }
+
+    return { passedOffsets, failedOffsets };
   }
 
   async saveReport(reportInfo: ReportInfo): Promise<ReportInfo> {
@@ -183,6 +251,32 @@ export class LogReportSink implements ReportSink {
         // Overall assessment
         overallPass: assessment.pass,
       });
+
+      // Process and log offset assessments if available
+      if (assessment.offsetAssessments) {
+        const offsetResults = this.logAllOffsetAssessments(
+          gatewayLog,
+          assessment.offsetAssessments,
+        );
+
+        // Log offset assessments summary
+        gatewayLog.info('Gateway offset assessments summary', {
+          name: 'GatewayOffsetAssessmentsSummary',
+          plannedOffsetsCount:
+            assessment.offsetAssessments.plannedOffsets.length,
+          assessedOffsetsCount: assessment.offsetAssessments.assessments.length,
+          passedOffsetsCount: offsetResults.passedOffsets.length,
+          failedOffsetsCount: offsetResults.failedOffsets.length,
+          validatedOffset: assessment.offsetAssessments.validatedOffset,
+          offsetAssessmentPass: assessment.offsetAssessments.pass,
+          plannedOffsets: assessment.offsetAssessments.plannedOffsets,
+          passedOffsets: offsetResults.passedOffsets,
+          failedOffsets: offsetResults.failedOffsets.map((f) => ({
+            offset: f.offset,
+            failureReason: f.failureReason,
+          })),
+        });
+      }
     }
 
     return reportInfo;
