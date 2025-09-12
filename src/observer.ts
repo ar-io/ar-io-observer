@@ -341,16 +341,16 @@ export class Observer {
     string,
     { weave_size: string; txIds: string[] }
   >({
-    max: 2000, // Increased cache size - binary search benefits from more cached blocks
+    max: 2000, // Base cache size: blocks accessed during binary search, larger memory per entry
   });
   private transactionOffsetCache = new LRUCache<
     string,
     ArweaveTransactionOffset
   >({
-    max: 2000, // 2x increase - small objects, high reuse across gateways
+    max: 10000, // 5x blocks: tiny objects, accessed frequently during transaction binary search, high reuse across gateways
   });
   private transactionCache = new LRUCache<string, { data_root: string }>({
-    max: 2000, // 4x increase - just data_root strings, highly reusable
+    max: 10000, // 5x blocks: minimal memory per entry, same transactions accessed repeatedly for offset validation
   });
 
   constructor({
