@@ -102,6 +102,27 @@ export function customHashPRNG(seed: Buffer) {
   };
 }
 
+function sortTransactionIdsByBinary(txIds: string[]): string[] {
+  return [...txIds].sort((a, b) => {
+    try {
+      // Decode base64url to binary for proper comparison (same as Arweave does)
+      const decodeB64Url = (str: string): Buffer => {
+        // Add padding if needed and convert to base64
+        const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+        return Buffer.from(padded, 'base64');
+      };
+
+      const bufA = decodeB64Url(a);
+      const bufB = decodeB64Url(b);
+      return Buffer.compare(bufA, bufB);
+    } catch (error) {
+      // Fallback to string comparison if decoding fails
+      return a.localeCompare(b);
+    }
+  });
+}
+
 export function generateRandomRanges({
   contentSize,
   rangeSize,
@@ -724,12 +745,23 @@ export class Observer {
       txCount: txIds.length,
     });
 
+    // Sort transaction IDs by their binary representation (same as Arweave does)
+    const sortedTxIds = sortTransactionIdsByBinary(txIds);
+
+    log.debug('Transaction IDs sorted for binary search', {
+      targetHost,
+      targetOffset,
+      originalOrder: txIds.slice(0, 3),
+      sortedOrder: sortedTxIds.slice(0, 3),
+      sortingNeeded: JSON.stringify(txIds) !== JSON.stringify(sortedTxIds),
+    });
+
     let left = 0;
-    let right = txIds.length - 1;
+    let right = sortedTxIds.length - 1;
 
     while (left <= right) {
       const mid = Math.floor((left + right) / 2);
-      const txId = txIds[mid];
+      const txId = sortedTxIds[mid]; // Uses sorted order
 
       log.debug('Binary search iteration - checking transaction', {
         targetHost,
@@ -789,7 +821,7 @@ export class Observer {
     }
 
     throw new Error(
-      `Could not find transaction containing offset ${targetOffset} in ${txIds.length} transactions`,
+      `Could not find transaction containing offset ${targetOffset} in ${sortedTxIds.length} transactions`,
     );
   }
 
