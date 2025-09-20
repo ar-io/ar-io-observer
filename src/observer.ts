@@ -1646,11 +1646,13 @@ export class Observer {
 
                   return result;
                 } catch (error: any) {
-                  // Log the error but don't fail the assessment
+                  // Log the error but don't fail the assessment unless enforcement is enabled
                   log.warn('Offset sampling failed for gateway', {
                     targetHost: host.fqdn,
                     error: error?.message,
                     stack: error?.stack,
+                    enforcementEnabled:
+                      config.OFFSET_OBSERVATION_ENFORCEMENT_ENABLED,
                   });
 
                   // Keep console.warn for backward compatibility
@@ -1659,7 +1661,10 @@ export class Observer {
                     error?.message,
                   );
 
-                  return undefined;
+                  // Return a failed assessment if enforcement is enabled, otherwise undefined
+                  return config.OFFSET_OBSERVATION_ENFORCEMENT_ENABLED
+                    ? { plannedOffsets: [], assessments: [], pass: false }
+                    : undefined;
                 }
               })()
             : (async () => {
@@ -1683,6 +1688,12 @@ export class Observer {
         );
         const namesPass = namePassCount >= nameCount * NAME_PASS_THRESHOLD;
 
+        // Check if offset observation enforcement should affect pass status
+        const offsetPass =
+          !config.OFFSET_OBSERVATION_ENFORCEMENT_ENABLED ||
+          offsetAssessments === undefined ||
+          offsetAssessments.pass;
+
         gatewayAssessments[host.fqdn] = {
           ownershipAssessment,
           arnsAssessments: {
@@ -1691,7 +1702,7 @@ export class Observer {
             pass: namesPass,
           },
           ...(offsetAssessments !== undefined ? { offsetAssessments } : {}),
-          pass: ownershipAssessment.pass && namesPass,
+          pass: ownershipAssessment.pass && namesPass && offsetPass,
         };
       },
       { concurrency: this.gatewayAssessmentConcurrency },
