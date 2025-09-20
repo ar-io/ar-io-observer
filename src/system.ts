@@ -48,6 +48,7 @@ import { ContractEpochSource } from './epochs/contract-epoch-source.js';
 import { ContractHostsSource } from './hosts/contract-hosts-source.js';
 import { StaticHostsSource } from './hosts/static-hosts-source.js';
 import log from './log.js';
+import * as metrics from './metrics.js';
 import { ContractNamesSource } from './names/contract-names-source.js';
 import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
 import { StaticArnsNameList } from './names/static-arns-name-list.js';
@@ -356,10 +357,27 @@ export async function updateAndSaveCurrentReport() {
     }
     log.verbose('Generating report...');
     const reportStartTime = Date.now();
-    const report = await observer.generateReport();
-    log.verbose(`Report generated in ${Date.now() - reportStartTime}ms`);
-    reportCache.set('current', report);
-    log.verbose('Report cached');
+
+    let report;
+    try {
+      // Track report generation timing
+      const endTimer = metrics.reportGenerationHistogram.startTimer();
+      report = await observer.generateReport();
+      endTimer();
+
+      const reportDuration = Date.now() - reportStartTime;
+      log.verbose(`Report generated in ${reportDuration}ms`);
+      reportCache.set('current', report);
+      log.verbose('Report cached');
+    } catch (error: any) {
+      // Track failed report generation
+      metrics.reportsGeneratedCounter.inc({ status: 'failure' });
+      log.error('Failed to generate report:', {
+        message: error.message,
+        stack: error.stack,
+      });
+      throw error; // Re-throw to maintain existing error handling
+    }
 
     log.verbose('Getting observers from contract state...');
     // Get selected observers for the current epoch from the contract

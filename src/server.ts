@@ -23,6 +23,7 @@ import swaggerUi from 'swagger-ui-express';
 import YAML from 'yaml';
 
 import * as config from './config.js';
+import * as metrics from './metrics.js';
 import { reportCache, walletAddress } from './system.js';
 
 // HTTP server
@@ -95,6 +96,15 @@ app.get('/ar-io/observer/reports/current', async (_req, res) => {
     } else {
       res.json(report);
     }
+  } catch (error: any) {
+    res.status(500).send(error?.message);
+  }
+});
+
+app.get('/ar-io/observer/metrics', async (_req, res) => {
+  try {
+    res.set('Content-Type', metrics.register.contentType);
+    res.end(await metrics.register.metrics());
   } catch (error: any) {
     res.status(500).send(error?.message);
   }

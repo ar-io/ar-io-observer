@@ -26,6 +26,7 @@ import pMap from 'p-map';
 import { MAX_FORK_DEPTH } from './arweave.js';
 import * as config from './config.js';
 import log from './log.js';
+import * as metrics from './metrics.js';
 
 import {
   ArnsNameAssessment,
@@ -305,7 +306,7 @@ async function assessOwnership({
     const resp = await client.get(url).json<any>();
     if (resp?.wallet) {
       if (!expectedWallets.includes(resp.wallet)) {
-        return {
+        const result = {
           expectedWallets,
           observedWallet: null,
           failureReason: `Wallet mismatch: expected one of ${expectedWallets.join(
@@ -313,27 +314,47 @@ async function assessOwnership({
           )} but found ${resp.wallet}`,
           pass: false,
         };
+        metrics.ownershipAssessmentsCounter.inc({
+          status: 'fail',
+          enforced: 'true',
+        });
+        return result;
       } else {
-        return {
+        const result = {
           expectedWallets,
           observedWallet: resp.wallet,
           pass: true,
         };
+        metrics.ownershipAssessmentsCounter.inc({
+          status: 'pass',
+          enforced: 'true',
+        });
+        return result;
       }
     }
-    return {
+    const result = {
       expectedWallets,
       observedWallet: null,
       failureReason: `No wallet found`,
       pass: false,
     };
+    metrics.ownershipAssessmentsCounter.inc({
+      status: 'fail',
+      enforced: 'true',
+    });
+    return result;
   } catch (error: any) {
-    return {
+    const result = {
       expectedWallets,
       observedWallet: null,
       failureReason: error?.message as string,
       pass: false,
     };
+    metrics.ownershipAssessmentsCounter.inc({
+      status: 'fail',
+      enforced: 'true',
+    });
+    return result;
   }
 }
 
@@ -953,6 +974,7 @@ export class Observer {
     });
 
     const startTime = Date.now();
+    const offsetValidationTimer = metrics.offsetValidationHistogram.startTimer();
 
     try {
       // Fetch chunk data and proof from gateway
@@ -1137,6 +1159,7 @@ export class Observer {
                   : ''),
             );
 
+            offsetValidationTimer();
             return {
               assessedAt,
               offset,
@@ -1162,6 +1185,7 @@ export class Observer {
                   : ''),
             );
 
+            offsetValidationTimer();
             return {
               assessedAt,
               offset,
@@ -1178,6 +1202,7 @@ export class Observer {
             stack: validationError?.stack,
           });
 
+          offsetValidationTimer();
           return {
             assessedAt,
             offset,
@@ -1204,6 +1229,7 @@ export class Observer {
           hasTxBounds: txStartOffset !== undefined && txEndOffset !== undefined,
         });
 
+        offsetValidationTimer();
         return {
           assessedAt,
           offset,
@@ -1229,6 +1255,7 @@ export class Observer {
         `Chunk fetch failed from ${url}: ${error?.response?.statusCode || 'network error'}`,
       );
 
+      offsetValidationTimer();
       return {
         assessedAt,
         offset,
@@ -1402,12 +1429,14 @@ export class Observer {
     const referenceResolution =
       await this.referenceGatewayResolutionCache.get(arnsName);
 
+    const arnsResolutionTimer = metrics.arnsResolutionHistogram.startTimer();
     const gatewayResolution = await getArnsResolution({
       url: `https://${arnsName}.${host}/`,
       got: this.gotClient,
       referenceGatewayContentLength: referenceResolution.contentLength,
       entropy,
     });
+    arnsResolutionTimer();
 
     let pass = true;
     let failureReason: string | undefined = undefined;
@@ -1678,6 +1707,53 @@ export class Observer {
               })(),
         ]);
 
+        // Track ArNS assessment metrics
+        Object.values(prescribedAssessments).forEach((assessment) => {
+          metrics.arnsAssessmentsCounter.inc({
+            type: 'prescribed',
+            status: assessment.pass ? 'pass' : 'fail',
+            enforced: 'true',
+          });
+        });
+
+        Object.values(chosenAssessments).forEach((assessment) => {
+          metrics.arnsAssessmentsCounter.inc({
+            type: 'chosen',
+            status: assessment.pass ? 'pass' : 'fail',
+            enforced: 'true',
+          });
+        });
+
+        // Track offset assessment metrics
+        if (
+          config.OFFSET_OBSERVATION_ENABLED &&
+          selectedGatewaysForOffset.has(host.fqdn)
+        ) {
+          if (offsetAssessments !== undefined) {
+            // Offset assessment was performed
+            offsetAssessments.assessments.forEach((assessment) => {
+              metrics.offsetAssessmentsCounter.inc({
+                status: assessment.pass ? 'pass' : 'fail',
+                enforced:
+                  config.OFFSET_OBSERVATION_ENFORCEMENT_ENABLED.toString(),
+              });
+            });
+          } else {
+            // Offset assessment failed (returned undefined)
+            metrics.offsetAssessmentsCounter.inc({
+              status: 'fail',
+              enforced:
+                config.OFFSET_OBSERVATION_ENFORCEMENT_ENABLED.toString(),
+            });
+          }
+        } else {
+          // Offset assessment was skipped
+          metrics.offsetAssessmentsCounter.inc({
+            status: 'skipped',
+            enforced: 'false',
+          });
+        }
+
         const nameCount = new Set([...prescribedNames, ...chosenNames]).size;
         const namePassCount = Object.values({
           ...prescribedAssessments,
@@ -1694,6 +1770,8 @@ export class Observer {
           offsetAssessments === undefined ||
           offsetAssessments.pass;
 
+        const gatewayPass = ownershipAssessment.pass && namesPass && offsetPass;
+
         gatewayAssessments[host.fqdn] = {
           ownershipAssessment,
           arnsAssessments: {
@@ -1702,13 +1780,18 @@ export class Observer {
             pass: namesPass,
           },
           ...(offsetAssessments !== undefined ? { offsetAssessments } : {}),
-          pass: ownershipAssessment.pass && namesPass && offsetPass,
+          pass: gatewayPass,
         };
+
+        // Track gateway assessment metrics
+        metrics.gatewayAssessmentsCounter.inc({
+          status: gatewayPass ? 'pass' : 'fail',
+        });
       },
       { concurrency: this.gatewayAssessmentConcurrency },
     );
 
-    return {
+    const report = {
       formatVersion: REPORT_FORMAT_VERSION,
       observerAddress: this.observerAddress,
       epochIndex,
@@ -1718,6 +1801,19 @@ export class Observer {
       generatedAt: +(Date.now() / 1000).toFixed(0),
       gatewayAssessments,
     };
+
+    // Track report generation metrics
+    metrics.reportsGeneratedCounter.inc({ status: 'success' });
+
+    // Update gauge metrics with latest report data
+    const gatewayCount = Object.keys(gatewayAssessments).length;
+    const failureRate = this.calculateFailureRate(report);
+
+    metrics.lastReportGatewayCountGauge.set(gatewayCount);
+    metrics.lastReportFailureRateGauge.set(failureRate);
+    metrics.lastReportTimestampGauge.set(report.generatedAt);
+
+    return report;
   }
 
   private calculateFailureRate(report: ObserverReport): number {

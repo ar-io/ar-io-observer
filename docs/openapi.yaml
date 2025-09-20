@@ -143,3 +143,13 @@ paths:
             application/json:
               schema:
                 '$ref': '#/components/schemas/PendingReport'
+  '/ar-io/observer/metrics':
+    get:
+      responses:
+        '200':
+          description: |-
+            Prometheus metrics in text format
+          content:
+            text/plain:
+              schema:
+                type: string
