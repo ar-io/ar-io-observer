@@ -954,6 +954,98 @@ export class Observer {
     }
   }
 
+  private performQuickChunkValidation({
+    chunkResponse,
+    chunkData,
+    targetHost,
+    offset,
+  }: {
+    chunkResponse: {
+      chunk: string;
+      data_path: string;
+      tx_path?: string;
+      packing?: string;
+    };
+    chunkData: Buffer;
+    targetHost: string;
+    offset: number;
+  }): { isValid: boolean; failureReason?: string } {
+    // Check if chunk data is empty
+    if (chunkData.length === 0) {
+      log.debug('Quick validation failed: empty chunk data', {
+        targetHost,
+        offset,
+      });
+      return {
+        isValid: false,
+        failureReason: 'Chunk data is empty',
+      };
+    }
+
+    // Check if chunk data is suspiciously large (>1MB chunks are unusual)
+    if (chunkData.length > 1024 * 1024) {
+      log.debug('Quick validation failed: chunk data too large', {
+        targetHost,
+        offset,
+        chunkSize: chunkData.length,
+      });
+      return {
+        isValid: false,
+        failureReason: `Chunk data too large: ${chunkData.length} bytes`,
+      };
+    }
+
+    // Check if data_path exists and is not empty
+    if (!chunkResponse.data_path || chunkResponse.data_path.length === 0) {
+      log.debug('Quick validation failed: missing data_path', {
+        targetHost,
+        offset,
+        hasDataPath: !!chunkResponse.data_path,
+        dataPathLength: chunkResponse.data_path?.length || 0,
+      });
+      return {
+        isValid: false,
+        failureReason: 'Missing or empty data_path',
+      };
+    }
+
+    // Try to parse data_path as base64url to ensure it's valid
+    try {
+      const proof = Buffer.from(chunkResponse.data_path, 'base64url');
+      if (proof.length === 0) {
+        log.debug('Quick validation failed: empty proof after decoding', {
+          targetHost,
+          offset,
+          dataPathLength: chunkResponse.data_path.length,
+        });
+        return {
+          isValid: false,
+          failureReason: 'data_path decodes to empty proof',
+        };
+      }
+    } catch (proofError: any) {
+      log.debug('Quick validation failed: invalid data_path encoding', {
+        targetHost,
+        offset,
+        dataPath: chunkResponse.data_path.slice(0, 50) + '...',
+        error: proofError?.message,
+      });
+      return {
+        isValid: false,
+        failureReason: `Invalid data_path encoding: ${proofError?.message}`,
+      };
+    }
+
+    log.debug('Quick chunk validation passed', {
+      targetHost,
+      offset,
+      chunkSize: chunkData.length,
+      proofLength: chunkResponse.data_path.length,
+    });
+
+    return { isValid: true };
+  }
+
   private async validateChunkAtOffset({
     targetHost,
     offset,
@@ -1011,87 +1103,125 @@ export class Observer {
         statusCode: response.statusCode,
       });
 
-      // Check if reference gateway also has this chunk (for comparison)
-      let referenceGatewayAvailable: boolean | undefined = undefined;
-      try {
-        const referenceUrl = `https://${this.referenceGatewayHost}/chunk/${offset}`;
-        log.debug('Checking reference gateway chunk availability', {
-          targetHost,
-          referenceHost: this.referenceGatewayHost,
+      // Quick validation checks before expensive binary search
+      const quickValidationResult = this.performQuickChunkValidation({
+        chunkResponse,
+        chunkData,
+        targetHost,
+        offset,
+      });
+
+      if (!quickValidationResult.isValid) {
+        offsetValidationTimer();
+        return {
+          assessedAt,
           offset,
-          referenceUrl,
-        });
-
-        const referenceResponse = await this.gotClient.get(referenceUrl, {
-          timeout: { request: 5000 },
-          responseType: 'json',
-        });
-
-        // Consider it available if we get a successful response with valid structure
-        const referenceChunkResponse = referenceResponse.body as {
-          chunk?: string;
-          data_path?: string;
+          pass: false,
+          failureReason: quickValidationResult.failureReason,
+          referenceGatewayAvailable: undefined, // Skip reference check for invalid chunks
         };
-
-        referenceGatewayAvailable =
-          referenceResponse.statusCode === 200 &&
-          referenceChunkResponse.chunk !== undefined;
-
-        log.debug('Reference gateway chunk check completed', {
-          targetHost,
-          referenceHost: this.referenceGatewayHost,
-          offset,
-          available: referenceGatewayAvailable,
-          statusCode: referenceResponse.statusCode,
-        });
-      } catch (referenceError: any) {
-        referenceGatewayAvailable = false;
-        log.debug('Reference gateway chunk check failed', {
-          targetHost,
-          referenceHost: this.referenceGatewayHost,
-          offset,
-          error: referenceError?.message,
-        });
       }
 
-      // Get the data_root for validation using binary search
-      let effectiveDataRoot: Uint8Array | undefined = undefined;
-      let effectiveTxId: string | undefined = undefined;
-      let txStartOffset: number | undefined = undefined;
-      let txEndOffset: number | undefined = undefined;
+      // Run reference gateway check and binary search in parallel for efficiency
+      const [referenceGatewayAvailable, transactionSearchResult] =
+        await Promise.all([
+          // Check if reference gateway also has this chunk (for comparison)
+          (async (): Promise<boolean | undefined> => {
+            try {
+              const referenceUrl = `https://${this.referenceGatewayHost}/chunk/${offset}`;
+              log.debug('Checking reference gateway chunk availability', {
+                targetHost,
+                referenceHost: this.referenceGatewayHost,
+                offset,
+                referenceUrl,
+              });
 
-      try {
-        log.debug('Finding transaction for offset using binary search', {
-          targetHost,
-          offset,
-        });
+              const referenceResponse = await this.gotClient.get(referenceUrl, {
+                timeout: { request: 5000 },
+                responseType: 'json',
+              });
 
-        const transactionInfo = await this.findTransactionForOffset(
-          targetHost,
-          offset,
-          maxSearchHeight,
-        );
+              // Consider it available if we get a successful response with valid structure
+              const referenceChunkResponse = referenceResponse.body as {
+                chunk?: string;
+                data_path?: string;
+              };
 
-        effectiveTxId = transactionInfo.txId;
-        effectiveDataRoot = Buffer.from(transactionInfo.dataRoot, 'base64url');
-        txStartOffset = transactionInfo.txStartOffset;
-        txEndOffset = transactionInfo.txEndOffset;
+              const available =
+                referenceResponse.statusCode === 200 &&
+                referenceChunkResponse.chunk !== undefined;
 
-        log.debug('Found transaction and data_root via binary search', {
-          targetHost,
-          offset,
-          txId: effectiveTxId.slice(0, 12) + '...',
-          dataRootLength: effectiveDataRoot.length,
-          txStartOffset,
-          txEndOffset,
-        });
-      } catch (searchError: any) {
-        log.debug('Binary search for transaction failed', {
-          targetHost,
-          offset,
-          error: searchError?.message,
-        });
-      }
+              log.debug('Reference gateway chunk check completed', {
+                targetHost,
+                referenceHost: this.referenceGatewayHost,
+                offset,
+                available,
+                statusCode: referenceResponse.statusCode,
+              });
+
+              return available;
+            } catch (referenceError: any) {
+              log.debug('Reference gateway chunk check failed', {
+                targetHost,
+                referenceHost: this.referenceGatewayHost,
+                offset,
+                error: referenceError?.message,
+              });
+              return false;
+            }
+          })(),
+
+          // Get the data_root for validation using binary search
+          (async (): Promise<{
+            effectiveDataRoot?: Uint8Array;
+            txStartOffset?: number;
+            txEndOffset?: number;
+          }> => {
+            try {
+              log.debug('Finding transaction for offset using binary search', {
+                targetHost,
+                offset,
+              });
+
+              const transactionInfo = await this.findTransactionForOffset(
+                targetHost,
+                offset,
+                maxSearchHeight,
+              );
+
+              const effectiveDataRoot = Buffer.from(
+                transactionInfo.dataRoot,
+                'base64url',
+              );
+
+              log.debug('Found transaction and data_root via binary search', {
+                targetHost,
+                offset,
+                txId: transactionInfo.txId.slice(0, 12) + '...',
+                dataRootLength: effectiveDataRoot.length,
+                txStartOffset: transactionInfo.txStartOffset,
+                txEndOffset: transactionInfo.txEndOffset,
+              });
+
+              return {
+                effectiveDataRoot,
+                txStartOffset: transactionInfo.txStartOffset,
+                txEndOffset: transactionInfo.txEndOffset,
+              };
+            } catch (searchError: any) {
+              log.debug('Binary search for transaction failed', {
+                targetHost,
+                offset,
+                error: searchError?.message,
+              });
+              return {};
+            }
+          })(),
+        ]);
+
+      // Extract results from parallel operations
+      const { effectiveDataRoot, txStartOffset, txEndOffset } =
+        transactionSearchResult;
 
       // Get chunk proof from the data_path field in the response
       let proof: Uint8Array | null = null;
