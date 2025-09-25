@@ -974,7 +974,8 @@ export class Observer {
     });
 
     const startTime = Date.now();
-    const offsetValidationTimer = metrics.offsetValidationHistogram.startTimer();
+    const offsetValidationTimer =
+      metrics.offsetValidationHistogram.startTimer();
 
     try {
       // Fetch chunk data and proof from gateway

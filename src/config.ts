@@ -160,7 +160,7 @@ export const OFFSET_OBSERVATION_ENABLED =
 
 export const OFFSET_OBSERVATION_SAMPLE_RATE = Math.max(
   0.0,
-  Math.min(1.0, +env.varOrDefault('OFFSET_OBSERVATION_SAMPLE_RATE', '0.05')),
+  Math.min(1.0, +env.varOrDefault('OFFSET_OBSERVATION_SAMPLE_RATE', '0.01')),
 );
 
 export const OFFSET_SAMPLE_COUNT = +env.varOrDefault(
