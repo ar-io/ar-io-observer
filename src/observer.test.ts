@@ -858,7 +858,6 @@ describe('Observer', function () {
           expect(result.failureReason).to.equal('Missing or empty data_path');
         });
 
-
         it('should reject data_path that decodes to empty proof', function () {
           const chunkResponse = {
             chunk: 'dGVzdC1jaHVuaw',
@@ -931,12 +930,10 @@ describe('Observer', function () {
 
         it('should fail fast on invalid chunk data', async function () {
           // Mock chunk endpoint returning invalid data
-          nock('https://test-gateway.com')
-            .get('/chunk/12345')
-            .reply(200, {
-              chunk: '', // Empty chunk - should fail quick validation
-              data_path: 'dGVzdA',
-            });
+          nock('https://test-gateway.com').get('/chunk/12345').reply(200, {
+            chunk: '', // Empty chunk - should fail quick validation
+            data_path: 'dGVzdA',
+          });
 
           const result = await (observer as any).validateChunkAtOffset({
             targetHost: 'test-gateway.com',
@@ -968,7 +965,9 @@ describe('Observer', function () {
 
         it('should handle successful validation with reference gateway available', async function () {
           // Mock the validatePath function to return success
-          const mockValidatePath = sinon.stub().resolves(Buffer.from('validated-data'));
+          const mockValidatePath = sinon
+            .stub()
+            .resolves(Buffer.from('validated-data'));
 
           // Need to mock the arweave module - this is tricky, let's skip the actual validatePath test for now
           // and focus on the flow without the final validation step
@@ -1003,7 +1002,9 @@ describe('Observer', function () {
           // Due to binary search failure, validation will fail, but we can verify reference gateway was checked
           expect(result.pass).to.be.false;
           expect(result.referenceGatewayAvailable).to.be.true; // Reference gateway should be available
-          expect(result.failureReason).to.contain('Missing validation components');
+          expect(result.failureReason).to.contain(
+            'Missing validation components',
+          );
         });
 
         it('should handle reference gateway unavailable', async function () {
@@ -1019,9 +1020,7 @@ describe('Observer', function () {
             });
 
           // Mock reference gateway as unavailable
-          nock('https://arweave.net')
-            .get('/chunk/12345')
-            .reply(404);
+          nock('https://arweave.net').get('/chunk/12345').reply(404);
 
           const result = await (observer as any).validateChunkAtOffset({
             targetHost: 'test-gateway.com',
