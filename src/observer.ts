@@ -1756,87 +1756,83 @@ export class Observer {
     await pMap(
       shuffledGatewayHosts,
       async (host) => {
-        // Run all assessments in parallel for faster execution
-        const [
-          ownershipAssessment,
-          [prescribedAssessments, chosenAssessments],
-          offsetAssessments,
-        ] = await Promise.all([
-          // Ownership assessment
-          assessOwnership({
-            host: host.fqdn,
-            expectedWallets: hostWallets[host.fqdn].sort(),
-          }),
+        // Run ownership assessment first, then other assessments in parallel
+        const ownershipAssessment = await assessOwnership({
+          host: host.fqdn,
+          expectedWallets: hostWallets[host.fqdn].sort(),
+        });
 
-          // ArNS name assessments (prescribed and chosen in parallel)
-          Promise.all([
-            this.assessArnsNames({
-              host: host.fqdn,
-              names: prescribedNames,
-              entropy,
-            }),
-            this.assessArnsNames({
-              host: host.fqdn,
-              names: chosenNames,
-              entropy,
-            }),
-          ]),
+        const [[prescribedAssessments, chosenAssessments], offsetAssessments] =
+          await Promise.all([
+            // ArNS name assessments (prescribed and chosen in parallel)
+            Promise.all([
+              this.assessArnsNames({
+                host: host.fqdn,
+                names: prescribedNames,
+                entropy,
+              }),
+              this.assessArnsNames({
+                host: host.fqdn,
+                names: chosenNames,
+                entropy,
+              }),
+            ]),
 
-          // Offset sampling (if enabled and gateway is selected)
-          config.OFFSET_OBSERVATION_ENABLED &&
-          selectedGatewaysForOffset.has(host.fqdn)
-            ? (async () => {
-                log.debug('Offset validation enabled, starting assessment', {
-                  targetHost: host.fqdn,
-                  offsetSampleCount: config.OFFSET_SAMPLE_COUNT,
-                });
-
-                try {
-                  const result = await this.assessGatewayOffsets({
+            // Offset sampling (if enabled and gateway is selected)
+            config.OFFSET_OBSERVATION_ENABLED &&
+            selectedGatewaysForOffset.has(host.fqdn)
+              ? (async () => {
+                  log.debug('Offset validation enabled, starting assessment', {
                     targetHost: host.fqdn,
-                    entropy,
                     offsetSampleCount: config.OFFSET_SAMPLE_COUNT,
-                    maxStableOffset,
-                    maxSearchHeight,
                   });
 
+                  try {
+                    const result = await this.assessGatewayOffsets({
+                      targetHost: host.fqdn,
+                      entropy,
+                      offsetSampleCount: config.OFFSET_SAMPLE_COUNT,
+                      maxStableOffset,
+                      maxSearchHeight,
+                    });
+
+                    log.verbose(
+                      `Offset sampling completed for ${host.fqdn}: ${result.pass ? 'PASS' : 'FAIL'}`,
+                    );
+
+                    return result;
+                  } catch (error: any) {
+                    // Log the error but don't fail the assessment unless enforcement is enabled
+                    log.warn('Offset sampling failed for gateway', {
+                      targetHost: host.fqdn,
+                      error: error?.message,
+                      stack: error?.stack,
+                      enforcementEnabled:
+                        config.OFFSET_OBSERVATION_ENFORCEMENT_ENABLED,
+                    });
+
+                    // Keep console.warn for backward compatibility
+                    console.warn(
+                      `Offset sampling failed for ${host.fqdn}:`,
+                      error?.message,
+                    );
+
+                    // Return a failed assessment if enforcement is enabled, otherwise undefined
+                    return config.OFFSET_OBSERVATION_ENFORCEMENT_ENABLED
+                      ? { plannedOffsets: [], assessments: [], pass: false }
+                      : undefined;
+                  }
+                })()
+              : (async () => {
+                  const reason = !config.OFFSET_OBSERVATION_ENABLED
+                    ? 'disabled'
+                    : 'not selected for sampling';
                   log.verbose(
-                    `Offset sampling completed for ${host.fqdn}: ${result.pass ? 'PASS' : 'FAIL'}`,
+                    `Offset sampling ${reason}, skipping for ${host.fqdn}`,
                   );
-
-                  return result;
-                } catch (error: any) {
-                  // Log the error but don't fail the assessment unless enforcement is enabled
-                  log.warn('Offset sampling failed for gateway', {
-                    targetHost: host.fqdn,
-                    error: error?.message,
-                    stack: error?.stack,
-                    enforcementEnabled:
-                      config.OFFSET_OBSERVATION_ENFORCEMENT_ENABLED,
-                  });
-
-                  // Keep console.warn for backward compatibility
-                  console.warn(
-                    `Offset sampling failed for ${host.fqdn}:`,
-                    error?.message,
-                  );
-
-                  // Return a failed assessment if enforcement is enabled, otherwise undefined
-                  return config.OFFSET_OBSERVATION_ENFORCEMENT_ENABLED
-                    ? { plannedOffsets: [], assessments: [], pass: false }
-                    : undefined;
-                }
-              })()
-            : (async () => {
-                const reason = !config.OFFSET_OBSERVATION_ENABLED
-                  ? 'disabled'
-                  : 'not selected for sampling';
-                log.verbose(
-                  `Offset sampling ${reason}, skipping for ${host.fqdn}`,
-                );
-                return undefined;
-              })(),
-        ]);
+                  return undefined;
+                })(),
+          ]);
 
         // Track ArNS assessment metrics
         Object.values(prescribedAssessments).forEach((assessment) => {
