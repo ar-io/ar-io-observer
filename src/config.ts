@@ -103,7 +103,7 @@ export const PORT = +env.varOrDefault('PORT', '5050');
 
 export const GATEWAY_ASSESSMENT_CONCURRENCY = +env.varOrDefault(
   'GATEWAY_ASSESSMENT_CONCURRENCY',
-  '5',
+  '10',
 );
 
 export const NAME_ASSESSMENT_CONCURRENCY = +env.varOrDefault(

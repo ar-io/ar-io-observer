@@ -80,7 +80,7 @@ const client = got.extend({
     lookup: 5000,
     connect: 5000,
     secureConnect: 2000,
-    socket: 5000,
+    socket: 10000,
   },
 });
 
@@ -475,7 +475,7 @@ export class Observer {
 
     try {
       const response = await this.gotClient.get(url, {
-        timeout: { request: 5000 },
+        timeout: { request: 10000 },
         responseType: 'json',
       });
 
@@ -543,7 +543,7 @@ export class Observer {
 
     try {
       const response = await this.gotClient.get(url, {
-        timeout: { request: 5000 },
+        timeout: { request: 10000 },
         responseType: 'json',
       });
 
@@ -609,7 +609,7 @@ export class Observer {
 
     try {
       const response = await this.gotClient.get(url, {
-        timeout: { request: 5000 },
+        timeout: { request: 10000 },
         responseType: 'json',
       });
 
@@ -1073,7 +1073,7 @@ export class Observer {
       // Fetch chunk data and proof from gateway
 
       const response = await this.gotClient.get(url, {
-        timeout: { request: 5000 },
+        timeout: { request: 10000 },
         responseType: 'json',
       });
 
@@ -1137,7 +1137,7 @@ export class Observer {
               });
 
               const referenceResponse = await this.gotClient.get(referenceUrl, {
-                timeout: { request: 5000 },
+                timeout: { request: 10000 },
                 responseType: 'json',
               });
 
