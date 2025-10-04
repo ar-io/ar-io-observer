@@ -165,7 +165,7 @@ export const OFFSET_OBSERVATION_SAMPLE_RATE = Math.max(
 
 export const OFFSET_SAMPLE_COUNT = +env.varOrDefault(
   'OFFSET_SAMPLE_COUNT',
-  '3',
+  '4',
 );
 
 export const OFFSET_OBSERVATION_ENFORCEMENT_ENABLED =
