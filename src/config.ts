@@ -169,5 +169,4 @@ export const OFFSET_SAMPLE_COUNT = +env.varOrDefault(
 );
 
 export const OFFSET_OBSERVATION_ENFORCEMENT_ENABLED =
-  env.varOrDefault('OFFSET_OBSERVATION_ENFORCEMENT_ENABLED', 'false') ===
-  'true';
+  env.varOrDefault('OFFSET_OBSERVATION_ENFORCEMENT_ENABLED', 'true') === 'true';
