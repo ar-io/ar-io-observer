@@ -43,7 +43,10 @@ export class ContractHostsSource implements GatewayHostsSource {
     do {
       const { nextCursor, items } = await this.contract.getGateways({
         cursor,
-      }); // TODO: better error handling
+        limit: 1000,
+        sortBy: 'gatewayAddress', // we know this is unique
+        sortOrder: 'asc',
+      });
       for (const gateway of items) {
         if (gateway.settings.fqdn === undefined) {
           // skip gateways without FQDN
