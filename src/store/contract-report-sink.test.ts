@@ -221,5 +221,138 @@ describe('ContractReportSink', function () {
         ),
       ).to.be.true;
     });
+
+    it('should report non-matching wallets as failed even when gateway passes overall', async function () {
+      // Create a report where multiple wallets share the same FQDN, gateway passes, but only one actually controls it
+      const report: ObserverReport = {
+        formatVersion: 2,
+        observerAddress: walletAddress,
+        epochIndex: 1,
+        epochStartTimestamp: 1000000,
+        epochStartHeight: 100,
+        epochEndTimestamp: 2000000,
+        generatedAt: 1500000,
+        gatewayAssessments: {
+          'arns-gateway.com': {
+            ownershipAssessment: {
+              expectedWallets: [
+                'wallet1',
+                'wallet2',
+                'wallet3',
+                'wallet4',
+                'wallet5',
+              ],
+              observedWallet: 'wallet3', // Only wallet3 actually controls this gateway
+              pass: true, // Ownership passed because wallet3 is in the expected list
+            },
+            arnsAssessments: {
+              prescribedNames: {},
+              chosenNames: {},
+              pass: true, // ArNS resolution passed
+            },
+            pass: true, // Overall gateway assessment passed
+          },
+        },
+      };
+
+      const reportInfo = { report, reportTxId: 'test-report-tx-id' };
+      await contractReportSink.saveReport(reportInfo);
+
+      // Verify that all expected wallets except wallet3 are still reported as failed
+      // even though the gateway passed overall
+      const saveObservationsCall = (
+        contractStub.saveObservations as sinon.SinonStub
+      ).getCall(0);
+      const failedGateways = saveObservationsCall.args[0].failedGateways;
+
+      expect(failedGateways).to.deep.equal([
+        'wallet1',
+        'wallet2',
+        'wallet4',
+        'wallet5',
+      ]);
+      expect(failedGateways).to.not.include('wallet3'); // wallet3 legitimately controls the gateway
+    });
+
+    it('should report observed wallet as failed when ownership assessment fails', async function () {
+      // Create a report where ownership assessment explicitly fails
+      const report: ObserverReport = {
+        formatVersion: 2,
+        observerAddress: walletAddress,
+        epochIndex: 1,
+        epochStartTimestamp: 1000000,
+        epochStartHeight: 100,
+        epochEndTimestamp: 2000000,
+        generatedAt: 1500000,
+        gatewayAssessments: {
+          'rogue-gateway.com': {
+            ownershipAssessment: {
+              expectedWallets: ['wallet1'],
+              observedWallet: 'wallet2', // Unexpected wallet observed
+              pass: false, // Ownership failed due to wallet mismatch
+            },
+            arnsAssessments: {
+              prescribedNames: {},
+              chosenNames: {},
+              pass: true,
+            },
+            pass: false, // Overall assessment failed due to ownership
+          },
+        },
+      };
+
+      const reportInfo = { report, reportTxId: 'test-report-tx-id' };
+      await contractReportSink.saveReport(reportInfo);
+
+      // Both wallets should be reported as failed:
+      // - wallet1 because it doesn't actually control the gateway
+      // - wallet2 because it failed ownership assessment (unexpected)
+      const saveObservationsCall = (
+        contractStub.saveObservations as sinon.SinonStub
+      ).getCall(0);
+      const failedGateways = saveObservationsCall.args[0].failedGateways;
+
+      expect(failedGateways).to.deep.equal(['wallet1', 'wallet2']);
+    });
+
+    it('should report all expected wallets as failed when no wallet was observed', async function () {
+      // Test scenario where gateway fails and no wallet was detected
+      const report: ObserverReport = {
+        formatVersion: 2,
+        observerAddress: walletAddress,
+        epochIndex: 1,
+        epochStartTimestamp: 1000000,
+        epochStartHeight: 100,
+        epochEndTimestamp: 2000000,
+        generatedAt: 1500000,
+        gatewayAssessments: {
+          'broken-gateway.com': {
+            ownershipAssessment: {
+              expectedWallets: ['wallet1', 'wallet2'],
+              observedWallet: null, // No wallet was observed (gateway didn't respond)
+              failureReason: 'Connection timeout',
+              pass: false,
+            },
+            arnsAssessments: {
+              prescribedNames: {},
+              chosenNames: {},
+              pass: false,
+            },
+            pass: false,
+          },
+        },
+      };
+
+      const reportInfo = { report, reportTxId: 'test-report-tx-id' };
+      await contractReportSink.saveReport(reportInfo);
+
+      // Verify that all expected wallets are reported as failed when none were observed
+      const saveObservationsCall = (
+        contractStub.saveObservations as sinon.SinonStub
+      ).getCall(0);
+      const failedGateways = saveObservationsCall.args[0].failedGateways;
+
+      expect(failedGateways).to.deep.equal(['wallet1', 'wallet2']);
+    });
   });
 });

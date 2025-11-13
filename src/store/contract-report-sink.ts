@@ -31,11 +31,36 @@ export function getFailedGatewaySummaryFromReport(
   const failedGatewaySummary: Set<string> = new Set();
   Object.values(observerReport.gatewayAssessments).forEach(
     (gatewayAssessment) => {
-      // if the assessment failed, add the expected wallets to the failedGatewaySummary
-      if (gatewayAssessment.pass === false) {
-        // add the expected wallets as failed
-        for (const wallet of gatewayAssessment.ownershipAssessment
-          .expectedWallets) {
+      const {
+        expectedWallets,
+        observedWallet,
+        pass: ownershipPass,
+      } = gatewayAssessment.ownershipAssessment;
+
+      if (observedWallet !== null) {
+        // A wallet was observed - check each expected wallet
+        for (const wallet of expectedWallets) {
+          if (wallet === observedWallet) {
+            // This is the observed wallet - only mark as failed if ownership assessment failed
+            if (!ownershipPass) {
+              failedGatewaySummary.add(wallet);
+            }
+          } else {
+            // This wallet doesn't match the observed wallet - always mark as failed
+            // since it doesn't actually control this gateway
+            failedGatewaySummary.add(wallet);
+          }
+        }
+
+        // If the observed wallet is not in the expected wallets list, mark it as failed too
+        // (it's an unauthorized wallet controlling the gateway)
+        if (!expectedWallets.includes(observedWallet)) {
+          failedGatewaySummary.add(observedWallet);
+        }
+      } else {
+        // No wallet was observed (gateway didn't respond or error occurred)
+        // Mark all expected wallets as failed since we couldn't verify ownership
+        for (const wallet of expectedWallets) {
           failedGatewaySummary.add(wallet);
         }
       }
