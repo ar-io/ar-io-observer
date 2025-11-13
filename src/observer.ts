@@ -308,7 +308,7 @@ async function assessOwnership({
       if (!expectedWallets.includes(resp.wallet)) {
         const result = {
           expectedWallets,
-          observedWallet: null,
+          observedWallet: resp.wallet,
           failureReason: `Wallet mismatch: expected one of ${expectedWallets.join(
             ', ',
           )} but found ${resp.wallet}`,
