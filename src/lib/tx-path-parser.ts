@@ -92,7 +92,7 @@ export function safeBigIntToNumber(value: bigint, fieldName: string): number {
  * Hash function matching Arweave's implementation.
  * Same implementation as merkle-path-parser.ts.
  */
-async function hash(data: Buffer | Buffer[]): Promise<Buffer> {
+function hash(data: Buffer | Buffer[]): Buffer {
   const hasher = crypto.createHash('sha256');
   if (Array.isArray(data)) {
     for (const chunk of data) {
@@ -132,12 +132,12 @@ interface WalkResult {
   branchCount?: number;
 }
 
-async function walkTxMerklePath(params: {
+function walkTxMerklePath(params: {
   rootHash: Buffer;
   targetOffset: bigint;
   path: Buffer;
   context: TxPathValidationContext;
-}): Promise<WalkResult> {
+}): WalkResult {
   const { rootHash, targetOffset, path, context } = params;
 
   // Validate inputs
@@ -176,10 +176,10 @@ async function walkTxMerklePath(params: {
 
     // Calculate branch hash and validate
     const branchOffset = bufferToBigInt(offsetBuffer);
-    const calculatedHash = await hash([
-      await hash(leftHash),
-      await hash(rightHash),
-      await hash(offsetBuffer),
+    const calculatedHash = hash([
+      hash(leftHash),
+      hash(rightHash),
+      hash(offsetBuffer),
     ]);
 
     if (!buffersEqual(calculatedHash, currentHash)) {
@@ -221,10 +221,7 @@ async function walkTxMerklePath(params: {
   const leafOffset = bufferToBigInt(leafOffsetBuffer);
 
   // Validate leaf hash
-  const expectedLeafHash = await hash([
-    await hash(leafDataRoot),
-    await hash(leafOffsetBuffer),
-  ]);
+  const expectedLeafHash = hash([hash(leafDataRoot), hash(leafOffsetBuffer)]);
 
   if (!buffersEqual(expectedLeafHash, currentHash)) {
     return {
@@ -348,7 +345,7 @@ export async function parseTxPath(params: {
     rightBound: blockSize, // Relative end of block
   };
 
-  const walkResult = await walkTxMerklePath({
+  const walkResult = walkTxMerklePath({
     rootHash: txRoot,
     targetOffset: relativeTargetOffset,
     path: txPath,
