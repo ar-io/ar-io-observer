@@ -16,8 +16,8 @@
 # macOS
 .DS_Store
 
-# Aider
-.aider*
+# Claude Code
+CLAUDE.local.md
 
 # Exceptions (keep these tracked)
 !/repos/.gitkeep
