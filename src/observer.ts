@@ -675,16 +675,21 @@ export class Observer {
         effectiveMinHeight = Math.max(minHeight, bounds.lowHeight);
         effectiveMaxHeight = Math.min(maxHeight, bounds.highHeight);
 
+        const originalRange = maxHeight - minHeight;
+        const reductionPercent =
+          originalRange > 0
+            ? (
+                (1 -
+                  (effectiveMaxHeight - effectiveMinHeight) / originalRange) *
+                100
+              ).toFixed(1)
+            : '0.0';
+
         log.debug('Using narrowed search bounds from offset mapping', {
           targetOffset,
           originalRange: `${minHeight}-${maxHeight}`,
           narrowedRange: `${effectiveMinHeight}-${effectiveMaxHeight}`,
-          reductionPercent: (
-            (1 -
-              (effectiveMaxHeight - effectiveMinHeight) /
-                (maxHeight - minHeight)) *
-            100
-          ).toFixed(1),
+          reductionPercent,
         });
       }
     }

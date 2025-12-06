@@ -17,6 +17,7 @@
  */
 import dotenv from 'dotenv';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 
@@ -181,7 +182,15 @@ export const TX_PATH_PARSING_ENABLED =
 export const BLOCK_OFFSET_MAPPING_ENABLED =
   env.varOrDefault('BLOCK_OFFSET_MAPPING_ENABLED', 'true') === 'true';
 
+// Resolve path relative to this module (works in both src/ and dist/)
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DEFAULT_BLOCK_OFFSET_MAPPING_FILE = path.join(
+  __dirname,
+  'data',
+  'offset-block-mapping.json',
+);
+
 export const BLOCK_OFFSET_MAPPING_FILE = env.varOrDefault(
   'BLOCK_OFFSET_MAPPING_FILE',
-  './src/data/offset-block-mapping.json',
+  DEFAULT_BLOCK_OFFSET_MAPPING_FILE,
 );
