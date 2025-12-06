@@ -25,6 +25,8 @@ import pMap from 'p-map';
 
 import { MAX_FORK_DEPTH } from './arweave.js';
 import * as config from './config.js';
+import { BlockOffsetMapping } from './lib/block-offset-mapping.js';
+import { parseTxPath, safeBigIntToNumber } from './lib/tx-path-parser.js';
 import log from './log.js';
 import * as metrics from './metrics.js';
 
@@ -61,6 +63,7 @@ interface ArnsResolution {
 interface ArweaveBlock {
   height: number;
   weave_size: string;
+  tx_root?: string;
   txs: string[];
 }
 
@@ -381,7 +384,7 @@ export class Observer {
   // cache efficiency is much higher due to shared search space
   private blockCache = new LRUCache<
     string,
-    { weave_size: string; txIds: string[] }
+    { weave_size: string; tx_root?: string; txIds: string[] }
   >({
     max: 2000, // Base cache size: blocks accessed during binary search, larger memory per entry
   });
@@ -394,6 +397,7 @@ export class Observer {
   private transactionCache = new LRUCache<string, { data_root: string }>({
     max: 10000, // 5x blocks: minimal memory per entry, same transactions accessed repeatedly for offset validation
   });
+  private blockOffsetMapping?: BlockOffsetMapping;
 
   constructor({
     observerAddress,
@@ -434,6 +438,13 @@ export class Observer {
     this.gotClient = client.extend({
       headers: { 'X-AR-IO-Node-Release': this.nodeReleaseVersion },
     });
+
+    // Initialize block offset mapping for optimized binary search
+    if (config.BLOCK_OFFSET_MAPPING_ENABLED) {
+      this.blockOffsetMapping = new BlockOffsetMapping({
+        filePath: config.BLOCK_OFFSET_MAPPING_FILE,
+      });
+    }
   }
 
   private async getBlockByHeight(
@@ -460,6 +471,7 @@ export class Observer {
       return {
         height,
         weave_size: cachedBlock.weave_size,
+        tx_root: cachedBlock.tx_root,
         txs: cachedBlock.txIds,
       };
     }
@@ -484,6 +496,7 @@ export class Observer {
       // Cache only the minimal data we need to reduce memory usage
       const lightweightBlock = {
         weave_size: block.weave_size,
+        tx_root: block.tx_root,
         txIds: block.txs, // txs is already string[] according to our interface
       };
       this.blockCache.set(cacheKey, lightweightBlock);
@@ -649,18 +662,47 @@ export class Observer {
     minHeight: number,
     maxHeight: number,
   ): Promise<number> {
+    // Use offset mapping to narrow search bounds if available
+    let effectiveMinHeight = minHeight;
+    let effectiveMaxHeight = maxHeight;
+
+    if (this.blockOffsetMapping?.isLoaded()) {
+      const bounds = this.blockOffsetMapping.getSearchBounds(
+        targetOffset,
+        maxHeight,
+      );
+      if (bounds) {
+        effectiveMinHeight = Math.max(minHeight, bounds.lowHeight);
+        effectiveMaxHeight = Math.min(maxHeight, bounds.highHeight);
+
+        log.debug('Using narrowed search bounds from offset mapping', {
+          targetOffset,
+          originalRange: `${minHeight}-${maxHeight}`,
+          narrowedRange: `${effectiveMinHeight}-${effectiveMaxHeight}`,
+          reductionPercent: (
+            (1 -
+              (effectiveMaxHeight - effectiveMinHeight) /
+                (maxHeight - minHeight)) *
+            100
+          ).toFixed(1),
+        });
+      }
+    }
+
     log.debug('Starting binary search for blocks', {
       targetHost,
       targetOffset,
-      minHeight,
-      maxHeight,
-      range: maxHeight - minHeight,
+      minHeight: effectiveMinHeight,
+      maxHeight: effectiveMaxHeight,
+      range: effectiveMaxHeight - effectiveMinHeight,
     });
 
-    let left = minHeight;
-    let right = maxHeight;
+    let left = effectiveMinHeight;
+    let right = effectiveMaxHeight;
+    let iterations = 0;
 
     while (left <= right) {
+      iterations++;
       const mid = Math.floor((left + right) / 2);
 
       log.debug('Binary search iteration - checking block', {
@@ -669,6 +711,7 @@ export class Observer {
         currentHeight: mid,
         left,
         right,
+        iteration: iterations,
       });
 
       try {
@@ -682,14 +725,16 @@ export class Observer {
         // Check if this is the containing block
         if (targetOffset <= weaveSizeNum) {
           // Check if the previous block (if it exists) has a smaller weave_size
-          if (mid === minHeight) {
+          if (mid === effectiveMinHeight) {
             // This is the first block we're checking, it contains the offset
             log.debug('Found containing block (first in range)', {
               targetHost,
               targetOffset,
               blockHeight: mid,
               weaveSizeNum,
+              iterations,
             });
+            metrics.blockSearchIterationsHistogram.observe(iterations);
             return mid;
           }
 
@@ -710,7 +755,9 @@ export class Observer {
                 blockHeight: mid,
                 weaveSizeNum,
                 prevWeaveSizeNum,
+                iterations,
               });
+              metrics.blockSearchIterationsHistogram.observe(iterations);
               return mid;
             } else {
               // Target offset is in an earlier block
@@ -726,8 +773,10 @@ export class Observer {
                 blockHeight: mid,
                 weaveSizeNum,
                 prevBlockError: (prevBlockError as any)?.message,
+                iterations,
               },
             );
+            metrics.blockSearchIterationsHistogram.observe(iterations);
             return mid;
           }
         } else {
@@ -751,7 +800,7 @@ export class Observer {
     }
 
     throw new Error(
-      `Could not find block containing offset ${targetOffset} in range ${minHeight}-${maxHeight}`,
+      `Could not find block containing offset ${targetOffset} in range ${effectiveMinHeight}-${effectiveMaxHeight}`,
     );
   }
 
@@ -951,6 +1000,107 @@ export class Observer {
         stack: error?.stack,
       });
       throw error;
+    }
+  }
+
+  /**
+   * Attempts to parse the tx_path Merkle proof to extract transaction boundaries
+   * and data_root without expensive binary search through transactions.
+   *
+   * Returns null if parsing fails, allowing fallback to binary search.
+   */
+  private async tryParseTxPath(params: {
+    txPath: string;
+    targetOffset: number;
+    containingBlockHeight: number;
+  }): Promise<{
+    dataRoot: Buffer;
+    txStartOffset: number;
+    txEndOffset: number;
+  } | null> {
+    const { txPath, targetOffset, containingBlockHeight } = params;
+
+    if (!config.TX_PATH_PARSING_ENABLED) {
+      metrics.txPathParsingCounter.inc({ status: 'skipped' });
+      return null;
+    }
+
+    try {
+      // Get current block for tx_root and weave_size
+      const block = await this.getBlockByHeight(
+        this.referenceGatewayHost,
+        containingBlockHeight,
+      );
+
+      if (
+        block.tx_root === undefined ||
+        block.tx_root === null ||
+        block.tx_root.length === 0
+      ) {
+        log.debug('TX path parsing skipped: block has no tx_root', {
+          blockHeight: containingBlockHeight,
+        });
+        metrics.txPathParsingCounter.inc({ status: 'skipped' });
+        return null;
+      }
+
+      // Get previous block weave_size for relative offset calculation
+      let prevBlockWeaveSize = BigInt(0);
+      if (containingBlockHeight > 0) {
+        const prevBlock = await this.getBlockByHeight(
+          this.referenceGatewayHost,
+          containingBlockHeight - 1,
+        );
+        prevBlockWeaveSize = BigInt(prevBlock.weave_size);
+      }
+
+      const txPathBuffer = Buffer.from(txPath, 'base64url');
+      const txRootBuffer = Buffer.from(block.tx_root, 'base64url');
+
+      const { result, rejectionReason } = await parseTxPath({
+        txRoot: txRootBuffer,
+        txPath: txPathBuffer,
+        targetOffset: BigInt(targetOffset),
+        blockWeaveSize: BigInt(block.weave_size),
+        prevBlockWeaveSize,
+      });
+
+      if (result === null) {
+        log.debug('TX path parsing failed', {
+          targetOffset,
+          blockHeight: containingBlockHeight,
+          rejectionReason,
+        });
+        metrics.txPathParsingCounter.inc({ status: 'failure' });
+        return null;
+      }
+
+      log.debug('TX path parsing succeeded', {
+        targetOffset,
+        blockHeight: containingBlockHeight,
+        txStartOffset: result.txStartOffset.toString(),
+        txEndOffset: result.txEndOffset.toString(),
+        txSize: result.txSize.toString(),
+      });
+
+      metrics.txPathParsingCounter.inc({ status: 'success' });
+
+      return {
+        dataRoot: result.dataRoot,
+        txStartOffset: safeBigIntToNumber(
+          result.txStartOffset,
+          'txStartOffset',
+        ),
+        txEndOffset: safeBigIntToNumber(result.txEndOffset, 'txEndOffset'),
+      };
+    } catch (error: any) {
+      log.debug('TX path parsing threw error', {
+        targetOffset,
+        blockHeight: containingBlockHeight,
+        error: error?.message,
+      });
+      metrics.txPathParsingCounter.inc({ status: 'failure' });
+      return null;
     }
   }
 
@@ -1171,13 +1321,65 @@ export class Observer {
             }
           })(),
 
-          // Get the data_root for validation using binary search
+          // Get the data_root for validation - try TX path parsing first, then binary search
           (async (): Promise<{
             effectiveDataRoot?: Uint8Array;
             txStartOffset?: number;
             txEndOffset?: number;
           }> => {
             try {
+              // Step 1: Find the containing block (with offset mapping optimization)
+              log.debug('Finding containing block for offset', {
+                targetHost,
+                offset,
+              });
+
+              const containingBlockHeight = await this.binarySearchBlocks(
+                targetHost,
+                offset,
+                1,
+                maxSearchHeight,
+              );
+
+              // Step 2: Try TX path parsing if tx_path is present
+              if (
+                chunkResponse.tx_path !== undefined &&
+                chunkResponse.tx_path.length > 0
+              ) {
+                const txPathResult = await this.tryParseTxPath({
+                  txPath: chunkResponse.tx_path,
+                  targetOffset: offset,
+                  containingBlockHeight,
+                });
+
+                if (txPathResult) {
+                  log.debug(
+                    'TX path parsing succeeded, skipping transaction binary search',
+                    {
+                      targetHost,
+                      offset,
+                      txStartOffset: txPathResult.txStartOffset,
+                      txEndOffset: txPathResult.txEndOffset,
+                    },
+                  );
+
+                  return {
+                    effectiveDataRoot: txPathResult.dataRoot,
+                    txStartOffset: txPathResult.txStartOffset,
+                    txEndOffset: txPathResult.txEndOffset,
+                  };
+                }
+
+                log.debug(
+                  'TX path parsing failed, falling back to binary search',
+                  {
+                    targetHost,
+                    offset,
+                  },
+                );
+              }
+
+              // Step 3: Fall back to full binary search
               log.debug('Finding transaction for offset using binary search', {
                 targetHost,
                 offset,
@@ -1209,7 +1411,7 @@ export class Observer {
                 txEndOffset: transactionInfo.txEndOffset,
               };
             } catch (searchError: any) {
-              log.debug('Binary search for transaction failed', {
+              log.debug('Transaction search failed', {
                 targetHost,
                 offset,
                 error: searchError?.message,

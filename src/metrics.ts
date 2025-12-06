@@ -91,3 +91,19 @@ export const offsetValidationHistogram = new Histogram({
   buckets: [1, 2, 4, 8, 15, 30],
   registers: [register],
 });
+
+// TX path parsing optimization metrics
+export const txPathParsingCounter = new Counter({
+  name: 'observer_tx_path_parsing_total',
+  help: 'TX path parsing attempts and outcomes',
+  labelNames: ['status'], // 'success', 'failure', 'skipped'
+  registers: [register],
+});
+
+// Block search iterations histogram (to compare with/without offset mapping)
+export const blockSearchIterationsHistogram = new Histogram({
+  name: 'observer_block_search_iterations',
+  help: 'Number of iterations in block binary search',
+  buckets: [5, 10, 15, 20, 25, 30],
+  registers: [register],
+});

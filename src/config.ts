@@ -170,3 +170,18 @@ export const OFFSET_SAMPLE_COUNT = +env.varOrDefault(
 
 export const OFFSET_OBSERVATION_ENFORCEMENT_ENABLED =
   env.varOrDefault('OFFSET_OBSERVATION_ENFORCEMENT_ENABLED', 'true') === 'true';
+
+// TX path parsing optimization - extracts transaction boundaries from tx_path
+// without expensive binary search through transactions
+export const TX_PATH_PARSING_ENABLED =
+  env.varOrDefault('TX_PATH_PARSING_ENABLED', 'true') === 'true';
+
+// Block offset mapping optimization - narrows binary search bounds using
+// pre-computed offset-to-block mapping
+export const BLOCK_OFFSET_MAPPING_ENABLED =
+  env.varOrDefault('BLOCK_OFFSET_MAPPING_ENABLED', 'true') === 'true';
+
+export const BLOCK_OFFSET_MAPPING_FILE = env.varOrDefault(
+  'BLOCK_OFFSET_MAPPING_FILE',
+  './src/data/offset-block-mapping.json',
+);
