@@ -9,7 +9,7 @@
  * Decode a base64url-encoded string to a Buffer.
  */
 export function fromB64Url(input: string): Buffer {
-  return Buffer.from(input, 'base64');
+  return Buffer.from(input, 'base64url');
 }
 
 /**

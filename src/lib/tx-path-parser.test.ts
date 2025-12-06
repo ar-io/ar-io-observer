@@ -401,13 +401,6 @@ describe('tx-path-parser', function () {
         prevBlockWeaveSize,
       });
 
-      // Debug info if it fails
-      if (result === null) {
-        console.log('Rejection reason:', rejectionReason);
-        console.log('Branch count:', branchCount);
-        console.log('txPath length:', txPath.length);
-      }
-
       expect(result).to.not.be.null;
       expect(result!.validated).to.equal(true);
 

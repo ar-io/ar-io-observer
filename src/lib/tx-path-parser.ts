@@ -386,9 +386,14 @@ export async function parseTxPath(params: {
  */
 export function sortTxIdsByBinary(txIds: string[]): string[] {
   return [...txIds].sort((a, b) => {
-    const bufA = fromB64Url(a);
-    const bufB = fromB64Url(b);
-    return Buffer.compare(bufA, bufB);
+    try {
+      const bufA = fromB64Url(a);
+      const bufB = fromB64Url(b);
+      return Buffer.compare(bufA, bufB);
+    } catch {
+      // Fallback to string comparison if decoding fails
+      return a.localeCompare(b);
+    }
   });
 }
 
