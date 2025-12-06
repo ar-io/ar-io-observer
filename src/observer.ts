@@ -26,7 +26,11 @@ import pMap from 'p-map';
 import { MAX_FORK_DEPTH } from './arweave.js';
 import * as config from './config.js';
 import { BlockOffsetMapping } from './lib/block-offset-mapping.js';
-import { parseTxPath, safeBigIntToNumber } from './lib/tx-path-parser.js';
+import {
+  parseTxPath,
+  safeBigIntToNumber,
+  sortTxIdsByBinary,
+} from './lib/tx-path-parser.js';
 import log from './log.js';
 import * as metrics from './metrics.js';
 
@@ -104,27 +108,6 @@ export function customHashPRNG(seed: Buffer) {
     const int = currentHash.readBigUInt64BE(0);
     return Number(int) / 2 ** 64;
   };
-}
-
-function sortTransactionIdsByBinary(txIds: string[]): string[] {
-  return [...txIds].sort((a, b) => {
-    try {
-      // Decode base64url to binary for proper comparison (same as Arweave does)
-      const decodeB64Url = (str: string): Buffer => {
-        // Add padding if needed and convert to base64
-        const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
-        const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
-        return Buffer.from(padded, 'base64');
-      };
-
-      const bufA = decodeB64Url(a);
-      const bufB = decodeB64Url(b);
-      return Buffer.compare(bufA, bufB);
-    } catch (error) {
-      // Fallback to string comparison if decoding fails
-      return a.localeCompare(b);
-    }
-  });
 }
 
 export function generateRandomRanges({
@@ -821,7 +804,7 @@ export class Observer {
     });
 
     // Sort transaction IDs by their binary representation (same as Arweave does)
-    const sortedTxIds = sortTransactionIdsByBinary(txIds);
+    const sortedTxIds = sortTxIdsByBinary(txIds);
 
     log.debug('Transaction IDs sorted for binary search', {
       targetHost,
@@ -904,6 +887,7 @@ export class Observer {
     targetHost: string,
     targetOffset: number,
     maxSearchHeight: number,
+    preFoundBlockHeight?: number,
   ): Promise<{
     txId: string;
     dataRoot: string;
@@ -913,28 +897,41 @@ export class Observer {
     log.debug('Starting transaction search for offset', {
       targetHost,
       targetOffset,
+      preFoundBlockHeight,
     });
 
     try {
-      // Use pre-calculated stable search range for consistency and cache efficiency
-      const minHeight = 1;
-      const maxHeight = maxSearchHeight;
+      // Use pre-found block height if available, otherwise binary search
+      let containingBlockHeight: number;
 
-      log.debug('Using pre-calculated block search range', {
-        targetHost,
-        targetOffset,
-        minHeight,
-        maxHeight,
-        searchRange: maxHeight - minHeight,
-      });
+      if (preFoundBlockHeight !== undefined) {
+        containingBlockHeight = preFoundBlockHeight;
+        log.debug('Using pre-found block height, skipping block search', {
+          targetHost,
+          targetOffset,
+          containingBlockHeight,
+        });
+      } else {
+        // Use pre-calculated stable search range for consistency and cache efficiency
+        const minHeight = 1;
+        const maxHeight = maxSearchHeight;
 
-      // Binary search for the containing block
-      const containingBlockHeight = await this.binarySearchBlocks(
-        targetHost,
-        targetOffset,
-        minHeight,
-        maxHeight,
-      );
+        log.debug('Using pre-calculated block search range', {
+          targetHost,
+          targetOffset,
+          minHeight,
+          maxHeight,
+          searchRange: maxHeight - minHeight,
+        });
+
+        // Binary search for the containing block
+        containingBlockHeight = await this.binarySearchBlocks(
+          targetHost,
+          targetOffset,
+          minHeight,
+          maxHeight,
+        );
+      }
 
       // Get the block data using reference gateway
       const block = await this.getBlockByHeight(
@@ -1384,16 +1381,18 @@ export class Observer {
                 );
               }
 
-              // Step 3: Fall back to full binary search
+              // Step 3: Fall back to transaction binary search (reuse block we already found)
               log.debug('Finding transaction for offset using binary search', {
                 targetHost,
                 offset,
+                containingBlockHeight,
               });
 
               const transactionInfo = await this.findTransactionForOffset(
                 targetHost,
                 offset,
                 maxSearchHeight,
+                containingBlockHeight,
               );
 
               const effectiveDataRoot = Buffer.from(
