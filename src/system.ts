@@ -62,6 +62,8 @@ import {
   ReportSinkEntry,
 } from './store/pipeline-report-sink.js';
 import { TurboReportSink } from './store/turbo-report-sink.js';
+import { ContinuousObserver } from './continuous/continuous-observer.js';
+import { FsObservationStateStore } from './continuous/observation-state-store.js';
 
 const REPORT_CACHE_TTL_SECONDS = 60 * 60 * 2.5; // 2.5 hours
 
@@ -460,6 +462,38 @@ export async function updateAndSaveCurrentReport() {
       stack: error.stack,
     });
   }
+}
+
+// Continuous observation state store
+export const observationStateStore = new FsObservationStateStore({
+  statePath: './data/observation-state.json',
+  log,
+});
+
+/**
+ * Factory function to create a ContinuousObserver instance.
+ */
+export function createContinuousObserver(): ContinuousObserver {
+  return new ContinuousObserver({
+    observerAddress: config.OBSERVER_WALLET,
+    referenceGatewayHost: config.REFERENCE_GATEWAY_HOST,
+    epochSource,
+    hostsSource: observedGatewayHostList,
+    prescribedNamesSource: namesSource,
+    chosenNamesSource,
+    entropySource: compositeEntropySource,
+    stateStore: observationStateStore,
+    reportSink,
+    nodeReleaseVersion: config.AR_IO_NODE_RELEASE,
+    nameAssessmentConcurrency: config.NAME_ASSESSMENT_CONCURRENCY,
+    config: {
+      cycleIntervalMs: config.OBSERVATION_CYCLE_INTERVAL_MS,
+      gatewayAssessmentConcurrency: config.GATEWAY_ASSESSMENT_CONCURRENCY,
+      observationsPerGateway: config.OBSERVATIONS_PER_GATEWAY,
+      majorityThreshold: config.MAJORITY_VOTE_THRESHOLD,
+    },
+    log,
+  });
 }
 
 // Exception Handlers

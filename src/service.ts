@@ -18,16 +18,31 @@
 import * as config from './config.js';
 import log from './log.js';
 import { app } from './server.js';
-import { updateAndSaveCurrentReport } from './system.js';
+import { createContinuousObserver } from './system.js';
 
 if (config.RUN_OBSERVER) {
-  setInterval(updateAndSaveCurrentReport, config.REPORT_GENERATION_INTERVAL_MS);
+  const continuousObserver = createContinuousObserver();
+
+  // Start the continuous observer (runs indefinitely)
+  continuousObserver.start().catch((error) => {
+    log.error('Continuous observer failed', { error: error.message });
+    process.exit(1);
+  });
+
+  // Graceful shutdown
+  process.on('SIGTERM', () => {
+    log.verbose('SIGTERM received, stopping continuous observer...');
+    continuousObserver.stop();
+  });
+
+  process.on('SIGINT', () => {
+    log.verbose('SIGINT received, stopping continuous observer...');
+    continuousObserver.stop();
+  });
 
   app.listen(config.PORT, () => {
     log.verbose(`Listening on port ${config.PORT}`);
   });
-
-  updateAndSaveCurrentReport();
 } else {
   log.warn('Observer is disabled', {
     RUN_OBSERVER: config.RUN_OBSERVER,

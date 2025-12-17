@@ -107,3 +107,36 @@ export const blockSearchIterationsHistogram = new Histogram({
   buckets: [5, 10, 15, 20, 25, 30],
   registers: [register],
 });
+
+// Continuous observation metrics
+export const observationDelayHistogram = new Histogram({
+  name: 'observer_observation_delay_seconds',
+  help: 'Time between scheduled and actual observation',
+  buckets: [0, 30, 60, 120, 300, 600, 1200],
+  registers: [register],
+});
+
+export const gatewayObservationsCounter = new Counter({
+  name: 'observer_gateway_observations_total',
+  help: 'Total gateway observations in continuous mode',
+  labelNames: ['fqdn', 'status'],
+  registers: [register],
+});
+
+export const epochCoverageGauge = new Gauge({
+  name: 'observer_epoch_coverage',
+  help: 'Percentage of gateways with at least one observation in current epoch',
+  registers: [register],
+});
+
+export const continuousObserverStateGauge = new Gauge({
+  name: 'observer_continuous_state',
+  help: 'Current state of continuous observer (0=waiting, 1=observing, 2=finalizing)',
+  registers: [register],
+});
+
+export const windowProgressGauge = new Gauge({
+  name: 'observer_window_progress',
+  help: 'Progress through observation window (0-1)',
+  registers: [register],
+});

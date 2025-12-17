@@ -26,6 +26,7 @@ import pMap from 'p-map';
 import { MAX_FORK_DEPTH } from './arweave.js';
 import * as config from './config.js';
 import { BlockOffsetMapping } from './lib/block-offset-mapping.js';
+import { customHashPRNG } from './lib/prng.js';
 import {
   parseTxPath,
   safeBigIntToNumber,
@@ -90,25 +91,6 @@ const client = got.extend({
     socket: 7000,
   },
 });
-
-export function customHashPRNG(seed: Buffer) {
-  if (!Buffer.isBuffer(seed)) {
-    throw new Error('Seed must be a Buffer.');
-  }
-
-  let currentHash = seed;
-
-  return () => {
-    // Create a new hash from the current hash
-    const hash = crypto.createHash('sha256');
-    hash.update(currentHash);
-    currentHash = hash.digest();
-
-    // Convert the hash to a floating-point number and return it
-    const int = currentHash.readBigUInt64BE(0);
-    return Number(int) / 2 ** 64;
-  };
-}
 
 export function generateRandomRanges({
   contentSize,
@@ -280,7 +262,7 @@ export async function getArnsResolution({
   return getHashWithinFirstMiB();
 }
 
-async function assessOwnership({
+export async function assessOwnership({
   host,
   expectedWallets,
 }: {
