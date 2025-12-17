@@ -194,3 +194,34 @@ export const BLOCK_OFFSET_MAPPING_FILE = env.varOrDefault(
   'BLOCK_OFFSET_MAPPING_FILE',
   DEFAULT_BLOCK_OFFSET_MAPPING_FILE,
 );
+
+// Continuous observation configuration
+export const OBSERVATIONS_PER_GATEWAY = +env.varOrDefault(
+  'OBSERVATIONS_PER_GATEWAY',
+  '3',
+);
+
+export const OBSERVATION_WINDOW_FRACTION = Math.max(
+  0.1,
+  Math.min(0.9, +env.varOrDefault('OBSERVATION_WINDOW_FRACTION', '0.5')),
+);
+
+export const OBSERVATION_CYCLE_INTERVAL_MS = +env.varOrDefault(
+  'OBSERVATION_CYCLE_INTERVAL_MS',
+  `${30 * 1000}`, // 30 seconds
+);
+
+export const OBSERVATION_STABILITY_BUFFER_MS = +env.varOrDefault(
+  'OBSERVATION_STABILITY_BUFFER_MS',
+  `${36 * 60 * 1000}`, // 36 minutes
+);
+
+export const OBSERVATION_SUBMISSION_BUFFER_MS = +env.varOrDefault(
+  'OBSERVATION_SUBMISSION_BUFFER_MS',
+  `${72 * 60 * 1000}`, // 72 minutes
+);
+
+export const MAJORITY_VOTE_THRESHOLD = +env.varOrDefault(
+  'MAJORITY_VOTE_THRESHOLD',
+  '2', // 2 of 3 observations must pass
+);

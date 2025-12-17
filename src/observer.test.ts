@@ -22,8 +22,8 @@ import crypto from 'node:crypto';
 import sinon from 'sinon';
 
 import * as config from './config.js';
+import { customHashPRNG } from './lib/prng.js';
 import {
-  customHashPRNG,
   generateRandomRanges,
   getArnsResolution,
   Observer,
