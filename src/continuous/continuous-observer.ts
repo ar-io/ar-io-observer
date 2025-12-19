@@ -333,6 +333,9 @@ export class ContinuousObserver {
 
     const now = Date.now();
 
+    // Update progress and state metrics
+    this.updateCycleMetrics(now);
+
     // Check for epoch transition
     const currentEpochIndex = await this.epochSource.getEpochIndex();
     if (currentEpochIndex !== this.state.epochIndex) {
@@ -567,5 +570,41 @@ export class ContinuousObserver {
     }
     // Return most recent observation overall
     return observations[observations.length - 1];
+  }
+
+  /**
+   * Update cycle metrics for monitoring.
+   */
+  private updateCycleMetrics(now: number): void {
+    if (!this.state) {
+      return;
+    }
+
+    // Window progress (0-1)
+    const windowStart = this.scheduler.getWindowStart();
+    const windowEnd = this.scheduler.getWindowEnd();
+    const windowDuration = windowEnd - windowStart;
+    const progress =
+      windowDuration > 0
+        ? Math.max(0, Math.min(1, (now - windowStart) / windowDuration))
+        : 0;
+    metrics.windowProgressGauge.set(progress);
+
+    // Observer state: 0=waiting, 1=observing, 2=finalizing
+    if (this.scheduler.isBeforeWindow(now)) {
+      metrics.continuousObserverStateGauge.set(0);
+    } else if (this.scheduler.isWindowComplete(now)) {
+      metrics.continuousObserverStateGauge.set(2);
+    } else {
+      metrics.continuousObserverStateGauge.set(1);
+    }
+
+    // Epoch coverage (percentage of gateways with at least one observation)
+    const totalGateways = this.state.gatewayObservations.size;
+    const observedGateways = [
+      ...this.state.gatewayObservations.values(),
+    ].filter((agg) => agg.observations.length > 0).length;
+    const coverage = totalGateways > 0 ? observedGateways / totalGateways : 0;
+    metrics.epochCoverageGauge.set(coverage);
   }
 }
