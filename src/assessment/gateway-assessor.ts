@@ -200,7 +200,7 @@ export class GatewayAssessor {
     }
 
     return {
-      assessedAt: +(Date.now() / 1000).toFixed(0),
+      assessedAt: Math.floor(Date.now() / 1000),
       expectedStatusCode: referenceResolution.statusCode,
       resolvedStatusCode: gatewayResolution.statusCode,
       expectedId: referenceResolution.resolvedId ?? null,
@@ -237,7 +237,7 @@ export class GatewayAssessor {
               ? err.message
               : undefined;
           return {
-            assessedAt: +(Date.now() / 1000).toFixed(0),
+            assessedAt: Math.floor(Date.now() / 1000),
             expectedId: null,
             resolvedId: null,
             expectedDataHash: null,

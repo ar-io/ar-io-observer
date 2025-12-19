@@ -426,8 +426,13 @@ export class ContinuousObserver {
   private async observeGateway(
     fqdn: string,
   ): Promise<GatewayObservationResult> {
-    const scheduledAt =
-      this.scheduler.getSchedule().get(fqdn)?.[0] ?? Date.now();
+    const scheduledTime = this.scheduler.getSchedule().get(fqdn)?.[0];
+    if (scheduledTime === undefined) {
+      this.log.warn('No scheduled time found for gateway, using current time', {
+        fqdn,
+      });
+    }
+    const scheduledAt = scheduledTime ?? Date.now();
     const observedAt = Date.now();
 
     const expectedWallets = this.state!.gatewayWallets.get(fqdn) ?? [];

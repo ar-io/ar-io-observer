@@ -97,7 +97,9 @@ export class ContinuousObservationScheduler {
 
     if (availableStartRange <= 0) {
       throw new Error(
-        'Epoch duration too short for configured buffers and window fraction',
+        `Epoch duration too short for configured buffers and window fraction. ` +
+          `epochDuration=${epochDuration}ms, windowLength=${windowLength}ms, ` +
+          `stabilityBuffer=${this.config.stabilityBufferMs}ms, submissionBuffer=${this.config.submissionBufferMs}ms`,
       );
     }
 
