@@ -39,7 +39,7 @@ export class FsObservationStateStore implements ObservationStateStore {
   private readonly log: Logger;
 
   constructor({
-    statePath = './data/observation-state.json',
+    statePath = './data/observer/observation-state.json',
     log,
   }: {
     statePath?: string;

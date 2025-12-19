@@ -466,7 +466,7 @@ export async function updateAndSaveCurrentReport() {
 
 // Continuous observation state store
 export const observationStateStore = new FsObservationStateStore({
-  statePath: './data/observation-state.json',
+  statePath: './data/observer/observation-state.json',
   log,
 });
 
