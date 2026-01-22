@@ -51,7 +51,7 @@ export const ENABLE_OPENAPI_VALIDATION =
 
 export const ARWEAVE_URL = env.varOrDefault(
   'ARWEAVE_URL',
-  'https://arweave.net',
+  'https://turbo-gateway.com',
 );
 
 export const IO_PROCESS_ID = env.varOrDefault(
@@ -80,10 +80,28 @@ export const REPORT_SAVE_EPOCH_END_OFFSET_MS = Math.abs(
   ),
 );
 
+const DEFAULT_REFERENCE_GATEWAYS = ['turbo-gateway.com', 'ar-io.net'];
+
 export const REFERENCE_GATEWAY_HOST = env.varOrDefault(
   'REFERENCE_GATEWAY_HOST',
-  args.referenceGateway ?? 'ar-io.net',
+  args.referenceGateway ?? 'turbo-gateway.com',
 );
+
+export const REFERENCE_GATEWAY_HOSTS: string[] = (() => {
+  const hostsEnv = env.varOrUndefined('REFERENCE_GATEWAY_HOSTS');
+  if (hostsEnv !== undefined && hostsEnv.trim().length > 0) {
+    return hostsEnv
+      .split(',')
+      .map((h) => h.trim())
+      .filter((h) => h.length > 0);
+  }
+  const singleHost =
+    env.varOrUndefined('REFERENCE_GATEWAY_HOST') ?? args.referenceGateway;
+  if (singleHost !== undefined) {
+    return [singleHost];
+  }
+  return DEFAULT_REFERENCE_GATEWAYS;
+})();
 
 export const OBSERVED_GATEWAY_HOSTS = env
   .varOrDefault('OBSERVED_GATEWAY_HOSTS', args.observedGatewayHosts ?? '')

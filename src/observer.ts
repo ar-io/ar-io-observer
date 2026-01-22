@@ -49,6 +49,7 @@ import {
   ObserverReport,
   OffsetSamplingAssessment,
   OwnershipAssessment,
+  ReferenceGatewaySource,
 } from './types.js';
 
 export const REPORT_FORMAT_VERSION = 2;
@@ -328,7 +329,8 @@ export async function assessOwnership({
 
 export class Observer {
   private observerAddress: string;
-  private referenceGatewayHost: string;
+  private referenceGateway: ReferenceGatewaySource;
+  private arweaveHost: string;
   private epochSource: EpochTimestampSource;
   private observedGatewayHostList: GatewayHostsSource;
   private prescribedNamesSource: ArnsNamesSource;
@@ -369,7 +371,8 @@ export class Observer {
     prescribedNamesSource,
     epochSource,
     chosenNamesSource,
-    referenceGatewayHost,
+    referenceGateway,
+    arweaveUrl,
     observedGatewayHostList,
     gatewayAssessmentConcurrency,
     nameAssessmentConcurrency,
@@ -378,7 +381,8 @@ export class Observer {
     heightSource,
   }: {
     observerAddress: string;
-    referenceGatewayHost: string;
+    referenceGateway: ReferenceGatewaySource;
+    arweaveUrl: string;
     epochSource: EpochTimestampSource;
     observedGatewayHostList: GatewayHostsSource;
     prescribedNamesSource: ArnsNamesSource;
@@ -390,7 +394,8 @@ export class Observer {
     heightSource: HeightSource;
   }) {
     this.observerAddress = observerAddress;
-    this.referenceGatewayHost = referenceGatewayHost;
+    this.referenceGateway = referenceGateway;
+    this.arweaveHost = new URL(arweaveUrl).host;
     this.epochSource = epochSource;
     this.observedGatewayHostList = observedGatewayHostList;
     this.prescribedNamesSource = prescribedNamesSource;
@@ -685,11 +690,8 @@ export class Observer {
       });
 
       try {
-        // Use reference gateway for trusted block data
-        const block = await this.getBlockByHeight(
-          this.referenceGatewayHost,
-          mid,
-        );
+        // Use arweave host for trusted block data
+        const block = await this.getBlockByHeight(this.arweaveHost, mid);
         const weaveSizeNum = parseInt(block.weave_size, 10);
 
         // Check if this is the containing block
@@ -710,9 +712,9 @@ export class Observer {
 
           // Check previous block
           try {
-            // Use reference gateway for trusted block data
+            // Use arweave host for trusted block data
             const prevBlock = await this.getBlockByHeight(
-              this.referenceGatewayHost,
+              this.arweaveHost,
               mid - 1,
             );
             const prevWeaveSizeNum = parseInt(prevBlock.weave_size, 10);
@@ -813,9 +815,9 @@ export class Observer {
       });
 
       try {
-        // Use reference gateway for trusted transaction data
+        // Use arweave host for trusted transaction data
         const txOffset = await this.getTransactionOffset(
-          this.referenceGatewayHost,
+          this.arweaveHost,
           txId,
         );
         const txEndOffset = parseInt(txOffset.offset, 10);
@@ -915,9 +917,9 @@ export class Observer {
         );
       }
 
-      // Get the block data using reference gateway
+      // Get the block data using arweave host
       const block = await this.getBlockByHeight(
-        this.referenceGatewayHost,
+        this.arweaveHost,
         containingBlockHeight,
       );
 
@@ -935,11 +937,8 @@ export class Observer {
         block.txs,
       );
 
-      // Get the transaction data to extract data_root and calculate boundaries using reference gateway
-      const transaction = await this.getTransaction(
-        this.referenceGatewayHost,
-        txId,
-      );
+      // Get the transaction data to extract data_root and calculate boundaries using arweave host
+      const transaction = await this.getTransaction(this.arweaveHost, txId);
 
       if (
         transaction.data_root === undefined ||
@@ -950,11 +949,8 @@ export class Observer {
         );
       }
 
-      // Get the transaction offset to calculate boundaries using reference gateway
-      const txOffset = await this.getTransactionOffset(
-        this.referenceGatewayHost,
-        txId,
-      );
+      // Get the transaction offset to calculate boundaries using arweave host
+      const txOffset = await this.getTransactionOffset(this.arweaveHost, txId);
       const txEndOffset = parseInt(txOffset.offset, 10);
       const txSize = parseInt(txOffset.size, 10);
       const txStartOffset = txEndOffset - txSize + 1;
@@ -1010,9 +1006,9 @@ export class Observer {
     }
 
     try {
-      // Get current block for tx_root and weave_size
+      // Get current block for tx_root and weave_size using arweave host
       const block = await this.getBlockByHeight(
-        this.referenceGatewayHost,
+        this.arweaveHost,
         containingBlockHeight,
       );
 
@@ -1028,11 +1024,11 @@ export class Observer {
         return null;
       }
 
-      // Get previous block weave_size for relative offset calculation
+      // Get previous block weave_size for relative offset calculation using arweave host
       let prevBlockWeaveSize = BigInt(0);
       if (containingBlockHeight > 0) {
         const prevBlock = await this.getBlockByHeight(
-          this.referenceGatewayHost,
+          this.arweaveHost,
           containingBlockHeight - 1,
         );
         prevBlockWeaveSize = BigInt(prevBlock.weave_size);
@@ -1262,42 +1258,25 @@ export class Observer {
           // Check if reference gateway also has this chunk (for comparison)
           (async (): Promise<boolean | undefined> => {
             try {
-              const referenceUrl = `https://${this.referenceGatewayHost}/chunk/${offset}`;
               log.debug('Checking reference gateway chunk availability', {
                 targetHost,
-                referenceHost: this.referenceGatewayHost,
                 offset,
-                referenceUrl,
               });
 
-              const referenceResponse = await this.gotClient.get(referenceUrl, {
-                timeout: { request: 7000 },
-                responseType: 'json',
-              });
-
-              // Consider it available if we get a successful response with valid structure
-              const referenceChunkResponse = referenceResponse.body as {
-                chunk?: string;
-                data_path?: string;
-              };
-
-              const available =
-                referenceResponse.statusCode === 200 &&
-                referenceChunkResponse.chunk !== undefined;
+              const { host: referenceHost, available } =
+                await this.referenceGateway.checkChunkAvailability({ offset });
 
               log.debug('Reference gateway chunk check completed', {
                 targetHost,
-                referenceHost: this.referenceGatewayHost,
+                referenceHost,
                 offset,
                 available,
-                statusCode: referenceResponse.statusCode,
               });
 
               return available;
             } catch (referenceError: any) {
               log.debug('Reference gateway chunk check failed', {
                 targetHost,
-                referenceHost: this.referenceGatewayHost,
                 offset,
                 error: referenceError?.message,
               });
@@ -1860,7 +1839,7 @@ export class Observer {
 
       // Get the weave size at the stable height to determine max stable offset
       const stableBlock = await this.getBlockByHeight(
-        this.referenceGatewayHost,
+        this.arweaveHost,
         maxSearchHeight,
       );
       maxStableOffset = parseInt(stableBlock.weave_size, 10);
@@ -1933,12 +1912,13 @@ export class Observer {
         cacheCapacity: prescribedNames.length + chosenNames.length,
         cacheTTL: 5 * 60_000, // 5 minutes
       },
-      readThroughFunction: async (name: string) =>
-        getArnsResolution({
-          url: `https://${name}.${this.referenceGatewayHost}/`,
-          got: this.gotClient,
+      readThroughFunction: async (name: string) => {
+        const { resolution } = await this.referenceGateway.getArnsResolution({
+          arnsName: name,
           entropy,
-        }),
+        });
+        return resolution;
+      },
     });
 
     await pMap(

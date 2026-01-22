@@ -53,6 +53,7 @@ import { ContractNamesSource } from './names/contract-names-source.js';
 import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
 import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
+import { FallbackReferenceGateway } from './reference/fallback-reference-gateway.js';
 import { ArweaveReportSink } from './store/arweave-report-sink.js';
 import { ContractReportSink } from './store/contract-report-sink.js';
 import { FsReportStore } from './store/fs-report-store.js';
@@ -177,9 +178,16 @@ const chosenNamesSource = new RandomArnsNamesSource({
   numNamesToSource: config.NUM_ARNS_NAMES_TO_OBSERVE_PER_GROUP,
 });
 
+const referenceGateway = new FallbackReferenceGateway({
+  hosts: config.REFERENCE_GATEWAY_HOSTS,
+  nodeReleaseVersion: config.AR_IO_NODE_RELEASE,
+  log,
+});
+
 export const observer = new Observer({
   observerAddress: config.OBSERVER_WALLET,
-  referenceGatewayHost: config.REFERENCE_GATEWAY_HOST,
+  referenceGateway,
+  arweaveUrl: config.ARWEAVE_URL,
   epochSource,
   observedGatewayHostList,
   prescribedNamesSource: namesSource,
@@ -476,7 +484,7 @@ export const observationStateStore = new FsObservationStateStore({
 export function createContinuousObserver(): ContinuousObserver {
   return new ContinuousObserver({
     observerAddress: config.OBSERVER_WALLET,
-    referenceGatewayHost: config.REFERENCE_GATEWAY_HOST,
+    referenceGateway,
     epochSource,
     hostsSource: observedGatewayHostList,
     prescribedNamesSource: namesSource,

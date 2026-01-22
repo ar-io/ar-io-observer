@@ -73,17 +73,21 @@ function hasTimestamp(obj: unknown): obj is TimeStamped {
 export class RemoteCacheArnsNameList implements ArnsNameList {
   private baseCacheUrl: string;
   private contractId: string;
+  private arweaveUrl: string;
   private names: string[] | undefined;
 
   constructor({
     baseCacheUrl,
     contractId,
+    arweaveUrl,
   }: {
     baseCacheUrl: string;
     contractId: string;
+    arweaveUrl: string;
   }) {
     this.baseCacheUrl = baseCacheUrl;
     this.contractId = contractId;
+    this.arweaveUrl = arweaveUrl;
   }
 
   async getNamesCount(height: number): Promise<number> {
@@ -94,7 +98,7 @@ export class RemoteCacheArnsNameList implements ArnsNameList {
   async getAllNames(height: number): Promise<string[]> {
     if (this.names === undefined) {
       const block = await got(
-        `https://arweave.net/block/height/${height}`,
+        `${this.arweaveUrl}/block/height/${height}`,
       ).json<unknown>();
       if (!hasTimestamp(block)) {
         throw new Error('Unexpected block response format');

@@ -93,6 +93,32 @@ export interface GatewayHostsSource {
 }
 
 //
+// Reference gateway
+//
+
+export interface ArnsResolution {
+  statusCode: number;
+  resolvedId: string | null;
+  ttlSeconds: string | null;
+  contentLength: string | null;
+  contentType: string | null;
+  dataHashDigest: string | null;
+  timings: any | null;
+}
+
+export interface ReferenceGatewaySource {
+  getArnsResolution(params: {
+    arnsName: string;
+    entropy: Buffer;
+    referenceContentLength?: string | null;
+  }): Promise<{ host: string; resolution: ArnsResolution }>;
+
+  checkChunkAvailability(params: {
+    offset: number;
+  }): Promise<{ host: string; available: boolean }>;
+}
+
+//
 // Observer report
 //
 
