@@ -243,3 +243,50 @@ export const MAJORITY_VOTE_THRESHOLD = +env.varOrDefault(
   'MAJORITY_VOTE_THRESHOLD',
   '2', // 2 of 3 observations must pass
 );
+
+// Network gateway fallback configuration
+export const REFERENCE_GATEWAY_NETWORK_ONLY =
+  env.varOrDefault('REFERENCE_GATEWAY_NETWORK_ONLY', 'false') === 'true';
+
+export const REFERENCE_GATEWAY_NETWORK_FALLBACK =
+  env.varOrDefault('REFERENCE_GATEWAY_NETWORK_FALLBACK', 'true') === 'true';
+
+export const REFERENCE_GATEWAY_CONSENSUS_SIZE = +env.varOrDefault(
+  'REFERENCE_GATEWAY_CONSENSUS_SIZE',
+  '3',
+);
+
+export const REFERENCE_GATEWAY_CONSENSUS_THRESHOLD = +env.varOrDefault(
+  'REFERENCE_GATEWAY_CONSENSUS_THRESHOLD',
+  '2',
+);
+
+export const REFERENCE_GATEWAY_MIN_PASS_RATE = +env.varOrDefault(
+  'REFERENCE_GATEWAY_MIN_PASS_RATE',
+  '0.8',
+);
+
+export const REFERENCE_GATEWAY_MIN_CONSECUTIVE_PASSES = +env.varOrDefault(
+  'REFERENCE_GATEWAY_MIN_CONSECUTIVE_PASSES',
+  '2',
+);
+
+export const REFERENCE_GATEWAY_MIN_EPOCH_COUNT = +env.varOrDefault(
+  'REFERENCE_GATEWAY_MIN_EPOCH_COUNT',
+  '5',
+);
+
+export const REFERENCE_GATEWAY_MAX_NETWORK_POOL = +env.varOrDefault(
+  'REFERENCE_GATEWAY_MAX_NETWORK_POOL',
+  '10',
+);
+
+export const REFERENCE_GATEWAY_NETWORK_CACHE_TTL_SECONDS = +env.varOrDefault(
+  'REFERENCE_GATEWAY_NETWORK_CACHE_TTL_SECONDS',
+  `${4 * 60 * 60}`, // 4 hours
+);
+
+export const REFERENCE_GATEWAY_CONSENSUS_MAX_ATTEMPTS = +env.varOrDefault(
+  'REFERENCE_GATEWAY_CONSENSUS_MAX_ATTEMPTS',
+  '2', // Up to 2 rounds of fetching replacement gateways
+);

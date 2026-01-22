@@ -53,7 +53,10 @@ import { ContractNamesSource } from './names/contract-names-source.js';
 import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
 import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
+import { DefaultArnsConsensusResolver } from './reference/arns-consensus-resolver.js';
+import { CompositeReferenceGateway } from './reference/composite-reference-gateway.js';
 import { FallbackReferenceGateway } from './reference/fallback-reference-gateway.js';
+import { CachedNetworkGatewaySource } from './reference/network-gateway-source.js';
 import { ArweaveReportSink } from './store/arweave-report-sink.js';
 import { ContractReportSink } from './store/contract-report-sink.js';
 import { FsReportStore } from './store/fs-report-store.js';
@@ -178,8 +181,52 @@ const chosenNamesSource = new RandomArnsNamesSource({
   numNamesToSource: config.NUM_ARNS_NAMES_TO_OBSERVE_PER_GROUP,
 });
 
-const referenceGateway = new FallbackReferenceGateway({
-  hosts: config.REFERENCE_GATEWAY_HOSTS,
+// Setup reference gateway with optional network fallback
+const explicitReferenceGateway = config.REFERENCE_GATEWAY_NETWORK_ONLY
+  ? null
+  : new FallbackReferenceGateway({
+      hosts: config.REFERENCE_GATEWAY_HOSTS,
+      nodeReleaseVersion: config.AR_IO_NODE_RELEASE,
+      log,
+    });
+
+// Setup network gateway source if network fallback is enabled or network only mode
+const networkGatewaySource =
+  config.REFERENCE_GATEWAY_NETWORK_FALLBACK ||
+  config.REFERENCE_GATEWAY_NETWORK_ONLY
+    ? new CachedNetworkGatewaySource({
+        contract: networkContract,
+        config: {
+          minPassRate: config.REFERENCE_GATEWAY_MIN_PASS_RATE,
+          minConsecutivePasses: config.REFERENCE_GATEWAY_MIN_CONSECUTIVE_PASSES,
+          minEpochCount: config.REFERENCE_GATEWAY_MIN_EPOCH_COUNT,
+          maxCount: config.REFERENCE_GATEWAY_MAX_NETWORK_POOL,
+          cacheTtlSeconds: config.REFERENCE_GATEWAY_NETWORK_CACHE_TTL_SECONDS,
+        },
+        log,
+      })
+    : null;
+
+// Setup consensus resolver if network fallback or network only mode
+const consensusResolver =
+  networkGatewaySource !== null
+    ? new DefaultArnsConsensusResolver({
+        networkGatewaySource,
+        consensusSize: config.REFERENCE_GATEWAY_CONSENSUS_SIZE,
+        consensusThreshold: config.REFERENCE_GATEWAY_CONSENSUS_THRESHOLD,
+        maxAttempts: config.REFERENCE_GATEWAY_CONSENSUS_MAX_ATTEMPTS,
+        nodeReleaseVersion: config.AR_IO_NODE_RELEASE,
+        log,
+      })
+    : null;
+
+// Create composite reference gateway
+const referenceGateway = new CompositeReferenceGateway({
+  explicitGateway: explicitReferenceGateway,
+  networkGatewaySource,
+  consensusResolver,
+  networkOnly: config.REFERENCE_GATEWAY_NETWORK_ONLY,
+  networkFallback: config.REFERENCE_GATEWAY_NETWORK_FALLBACK,
   nodeReleaseVersion: config.AR_IO_NODE_RELEASE,
   log,
 });

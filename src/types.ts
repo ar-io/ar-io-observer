@@ -214,3 +214,47 @@ export interface ReportStore {
   getReport(epochStartHeight: number): Promise<ObserverReport | null>;
   latestReport(): Promise<ObserverReport | null>;
 }
+
+//
+// Network gateway fallback
+//
+
+export interface NetworkGateway {
+  fqdn: string;
+  protocol: string;
+  port: number;
+  gatewayAddress: string;
+  passRate: number;
+  passedConsecutiveEpochs: number;
+}
+
+export interface NetworkGatewaySelectionConfig {
+  minPassRate: number;
+  minConsecutivePasses: number;
+  minEpochCount: number;
+  maxCount: number;
+  cacheTtlSeconds: number;
+}
+
+export interface NetworkGatewaySource {
+  getEligibleGateways(params: {
+    excludeFqdns?: string[];
+    maxCount?: number;
+  }): Promise<NetworkGateway[]>;
+
+  markUnresponsive(fqdn: string): void;
+}
+
+export interface ArnsConsensusResolver {
+  resolveWithConsensus(params: {
+    arnsName: string;
+    entropy: Buffer;
+    excludeFqdns?: string[];
+    referenceContentLength?: string | null;
+  }): Promise<{ host: string; resolution: ArnsResolution }>;
+}
+
+export interface CompositeReferenceGatewaySource
+  extends ReferenceGatewaySource {
+  setObservedGateway(fqdn: string | null): void;
+}

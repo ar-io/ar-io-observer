@@ -148,3 +148,24 @@ export const windowProgressGauge = new Gauge({
   help: 'Progress through observation window (0-1)',
   registers: [register],
 });
+
+// Network gateway fallback metrics
+export const networkFallbackCounter = new Counter({
+  name: 'observer_network_fallback_total',
+  help: 'Total number of network gateway fallback events',
+  labelNames: ['operation', 'status'],
+  registers: [register],
+});
+
+export const networkConsensusAgreementHistogram = new Histogram({
+  name: 'observer_network_consensus_agreement',
+  help: 'Number of gateways agreeing in consensus resolution',
+  buckets: [1, 2, 3, 4, 5],
+  registers: [register],
+});
+
+export const networkEligibleGatewaysGauge = new Gauge({
+  name: 'observer_network_eligible_gateways',
+  help: 'Number of eligible network gateways',
+  registers: [register],
+});
