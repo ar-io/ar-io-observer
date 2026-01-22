@@ -81,7 +81,6 @@ export class FallbackReferenceGateway implements ReferenceGatewaySource {
 
     for (let i = 0; i < this.hosts.length; i++) {
       const host = this.hosts[i];
-      const isFirstHost = i === 0;
 
       try {
         const result = await operation(host);
@@ -96,16 +95,8 @@ export class FallbackReferenceGateway implements ReferenceGatewaySource {
           error: error?.message?.slice(0, 256),
         });
 
-        // Increment fallback counter (only when falling back, not on first host)
-        if (!isFirstHost) {
-          metrics.referenceGatewayFallbackCounter.inc({
-            operation: operationName,
-            host,
-          });
-        }
-
-        // If this is the primary host failing, increment fallback counter for the next host
-        if (isFirstHost && i + 1 < this.hosts.length) {
+        // Increment fallback counter when falling back to the next host
+        if (i + 1 < this.hosts.length) {
           metrics.referenceGatewayFallbackCounter.inc({
             operation: operationName,
             host: this.hosts[i + 1],
