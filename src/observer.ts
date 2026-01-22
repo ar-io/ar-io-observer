@@ -16,7 +16,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import { ReadThroughPromiseCache } from '@ardrive/ardrive-promise-cache';
-import { Timings } from '@szmarczak/http-timer';
 import { validatePath } from 'arweave/node/lib/merkle.js';
 import got, { Got, RequestError, Response } from 'got';
 import { LRUCache } from 'lru-cache';
@@ -39,6 +38,7 @@ import {
   ArnsNameAssessment,
   ArnsNameAssessments,
   ArnsNamesSource,
+  ArnsResolution,
   EntropySource,
   EpochTimestampSource,
   GatewayAssessments,
@@ -55,16 +55,6 @@ import {
 export const REPORT_FORMAT_VERSION = 2;
 
 const NAME_PASS_THRESHOLD = 0.8;
-
-interface ArnsResolution {
-  statusCode: number;
-  resolvedId: string | null;
-  ttlSeconds: string | null;
-  contentLength: string | null;
-  contentType: string | null;
-  dataHashDigest: string | null;
-  timings: Timings | null;
-}
 
 interface ArweaveBlock {
   height: number;
