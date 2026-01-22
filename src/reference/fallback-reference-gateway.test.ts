@@ -433,7 +433,7 @@ describe('FallbackReferenceGateway', function () {
       expect(result.available).to.be.false;
     });
 
-    it('should throw when response is not 200', async function () {
+    it('should return unavailable when response is not 200', async function () {
       const gateway = new FallbackReferenceGateway({
         hosts: ['gateway1.com', 'gateway2.com'],
         nodeReleaseVersion: 'test-version',
@@ -452,7 +452,7 @@ describe('FallbackReferenceGateway', function () {
       expect(result.available).to.be.false;
     });
 
-    it('should throw when chunk field is missing', async function () {
+    it('should return unavailable when chunk field is missing', async function () {
       const gateway = new FallbackReferenceGateway({
         hosts: ['gateway1.com', 'gateway2.com'],
         nodeReleaseVersion: 'test-version',
