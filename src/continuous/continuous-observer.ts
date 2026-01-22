@@ -29,6 +29,7 @@ import {
   GatewayAssessments,
   GatewayHostsSource,
   ObserverReport,
+  ReferenceGatewaySource,
   ReportSink,
 } from '../types.js';
 import { ContinuousObservationScheduler } from './continuous-observation-scheduler.js';
@@ -82,7 +83,7 @@ export class ContinuousObserver {
 
   constructor({
     observerAddress,
-    referenceGatewayHost,
+    referenceGateway,
     epochSource,
     hostsSource,
     prescribedNamesSource,
@@ -96,7 +97,7 @@ export class ContinuousObserver {
     log,
   }: {
     observerAddress: string;
-    referenceGatewayHost: string;
+    referenceGateway: ReferenceGatewaySource;
     epochSource: EpochTimestampSource;
     hostsSource: GatewayHostsSource;
     prescribedNamesSource: ArnsNamesSource;
@@ -139,7 +140,7 @@ export class ContinuousObserver {
     });
 
     this.assessor = new GatewayAssessor({
-      referenceGatewayHost,
+      referenceGateway,
       nodeReleaseVersion,
       nameAssessmentConcurrency,
       log: this.log,

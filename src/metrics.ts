@@ -108,6 +108,14 @@ export const blockSearchIterationsHistogram = new Histogram({
   registers: [register],
 });
 
+// Reference gateway fallback metrics
+export const referenceGatewayFallbackCounter = new Counter({
+  name: 'observer_reference_gateway_fallback_total',
+  help: 'Total number of reference gateway fallback events',
+  labelNames: ['operation', 'host'],
+  registers: [register],
+});
+
 // Continuous observation metrics
 export const observationDelayHistogram = new Histogram({
   name: 'observer_observation_delay_seconds',

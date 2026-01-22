@@ -28,6 +28,7 @@ import {
   getArnsResolution,
   Observer,
 } from './observer.js';
+import { ReferenceGatewaySource } from './types.js';
 import type {
   GatewayAssessments,
   ObserverReport,
@@ -415,6 +416,7 @@ describe('Observer', function () {
     let chosenNamesSourceStub: sinon.SinonStubbedInstance<ArnsNamesSource>;
     let entropySourceStub: sinon.SinonStubbedInstance<EntropySource>;
     let heightSourceStub: sinon.SinonStubbedInstance<any>;
+    let referenceGatewayStub: sinon.SinonStubbedInstance<ReferenceGatewaySource>;
 
     beforeEach(function () {
       epochSourceStub = {
@@ -443,9 +445,15 @@ describe('Observer', function () {
         getHeight: sinon.stub().returns(Promise.resolve(1000)),
       };
 
+      referenceGatewayStub = {
+        getArnsResolution: sinon.stub(),
+        checkChunkAvailability: sinon.stub(),
+      };
+
       observer = new Observer({
         observerAddress: 'test-observer',
-        referenceGatewayHost: 'arweave.net',
+        referenceGateway: referenceGatewayStub as any,
+        arweaveUrl: 'https://arweave.net',
         epochSource: epochSourceStub as any,
         observedGatewayHostList: observedGatewayHostListStub as any,
         prescribedNamesSource: prescribedNamesSourceStub as any,
@@ -964,27 +972,17 @@ describe('Observer', function () {
         });
 
         it('should handle successful validation with reference gateway available', async function () {
-          // Mock the validatePath function to return success
-          const mockValidatePath = sinon
-            .stub()
-            .resolves(Buffer.from('validated-data'));
-
-          // Need to mock the arweave module - this is tricky, let's skip the actual validatePath test for now
-          // and focus on the flow without the final validation step
-
           const validChunkData = Buffer.from('test-chunk-data');
           const validProof = Buffer.from('valid-merkle-proof');
 
+          // Configure the reference gateway stub to return available
+          referenceGatewayStub.checkChunkAvailability.resolves({
+            host: 'arweave.net',
+            available: true,
+          });
+
           // Mock target gateway chunk response
           nock('https://test-gateway.com')
-            .get('/chunk/12345')
-            .reply(200, {
-              chunk: validChunkData.toString('base64url'),
-              data_path: validProof.toString('base64url'),
-            });
-
-          // Mock reference gateway chunk response
-          nock('https://arweave.net')
             .get('/chunk/12345')
             .reply(200, {
               chunk: validChunkData.toString('base64url'),
@@ -1011,6 +1009,12 @@ describe('Observer', function () {
           const validChunkData = Buffer.from('test-chunk-data');
           const validProof = Buffer.from('valid-merkle-proof');
 
+          // Configure the reference gateway stub to return unavailable
+          referenceGatewayStub.checkChunkAvailability.resolves({
+            host: 'arweave.net',
+            available: false,
+          });
+
           // Mock target gateway chunk response
           nock('https://test-gateway.com')
             .get('/chunk/12345')
@@ -1018,9 +1022,6 @@ describe('Observer', function () {
               chunk: validChunkData.toString('base64url'),
               data_path: validProof.toString('base64url'),
             });
-
-          // Mock reference gateway as unavailable
-          nock('https://arweave.net').get('/chunk/12345').reply(404);
 
           const result = await (observer as any).validateChunkAtOffset({
             targetHost: 'test-gateway.com',
@@ -1036,6 +1037,12 @@ describe('Observer', function () {
           const validChunkData = Buffer.from('test-chunk-data');
           const validProof = Buffer.from('valid-merkle-proof');
 
+          // Configure the reference gateway stub to return unavailable (simulating network error)
+          referenceGatewayStub.checkChunkAvailability.resolves({
+            host: 'arweave.net',
+            available: false,
+          });
+
           // Mock target gateway chunk response
           nock('https://test-gateway.com')
             .get('/chunk/12345')
@@ -1043,11 +1050,6 @@ describe('Observer', function () {
               chunk: validChunkData.toString('base64url'),
               data_path: validProof.toString('base64url'),
             });
-
-          // Mock reference gateway with network error
-          nock('https://arweave.net')
-            .get('/chunk/12345')
-            .replyWithError('Connection timeout');
 
           const result = await (observer as any).validateChunkAtOffset({
             targetHost: 'test-gateway.com',

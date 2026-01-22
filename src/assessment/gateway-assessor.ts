@@ -28,6 +28,7 @@ import {
   ArnsNameAssessments,
   GatewayArnsAssessments,
   OwnershipAssessment,
+  ReferenceGatewaySource,
 } from '../types.js';
 
 // 5 minute TTL for reference resolution cache
@@ -53,7 +54,7 @@ interface ArnsResolution {
  * and maintains a reference resolution cache for the epoch.
  */
 export class GatewayAssessor {
-  private readonly referenceGatewayHost: string;
+  private readonly referenceGateway: ReferenceGatewaySource;
   private readonly nodeReleaseVersion: string;
   private readonly nameAssessmentConcurrency: number;
   private readonly log: Logger;
@@ -66,17 +67,17 @@ export class GatewayAssessor {
   private currentEntropy?: Buffer;
 
   constructor({
-    referenceGatewayHost,
+    referenceGateway,
     nodeReleaseVersion,
     nameAssessmentConcurrency,
     log,
   }: {
-    referenceGatewayHost: string;
+    referenceGateway: ReferenceGatewaySource;
     nodeReleaseVersion: string;
     nameAssessmentConcurrency: number;
     log: Logger;
   }) {
-    this.referenceGatewayHost = referenceGatewayHost;
+    this.referenceGateway = referenceGateway;
     this.nodeReleaseVersion = nodeReleaseVersion;
     this.nameAssessmentConcurrency = nameAssessmentConcurrency;
     this.log = log.child({ class: 'GatewayAssessor' });
@@ -117,11 +118,11 @@ export class GatewayAssessor {
         cacheTTL: REFERENCE_RESOLUTION_CACHE_TTL_MS,
       },
       readThroughFunction: async (arnsName: string) => {
-        return getArnsResolution({
-          url: `https://${arnsName}.${this.referenceGatewayHost}/`,
-          got: this.gotClient,
+        const { resolution } = await this.referenceGateway.getArnsResolution({
+          arnsName,
           entropy: this.currentEntropy!,
         });
+        return resolution;
       },
     });
 
