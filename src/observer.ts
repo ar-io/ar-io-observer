@@ -320,7 +320,7 @@ export async function assessOwnership({
 export class Observer {
   private observerAddress: string;
   private referenceGateway: ReferenceGatewaySource;
-  private arweaveHost: string;
+  private arweaveBaseUrl: string;
   private epochSource: EpochTimestampSource;
   private observedGatewayHostList: GatewayHostsSource;
   private prescribedNamesSource: ArnsNamesSource;
@@ -385,7 +385,7 @@ export class Observer {
   }) {
     this.observerAddress = observerAddress;
     this.referenceGateway = referenceGateway;
-    this.arweaveHost = new URL(arweaveUrl).host;
+    this.arweaveBaseUrl = new URL(arweaveUrl).origin;
     this.epochSource = epochSource;
     this.observedGatewayHostList = observedGatewayHostList;
     this.prescribedNamesSource = prescribedNamesSource;
@@ -436,7 +436,7 @@ export class Observer {
       };
     }
 
-    const url = `https://${targetHost}/block/height/${height}`;
+    const url = `${targetHost}/block/height/${height}`;
 
     log.debug('Fetching block data', {
       targetHost,
@@ -505,7 +505,7 @@ export class Observer {
       return cachedOffset;
     }
 
-    const url = `https://${targetHost}/tx/${txId}/offset`;
+    const url = `${targetHost}/tx/${txId}/offset`;
 
     log.debug('Fetching transaction offset', {
       targetHost,
@@ -571,7 +571,7 @@ export class Observer {
       } as ArweaveTransaction;
     }
 
-    const url = `https://${targetHost}/tx/${txId}`;
+    const url = `${targetHost}/tx/${txId}`;
 
     log.debug('Fetching transaction data', {
       targetHost,
@@ -681,7 +681,7 @@ export class Observer {
 
       try {
         // Use arweave host for trusted block data
-        const block = await this.getBlockByHeight(this.arweaveHost, mid);
+        const block = await this.getBlockByHeight(this.arweaveBaseUrl, mid);
         const weaveSizeNum = parseInt(block.weave_size, 10);
 
         // Check if this is the containing block
@@ -704,7 +704,7 @@ export class Observer {
           try {
             // Use arweave host for trusted block data
             const prevBlock = await this.getBlockByHeight(
-              this.arweaveHost,
+              this.arweaveBaseUrl,
               mid - 1,
             );
             const prevWeaveSizeNum = parseInt(prevBlock.weave_size, 10);
@@ -807,7 +807,7 @@ export class Observer {
       try {
         // Use arweave host for trusted transaction data
         const txOffset = await this.getTransactionOffset(
-          this.arweaveHost,
+          this.arweaveBaseUrl,
           txId,
         );
         const txEndOffset = parseInt(txOffset.offset, 10);
@@ -909,7 +909,7 @@ export class Observer {
 
       // Get the block data using arweave host
       const block = await this.getBlockByHeight(
-        this.arweaveHost,
+        this.arweaveBaseUrl,
         containingBlockHeight,
       );
 
@@ -928,7 +928,7 @@ export class Observer {
       );
 
       // Get the transaction data to extract data_root and calculate boundaries using arweave host
-      const transaction = await this.getTransaction(this.arweaveHost, txId);
+      const transaction = await this.getTransaction(this.arweaveBaseUrl, txId);
 
       if (
         transaction.data_root === undefined ||
@@ -940,7 +940,10 @@ export class Observer {
       }
 
       // Get the transaction offset to calculate boundaries using arweave host
-      const txOffset = await this.getTransactionOffset(this.arweaveHost, txId);
+      const txOffset = await this.getTransactionOffset(
+        this.arweaveBaseUrl,
+        txId,
+      );
       const txEndOffset = parseInt(txOffset.offset, 10);
       const txSize = parseInt(txOffset.size, 10);
       const txStartOffset = txEndOffset - txSize + 1;
@@ -998,7 +1001,7 @@ export class Observer {
     try {
       // Get current block for tx_root and weave_size using arweave host
       const block = await this.getBlockByHeight(
-        this.arweaveHost,
+        this.arweaveBaseUrl,
         containingBlockHeight,
       );
 
@@ -1018,7 +1021,7 @@ export class Observer {
       let prevBlockWeaveSize = BigInt(0);
       if (containingBlockHeight > 0) {
         const prevBlock = await this.getBlockByHeight(
-          this.arweaveHost,
+          this.arweaveBaseUrl,
           containingBlockHeight - 1,
         );
         prevBlockWeaveSize = BigInt(prevBlock.weave_size);
@@ -1829,7 +1832,7 @@ export class Observer {
 
       // Get the weave size at the stable height to determine max stable offset
       const stableBlock = await this.getBlockByHeight(
-        this.arweaveHost,
+        this.arweaveBaseUrl,
         maxSearchHeight,
       );
       maxStableOffset = parseInt(stableBlock.weave_size, 10);
