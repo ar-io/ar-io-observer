@@ -250,7 +250,8 @@ export class DefaultArnsConsensusResolver implements ArnsConsensusResolver {
   }> {
     const results = await Promise.allSettled(
       gateways.map(async (gateway) => {
-        const url = `https://${arnsName}.${gateway.fqdn}/`;
+        const portPart = gateway.port !== 443 ? `:${gateway.port}` : '';
+        const url = `https://${arnsName}.${gateway.fqdn}${portPart}/`;
         try {
           const resolution = await getArnsResolution({
             url,

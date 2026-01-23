@@ -37,6 +37,7 @@ describe('CachedNetworkGatewaySource', function () {
 
   const createGateway = (overrides: any = {}) => ({
     gatewayAddress: overrides.gatewayAddress ?? 'gateway-wallet-1',
+    status: overrides.status ?? 'joined',
     settings: {
       fqdn: overrides.fqdn ?? 'gateway1.example.com',
       protocol: overrides.protocol ?? 'https',
