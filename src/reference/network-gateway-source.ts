@@ -51,7 +51,7 @@ export class CachedNetworkGatewaySource implements NetworkGatewaySource {
   private cachedGateways: NetworkGateway[] = [];
   private cacheTimestamp: number = 0;
   private unresponsiveGateways: Set<string> = new Set();
-  private refreshInProgress: boolean = false;
+  private refreshPromise: Promise<void> | null = null;
 
   constructor({
     contract,
@@ -84,12 +84,18 @@ export class CachedNetworkGatewaySource implements NetworkGatewaySource {
    * Refresh the gateway cache from the contract.
    */
   private async refreshCache(): Promise<void> {
-    if (this.refreshInProgress) {
-      return;
+    if (this.refreshPromise) {
+      return this.refreshPromise;
     }
 
-    this.refreshInProgress = true;
+    this.refreshPromise = this.doRefreshCache();
+    return this.refreshPromise;
+  }
 
+  /**
+   * Perform the actual cache refresh.
+   */
+  private async doRefreshCache(): Promise<void> {
     try {
       this.log.debug('Refreshing network gateway cache');
 
@@ -102,7 +108,12 @@ export class CachedNetworkGatewaySource implements NetworkGatewaySource {
         });
 
         for (const gateway of items) {
-          // Skip gateways without valid FQDN or not joined
+          // Skip gateways that are not joined
+          if (gateway.status !== 'joined') {
+            continue;
+          }
+
+          // Skip gateways without valid FQDN
           if (gateway.settings.fqdn === undefined) {
             continue;
           }
@@ -189,7 +200,7 @@ export class CachedNetworkGatewaySource implements NetworkGatewaySource {
         throw error;
       }
     } finally {
-      this.refreshInProgress = false;
+      this.refreshPromise = null;
     }
   }
 

@@ -316,7 +316,8 @@ export class CompositeReferenceGateway
     // Try gateways sequentially (chunks are self-verifying)
     for (const gateway of gateways) {
       try {
-        const url = `https://${gateway.fqdn}/chunk/${offset}`;
+        const portPart = gateway.port !== 443 ? `:${gateway.port}` : '';
+        const url = `https://${gateway.fqdn}${portPart}/chunk/${offset}`;
 
         this.log.debug('Checking chunk availability from network gateway', {
           gateway: gateway.fqdn,
