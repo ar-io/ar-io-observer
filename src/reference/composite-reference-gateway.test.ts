@@ -435,11 +435,38 @@ describe('CompositeReferenceGateway', function () {
       expect(result.available).to.be.true;
     });
 
-    it('should fall back to network for chunk check in mode 2', async function () {
+    it('should NOT fall back to network when explicit returns available=false in mode 2', async function () {
+      // When explicit gateway returns available: false (from 404/410), it's authoritative
+      // No network fallback should occur
       (mockExplicitGateway.checkChunkAvailability as sinon.SinonStub).resolves({
         host: 'explicit.example.com',
         available: false,
       });
+
+      const gateway = new CompositeReferenceGateway({
+        explicitGateway: mockExplicitGateway,
+        networkGatewaySource: mockNetworkGatewaySource,
+        consensusResolver: mockConsensusResolver,
+        networkOnly: false,
+        networkFallback: true,
+        nodeReleaseVersion: 'test',
+        log: logStub,
+      });
+
+      const result = await gateway.checkChunkAvailability({ offset: 12345 });
+
+      // Should return the explicit gateway's authoritative answer
+      expect(result.host).to.equal('explicit.example.com');
+      expect(result.available).to.be.false;
+      // Network fallback counter should NOT be incremented
+      expect(networkFallbackCounterStub.called).to.be.false;
+    });
+
+    it('should fall back to network when explicit gateway throws in mode 2', async function () {
+      // When explicit gateway throws (network error, all hosts failed), fall back to network
+      (mockExplicitGateway.checkChunkAvailability as sinon.SinonStub).rejects(
+        new Error('checkChunkAvailability failed on all hosts'),
+      );
 
       (
         mockNetworkGatewaySource.getEligibleGateways as sinon.SinonStub
@@ -463,6 +490,12 @@ describe('CompositeReferenceGateway', function () {
 
       expect(result.host).to.equal('network1.example.com');
       expect(result.available).to.be.true;
+      expect(
+        networkFallbackCounterStub.calledWith({
+          operation: 'checkChunkAvailability',
+          status: 'triggered',
+        }),
+      ).to.be.true;
     });
 
     it('should use network only for chunk check in mode 3', async function () {

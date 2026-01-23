@@ -411,14 +411,14 @@ describe('FallbackReferenceGateway', function () {
       expect(fallbackCounterStub.called).to.be.false;
     });
 
-    it('should return available false when all hosts fail', async function () {
+    it('should throw when all hosts fail with network errors', async function () {
       const gateway = new FallbackReferenceGateway({
         hosts: ['gateway1.com', 'gateway2.com'],
         nodeReleaseVersion: 'test-version',
         log: logStub,
       });
 
-      // Both hosts fail
+      // Both hosts fail with network errors
       nock('https://gateway1.com')
         .get('/chunk/12345')
         .replyWithError('ENOTFOUND');
@@ -427,32 +427,78 @@ describe('FallbackReferenceGateway', function () {
         .get('/chunk/12345')
         .replyWithError('ECONNREFUSED');
 
-      const result = await gateway.checkChunkAvailability({ offset: 12345 });
-
-      expect(result.host).to.equal('gateway1.com');
-      expect(result.available).to.be.false;
+      try {
+        await gateway.checkChunkAvailability({ offset: 12345 });
+        expect.fail('Should have thrown an error');
+      } catch (error: any) {
+        expect(error.message).to.include(
+          'checkChunkAvailability failed on all hosts',
+        );
+      }
     });
 
-    it('should return unavailable when response is not 200', async function () {
+    it('should return available false when first host returns 404', async function () {
       const gateway = new FallbackReferenceGateway({
         hosts: ['gateway1.com', 'gateway2.com'],
         nodeReleaseVersion: 'test-version',
         log: logStub,
       });
 
-      // First host returns non-200 status
-      nock('https://gateway1.com').get('/chunk/12345').reply(500, {});
-
-      // Second host returns non-200 status
-      nock('https://gateway2.com').get('/chunk/12345').reply(500, {});
+      // First host returns 404 - authoritative "chunk not found"
+      nock('https://gateway1.com')
+        .get('/chunk/12345')
+        .reply(404, { error: 'Chunk not found' });
 
       const result = await gateway.checkChunkAvailability({ offset: 12345 });
 
-      // Should return unavailable when all hosts fail
+      expect(result.host).to.equal('gateway1.com');
       expect(result.available).to.be.false;
+      // Should NOT try second host or increment fallback counter
+      expect(fallbackCounterStub.called).to.be.false;
     });
 
-    it('should return unavailable when chunk field is missing', async function () {
+    it('should return available false when first host returns 410', async function () {
+      const gateway = new FallbackReferenceGateway({
+        hosts: ['gateway1.com', 'gateway2.com'],
+        nodeReleaseVersion: 'test-version',
+        log: logStub,
+      });
+
+      // First host returns 410 - authoritative "chunk gone"
+      nock('https://gateway1.com')
+        .get('/chunk/12345')
+        .reply(410, { error: 'Chunk gone' });
+
+      const result = await gateway.checkChunkAvailability({ offset: 12345 });
+
+      expect(result.host).to.equal('gateway1.com');
+      expect(result.available).to.be.false;
+      // Should NOT try second host or increment fallback counter
+      expect(fallbackCounterStub.called).to.be.false;
+    });
+
+    it('should throw when all hosts return non-200/404/410 status', async function () {
+      const gateway = new FallbackReferenceGateway({
+        hosts: ['gateway1.com', 'gateway2.com'],
+        nodeReleaseVersion: 'test-version',
+        log: logStub,
+      });
+
+      // Both hosts return 500 (server error, not chunk not found)
+      nock('https://gateway1.com').get('/chunk/12345').reply(500, {});
+      nock('https://gateway2.com').get('/chunk/12345').reply(500, {});
+
+      try {
+        await gateway.checkChunkAvailability({ offset: 12345 });
+        expect.fail('Should have thrown an error');
+      } catch (error: any) {
+        expect(error.message).to.include(
+          'checkChunkAvailability failed on all hosts',
+        );
+      }
+    });
+
+    it('should throw when all hosts return response without chunk field', async function () {
       const gateway = new FallbackReferenceGateway({
         hosts: ['gateway1.com', 'gateway2.com'],
         nodeReleaseVersion: 'test-version',
@@ -469,10 +515,15 @@ describe('FallbackReferenceGateway', function () {
         .get('/chunk/12345')
         .reply(200, { data_path: 'test-path' });
 
-      const result = await gateway.checkChunkAvailability({ offset: 12345 });
-
-      // Should return unavailable when all hosts fail validation
-      expect(result.available).to.be.false;
+      try {
+        await gateway.checkChunkAvailability({ offset: 12345 });
+        expect.fail('Should have thrown an error');
+      } catch (error: any) {
+        expect(error.message).to.include(
+          'checkChunkAvailability failed on all hosts',
+        );
+        expect(error.message).to.include('Missing chunk field');
+      }
     });
 
     it('should fallback to second host when first fails and increment counter', async function () {
