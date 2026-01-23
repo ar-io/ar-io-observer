@@ -229,11 +229,6 @@ export class CompositeReferenceGateway
     // Mode 1 & 2: Try explicit gateway first
     try {
       const result = await this.explicitGateway!.checkChunkAvailability(params);
-      // Explicit gateway returns available=false if all hosts fail
-      // In mode 2, we should fall back to network
-      if (!result.available && this.networkFallback) {
-        throw new Error('Chunk not available from explicit gateway');
-      }
       return result;
     } catch (explicitError: any) {
       // Mode 1: Explicit only - rethrow or return unavailable

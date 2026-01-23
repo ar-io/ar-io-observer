@@ -138,23 +138,27 @@ export class FallbackReferenceGateway implements ReferenceGatewaySource {
   /**
    * Check chunk availability from reference gateways with fallback.
    *
-   * Validates that the response is HTTP 200 with a valid chunk field.
+   * 404/410 responses are treated as authoritative "chunk not found" and
+   * return immediately. Network errors trigger fallback to the next host.
+   * If all hosts fail with non-404/410 errors, throws to allow network fallback.
    */
   async checkChunkAvailability(params: {
     offset: number;
   }): Promise<{ host: string; available: boolean }> {
     const { offset } = params;
+    let lastError: Error | undefined;
 
-    try {
-      const { host, result } = await this.tryWithFallback(async (host) => {
-        const url = `https://${host}/chunk/${offset}`;
+    for (let i = 0; i < this.hosts.length; i++) {
+      const host = this.hosts[i];
+      const url = `https://${host}/chunk/${offset}`;
 
-        this.log.debug('Checking chunk availability', {
-          host,
-          offset,
-          url,
-        });
+      this.log.debug('Checking chunk availability', {
+        host,
+        offset,
+        url,
+      });
 
+      try {
         const response = await this.gotClient.get(url, {
           timeout: { request: 7000 },
           responseType: 'json',
@@ -176,18 +180,43 @@ export class FallbackReferenceGateway implements ReferenceGatewaySource {
           throw new Error(`Missing chunk field in response from ${host}`);
         }
 
-        return true;
-      }, 'checkChunkAvailability');
+        return { host, available: true };
+      } catch (error: any) {
+        const statusCode = error?.response?.statusCode;
 
-      return { host, available: result };
-    } catch (error: any) {
-      // If all hosts fail, return unavailable
-      this.log.debug('Chunk availability check failed on all hosts', {
-        offset,
-        error: error?.message,
-      });
+        // 404/410 are authoritative "chunk not found" - return immediately
+        if (statusCode === 404 || statusCode === 410) {
+          this.log.debug('Chunk not found (authoritative response)', {
+            host,
+            offset,
+            statusCode,
+          });
+          return { host, available: false };
+        }
 
-      return { host: this.hosts[0], available: false };
+        // Other errors - try next host
+        lastError = error;
+        this.log.debug('Chunk availability check failed, trying fallback', {
+          host,
+          hostIndex: i,
+          totalHosts: this.hosts.length,
+          statusCode,
+          error: error?.message?.slice(0, 256),
+        });
+
+        // Increment fallback counter when falling back to the next host
+        if (i + 1 < this.hosts.length) {
+          metrics.referenceGatewayFallbackCounter.inc({
+            operation: 'checkChunkAvailability',
+            host: this.hosts[i + 1],
+          });
+        }
+      }
     }
+
+    // All hosts failed with non-404/410 errors - throw to trigger network fallback
+    throw new Error(
+      `checkChunkAvailability failed on all hosts: ${lastError?.message}`,
+    );
   }
 }
