@@ -317,7 +317,12 @@ export class CompositeReferenceGateway
           data_path?: string;
         };
 
-        if (response.statusCode === 200 && chunkResponse.chunk !== undefined) {
+        if (response.statusCode === 200) {
+          if (chunkResponse.chunk === undefined) {
+            throw new Error(
+              'Gateway returned 200 but response missing chunk property',
+            );
+          }
           this.log.debug('Chunk found on network gateway', {
             gateway: gateway.fqdn,
             offset,
