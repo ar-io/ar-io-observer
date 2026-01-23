@@ -86,13 +86,15 @@ export class CompositeReferenceGateway
     this.gotClient = createGatewayHttpClient(nodeReleaseVersion);
 
     // Validate configuration
-    if (networkOnly && networkGatewaySource === null) {
+    if ((networkOnly || networkFallback) && networkGatewaySource === null) {
       throw new Error(
-        'Network gateway source required when networkOnly is true',
+        'Network gateway source required when network fallback is enabled',
       );
     }
-    if (networkOnly && consensusResolver === null) {
-      throw new Error('Consensus resolver required when networkOnly is true');
+    if ((networkOnly || networkFallback) && consensusResolver === null) {
+      throw new Error(
+        'Consensus resolver required when network fallback is enabled',
+      );
     }
     if (!networkOnly && explicitGateway === null) {
       throw new Error('Explicit gateway required when networkOnly is false');
@@ -329,13 +331,26 @@ export class CompositeReferenceGateway
           return { host: gateway.fqdn, available: true };
         }
       } catch (error: any) {
+        const statusCode = error?.response?.statusCode;
+
+        // 404/410 are valid "chunk not found" responses, not gateway failures
+        if (statusCode === 404 || statusCode === 410) {
+          this.log.debug('Chunk not found on network gateway', {
+            gateway: gateway.fqdn,
+            offset,
+            statusCode,
+          });
+          continue;
+        }
+
         this.log.debug('Network gateway chunk check failed, trying next', {
           gateway: gateway.fqdn,
           offset,
+          statusCode,
           error: error?.message?.slice(0, 256),
         });
 
-        // Mark as unresponsive for this session
+        // Mark as unresponsive only on network errors/timeouts
         this.networkGatewaySource.markUnresponsive(gateway.fqdn);
       }
     }
