@@ -16,9 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import got, { Got } from 'got';
+import { Got } from 'got';
 import { Logger } from 'winston';
 
+import { validateArnsResolutionHeaders } from '../lib/arns-validation.js';
+import { createGatewayHttpClient } from '../lib/http-client.js';
 import * as metrics from '../metrics.js';
 import { getArnsResolution } from '../observer.js';
 import {
@@ -70,15 +72,7 @@ export class DefaultArnsConsensusResolver implements ArnsConsensusResolver {
     this.maxAttempts = maxAttempts;
     this.log = log.child({ class: 'DefaultArnsConsensusResolver' });
 
-    this.gotClient = got.extend({
-      headers: { 'X-AR-IO-Node-Release': nodeReleaseVersion },
-      timeout: {
-        lookup: 5000,
-        connect: 5000,
-        secureConnect: 2000,
-        socket: 7000,
-      },
-    });
+    this.gotClient = createGatewayHttpClient(nodeReleaseVersion);
 
     this.log.debug('DefaultArnsConsensusResolver initialized', {
       consensusSize,
@@ -260,19 +254,7 @@ export class DefaultArnsConsensusResolver implements ArnsConsensusResolver {
             entropy,
           });
 
-          // Validate required headers for ArNS resolution (unless 404)
-          if (resolution.statusCode !== 404) {
-            if (resolution.resolvedId === null) {
-              throw new Error(
-                `Missing x-arns-resolved-id header from ${gateway.fqdn}`,
-              );
-            }
-            if (resolution.ttlSeconds === null) {
-              throw new Error(
-                `Missing x-arns-ttl-seconds header from ${gateway.fqdn}`,
-              );
-            }
-          }
+          validateArnsResolutionHeaders(resolution, gateway.fqdn);
 
           return {
             gateway,
