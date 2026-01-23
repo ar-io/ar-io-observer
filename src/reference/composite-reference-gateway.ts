@@ -257,17 +257,10 @@ export class CompositeReferenceGateway
       try {
         const result = await this.checkChunkFromNetwork({ offset });
 
-        if (result.available) {
-          metrics.networkFallbackCounter.inc({
-            operation: 'checkChunkAvailability',
-            status: 'success',
-          });
-        } else {
-          metrics.networkFallbackCounter.inc({
-            operation: 'checkChunkAvailability',
-            status: 'failure',
-          });
-        }
+        metrics.networkFallbackCounter.inc({
+          operation: 'checkChunkAvailability',
+          status: result.available ? 'success' : 'failure',
+        });
 
         return result;
       } catch (networkError: any) {

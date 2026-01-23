@@ -27,6 +27,7 @@ import { assessOwnership, getArnsResolution } from '../observer.js';
 import {
   ArnsNameAssessment,
   ArnsNameAssessments,
+  ArnsResolution,
   GatewayArnsAssessments,
   OwnershipAssessment,
   ReferenceGatewaySource,
@@ -37,16 +38,6 @@ const REFERENCE_RESOLUTION_CACHE_TTL_MS = 5 * 60 * 1000;
 
 // Threshold for ArNS name pass rate
 const NAME_PASS_THRESHOLD = 0.8;
-
-interface ArnsResolution {
-  statusCode: number;
-  resolvedId: string | null;
-  ttlSeconds: string | null;
-  contentLength: string | null;
-  contentType: string | null;
-  dataHashDigest: string | null;
-  timings: any;
-}
 
 /**
  * GatewayAssessor encapsulates the logic for assessing individual gateways.
