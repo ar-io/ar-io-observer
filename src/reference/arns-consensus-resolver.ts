@@ -254,7 +254,7 @@ export class DefaultArnsConsensusResolver implements ArnsConsensusResolver {
             entropy,
           });
 
-          validateArnsResolutionHeaders(resolution, gateway.fqdn);
+          validateArnsResolutionHeaders(resolution, gateway.fqdn, arnsName);
 
           return {
             gateway,
