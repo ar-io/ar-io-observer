@@ -16,9 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import got, { Got } from 'got';
+import { Got } from 'got';
 import { Logger } from 'winston';
 
+import { createGatewayHttpClient } from '../lib/http-client.js';
 import * as metrics from '../metrics.js';
 import {
   ArnsConsensusResolver,
@@ -82,15 +83,7 @@ export class CompositeReferenceGateway
     this.networkFallback = networkFallback;
     this.log = log.child({ class: 'CompositeReferenceGateway' });
 
-    this.gotClient = got.extend({
-      headers: { 'X-AR-IO-Node-Release': nodeReleaseVersion },
-      timeout: {
-        lookup: 5000,
-        connect: 5000,
-        secureConnect: 2000,
-        socket: 7000,
-      },
-    });
+    this.gotClient = createGatewayHttpClient(nodeReleaseVersion);
 
     // Validate configuration
     if (networkOnly && networkGatewaySource === null) {
