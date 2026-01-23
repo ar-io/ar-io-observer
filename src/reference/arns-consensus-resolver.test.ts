@@ -361,6 +361,86 @@ describe('DefaultArnsConsensusResolver', function () {
       expect(result.resolution.resolvedId).to.be.null;
     });
 
+    it('should treat missing x-arns-resolved-id header as failure', async function () {
+      const gateways = [
+        createGateway('gw1.example.com'),
+        createGateway('gw2.example.com'),
+        createGateway('gw3.example.com'),
+      ];
+
+      getEligibleGatewaysStub.resolves(gateways);
+
+      const resolver = new DefaultArnsConsensusResolver({
+        networkGatewaySource: mockNetworkGatewaySource,
+        consensusSize: 3,
+        consensusThreshold: 2,
+        maxAttempts: 1,
+        nodeReleaseVersion: 'test',
+        log: logStub,
+      });
+
+      // gw1 returns 200 but missing x-arns-resolved-id header
+      nock(`https://testname.gw1.example.com`).head('/').reply(200, undefined, {
+        'Content-Type': 'application/octet-stream',
+        'x-arns-ttl-seconds': '300',
+        'Content-Length': '100',
+      });
+
+      // gw2 and gw3 succeed with proper headers
+      setupSuccessfulResponse('gw2.example.com', 'id-A');
+      setupSuccessfulResponse('gw3.example.com', 'id-A');
+
+      const result = await resolver.resolveWithConsensus({
+        arnsName: 'testname',
+        entropy,
+      });
+
+      // Should achieve consensus from gw2 and gw3
+      expect(result.resolution.resolvedId).to.equal('id-A');
+      // gw1 should be marked as unresponsive due to missing header
+      expect(markUnresponsiveStub.calledWith('gw1.example.com')).to.be.true;
+    });
+
+    it('should treat missing x-arns-ttl-seconds header as failure', async function () {
+      const gateways = [
+        createGateway('gw1.example.com'),
+        createGateway('gw2.example.com'),
+        createGateway('gw3.example.com'),
+      ];
+
+      getEligibleGatewaysStub.resolves(gateways);
+
+      const resolver = new DefaultArnsConsensusResolver({
+        networkGatewaySource: mockNetworkGatewaySource,
+        consensusSize: 3,
+        consensusThreshold: 2,
+        maxAttempts: 1,
+        nodeReleaseVersion: 'test',
+        log: logStub,
+      });
+
+      // gw1 returns 200 but missing x-arns-ttl-seconds header
+      nock(`https://testname.gw1.example.com`).head('/').reply(200, undefined, {
+        'Content-Type': 'application/octet-stream',
+        'x-arns-resolved-id': 'id-A',
+        'Content-Length': '100',
+      });
+
+      // gw2 and gw3 succeed with proper headers
+      setupSuccessfulResponse('gw2.example.com', 'id-A');
+      setupSuccessfulResponse('gw3.example.com', 'id-A');
+
+      const result = await resolver.resolveWithConsensus({
+        arnsName: 'testname',
+        entropy,
+      });
+
+      // Should achieve consensus from gw2 and gw3
+      expect(result.resolution.resolvedId).to.equal('id-A');
+      // gw1 should be marked as unresponsive due to missing header
+      expect(markUnresponsiveStub.calledWith('gw1.example.com')).to.be.true;
+    });
+
     it('should pass excludeFqdns to getEligibleGateways', async function () {
       const gateways = [createGateway('gw1.example.com')];
       getEligibleGatewaysStub.resolves(gateways);

@@ -182,6 +182,15 @@ const chosenNamesSource = new RandomArnsNamesSource({
 });
 
 // Setup reference gateway with optional network fallback
+if (
+  config.REFERENCE_GATEWAY_NETWORK_ONLY &&
+  config.REFERENCE_GATEWAY_HOSTS.length > 0
+) {
+  log.warn(
+    'REFERENCE_GATEWAY_NETWORK_ONLY is enabled; REFERENCE_GATEWAY_HOSTS will be ignored',
+  );
+}
+
 const explicitReferenceGateway = config.REFERENCE_GATEWAY_NETWORK_ONLY
   ? null
   : new FallbackReferenceGateway({
