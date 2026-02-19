@@ -82,11 +82,6 @@ export const REPORT_SAVE_EPOCH_END_OFFSET_MS = Math.abs(
 
 const DEFAULT_REFERENCE_GATEWAYS = ['turbo-gateway.com', 'ar-io.net'];
 
-export const REFERENCE_GATEWAY_HOST = env.varOrDefault(
-  'REFERENCE_GATEWAY_HOST',
-  args.referenceGateway ?? 'turbo-gateway.com',
-);
-
 export const REFERENCE_GATEWAY_HOSTS: string[] = (() => {
   const hostsEnv = env.varOrUndefined('REFERENCE_GATEWAY_HOSTS');
   if (hostsEnv !== undefined && hostsEnv.trim().length > 0) {
