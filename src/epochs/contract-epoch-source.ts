@@ -29,6 +29,9 @@ import {
 import { EpochTimestampSource as IEpochTimestampSource } from '../types.js';
 
 export class ContractEpochSource implements IEpochTimestampSource {
+  private static readonly CURRENT_EPOCH_MAX_RETRIES = 3;
+  private static readonly CURRENT_EPOCH_RETRY_DELAY_MS = 5 * 60 * 1000;
+
   private contract: AoARIORead;
   private blockSource: BlockSource;
   private heightSource: HeightSource;
@@ -52,6 +55,30 @@ export class ContractEpochSource implements IEpochTimestampSource {
     this.log = log.child({ class: 'ContractEpochSource' });
   }
 
+  private async delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async getCurrentEpochWithRetry(attempt = 1): Promise<any> {
+    try {
+      return await this.contract.getCurrentEpoch();
+    } catch (error: any) {
+      if (attempt >= ContractEpochSource.CURRENT_EPOCH_MAX_RETRIES) {
+        throw error;
+      }
+
+      this.log.warn('Failed to get current epoch. Retrying...', {
+        attempt: attempt,
+        maxRetries: ContractEpochSource.CURRENT_EPOCH_MAX_RETRIES,
+        retryDelayMs: ContractEpochSource.CURRENT_EPOCH_RETRY_DELAY_MS,
+        error: error.message,
+      });
+
+      await this.delay(ContractEpochSource.CURRENT_EPOCH_RETRY_DELAY_MS);
+      return this.getCurrentEpochWithRetry(attempt + 1);
+    }
+  }
+
   async getEpochSettings(): Promise<EpochSettings> {
     const epochSettings = await this.contract.getEpochSettings();
     return {
@@ -61,48 +88,68 @@ export class ContractEpochSource implements IEpochTimestampSource {
   }
 
   async getEpochParams(): Promise<EpochTimestampParams> {
-    // cache the epoch params for the duration of the epoch to avoid unnecessary contract calls
-    // TODO: check the epochs have started, requires type change on this interface
-    const height = await this.heightSource.getHeight();
-    const block = await this.blockSource.getBlockByHeight(height);
-    const networkTimestamp = block.timestamp * 1000;
-    if (
-      this.epochParams !== undefined &&
-      this.epochParams.epochEndTimestamp > networkTimestamp
-    ) {
-      return this.epochParams;
-    }
-    const { startTimestamp, startHeight, endTimestamp, epochIndex } =
-      await this.contract.getCurrentEpoch();
+    try {
+      // cache the epoch params for the duration of the epoch to avoid unnecessary contract calls
+      // TODO: check the epochs have started, requires type change on this interface
+      const height = await this.heightSource.getHeight();
+      const block = await this.blockSource.getBlockByHeight(height);
+      const networkTimestamp = block.timestamp * 1000;
+      if (
+        this.epochParams !== undefined &&
+        this.epochParams.epochEndTimestamp > networkTimestamp
+      ) {
+        return this.epochParams;
+      }
 
-    // if they are undefined, we are before the first epoch
-    if (
-      startTimestamp === undefined &&
-      startHeight === undefined &&
-      endTimestamp === undefined &&
-      epochIndex === undefined
-    ) {
-      this.log.verbose('No epoch data available');
-      return {
+      const currentEpoch = await this.getCurrentEpochWithRetry();
+      const startTimestamp = currentEpoch?.startTimestamp;
+      const startHeight = currentEpoch?.startHeight;
+      const endTimestamp = currentEpoch?.endTimestamp;
+      const epochIndex = currentEpoch?.epochIndex;
+
+      // if they are undefined, we are before the first epoch
+      if (
+        startTimestamp === undefined &&
+        startHeight === undefined &&
+        endTimestamp === undefined &&
+        epochIndex === undefined
+      ) {
+        this.log.verbose('No epoch data available');
+        return {
+          epochStartTimestamp: startTimestamp,
+          epochStartHeight: startHeight,
+          epochEndTimestamp: endTimestamp,
+          epochIndex: epochIndex,
+        };
+      }
+
+      this.log.verbose('Setting epoch params.', {
+        startTimestamp: startTimestamp,
+        startHeight: startHeight,
+        endTimestamp: endTimestamp,
+        epochIndex: epochIndex,
+      });
+      this.epochParams = {
         epochStartTimestamp: startTimestamp,
         epochStartHeight: startHeight,
         epochEndTimestamp: endTimestamp,
         epochIndex: epochIndex,
       };
+      return this.epochParams;
+    } catch (error: any) {
+      this.log.error('Failed to get epoch params.', {
+        error: error.message,
+      });
+
+      if (this.epochParams !== undefined) {
+        this.log.warn(
+          'Using cached epoch params after getEpochParams failure.',
+        );
+        return this.epochParams;
+      }
+
+      throw error;
     }
-    this.log.verbose('Setting epoch params.', {
-      startTimestamp: startTimestamp,
-      startHeight: startHeight,
-      endTimestamp: endTimestamp,
-      epochIndex: epochIndex,
-    });
-    this.epochParams = {
-      epochStartTimestamp: startTimestamp,
-      epochStartHeight: startHeight,
-      epochEndTimestamp: endTimestamp,
-      epochIndex: epochIndex,
-    };
-    return this.epochParams;
   }
 
   async getEpochStartTimestamp(): Promise<number> {
