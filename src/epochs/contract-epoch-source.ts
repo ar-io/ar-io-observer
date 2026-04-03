@@ -88,12 +88,13 @@ export class ContractEpochSource implements IEpochTimestampSource {
   }
 
   async getEpochParams(): Promise<EpochTimestampParams> {
+    let networkTimestamp: number | undefined = undefined;
     try {
       // cache the epoch params for the duration of the epoch to avoid unnecessary contract calls
       // TODO: check the epochs have started, requires type change on this interface
       const height = await this.heightSource.getHeight();
       const block = await this.blockSource.getBlockByHeight(height);
-      const networkTimestamp = block.timestamp * 1000;
+      networkTimestamp = block.timestamp * 1000;
       if (
         this.epochParams !== undefined &&
         this.epochParams.epochEndTimestamp > networkTimestamp
@@ -141,7 +142,11 @@ export class ContractEpochSource implements IEpochTimestampSource {
         error: error.message,
       });
 
-      if (this.epochParams !== undefined) {
+      if (
+        networkTimestamp !== undefined &&
+        this.epochParams !== undefined &&
+        this.epochParams.epochStartTimestamp > networkTimestamp
+      ) {
         this.log.warn(
           'Using cached epoch params after getEpochParams failure.',
         );
