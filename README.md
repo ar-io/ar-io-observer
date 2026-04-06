@@ -17,14 +17,14 @@ Requirements:
 Generating a report:
 
 - `nvm use`
-- `yarn observe` 
+- `yarn observe`
 
 #### Service
 
 Starting the service:
 
 - `nvm use`
-- `yarn service` 
+- `yarn service`
 
 You can check the service is running by running the command:
 
