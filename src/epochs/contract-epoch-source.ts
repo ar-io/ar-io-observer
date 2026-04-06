@@ -108,20 +108,15 @@ export class ContractEpochSource implements IEpochTimestampSource {
       const endTimestamp = currentEpoch?.endTimestamp;
       const epochIndex = currentEpoch?.epochIndex;
 
-      // if they are undefined, we are before the first epoch
+      // if they are undefined, we are either before the first epoch or received a bad response from the CU
       if (
         startTimestamp === undefined &&
         startHeight === undefined &&
         endTimestamp === undefined &&
         epochIndex === undefined
       ) {
-        this.log.verbose('No epoch data available');
-        return {
-          epochStartTimestamp: startTimestamp,
-          epochStartHeight: startHeight,
-          epochEndTimestamp: endTimestamp,
-          epochIndex: epochIndex,
-        };
+        this.log.error('No epoch data available', { currentEpoch });
+        throw new Error('No epoch data available');
       }
 
       this.log.verbose('Setting epoch params.', {

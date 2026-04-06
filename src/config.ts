@@ -40,6 +40,11 @@ export const args = await yargs(hideBin(process.argv))
     type: 'boolean',
     description: 'Whether or not to save the report',
   })
+  .option('cu-url', {
+    type: 'string',
+    description:
+      'AO compute unit URL (overrides AO_CU_URL / NETWORK_AO_CU_URL env for this process)',
+  })
   .parse();
 
 dotenv.config();
@@ -154,9 +159,12 @@ function sanitizeUrl(url: string | undefined): string | undefined {
 }
 
 export const AO_MU_URL = sanitizeUrl(env.varOrUndefined('AO_MU_URL'));
-export const AO_CU_URL = sanitizeUrl(env.varOrUndefined('AO_CU_URL'));
+
+const cliCuUrl = sanitizeUrl(args.cuUrl);
+export const AO_CU_URL =
+  cliCuUrl ?? sanitizeUrl(env.varOrUndefined('AO_CU_URL'));
 export const NETWORK_AO_CU_URL =
-  sanitizeUrl(env.varOrUndefined('NETWORK_AO_CU_URL')) ?? AO_CU_URL;
+  cliCuUrl ?? sanitizeUrl(env.varOrUndefined('NETWORK_AO_CU_URL')) ?? AO_CU_URL;
 export const AO_GRAPHQL_URL = env.varOrUndefined('AO_GRAPHQL_URL');
 export const AO_GATEWAY_URL = env.varOrUndefined('AO_GATEWAY_URL');
 
