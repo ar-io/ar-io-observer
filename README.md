@@ -17,14 +17,14 @@ Requirements:
 Generating a report:
 
 - `nvm use`
-- `yarn observe` 
+- `yarn observe`
 
 #### Service
 
 Starting the service:
 
 - `nvm use`
-- `yarn service` 
+- `yarn service`
 
 You can check the service is running by running the command:
 
@@ -44,6 +44,3 @@ Build and run the container:
 docker build --build-arg NODE_VERSION=$(cat .nvmrc |cut -c2-8) --build-arg NODE_VERSION_SHORT=$(cat .nvmrc |cut -c2-3) . -t ar-io-observer
 docker run -p 5050:5050 ar-io-observer
 ```
-
-## Testing
-
