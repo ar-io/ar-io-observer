@@ -137,17 +137,6 @@ export class ContractEpochSource implements IEpochTimestampSource {
         error: error.message,
       });
 
-      if (
-        networkTimestamp !== undefined &&
-        this.epochParams !== undefined &&
-        this.epochParams.epochEndTimestamp > networkTimestamp
-      ) {
-        this.log.warn(
-          'Using cached epoch params after getEpochParams failure.',
-        );
-        return this.epochParams;
-      }
-
       throw error;
     }
   }
