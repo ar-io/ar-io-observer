@@ -23,6 +23,7 @@ import sinon from 'sinon';
 
 import * as config from './config.js';
 import { customHashPRNG } from './lib/prng.js';
+import * as metrics from './metrics.js';
 import {
   generateRandomRanges,
   getArnsResolution,
@@ -1141,11 +1142,21 @@ describe('Observer', function () {
               offset: (txEndOffset + 1n).toString(),
             });
 
-          const result = await (
-            observer as any
-          ).resolveTxBoundsViaReferenceHeaders(probeOffset);
+          const counterStub = sinon.stub(
+            metrics.chunkMetadataAnchorCounter,
+            'inc',
+          );
 
-          expect(result).to.equal(null);
+          try {
+            const result = await (
+              observer as any
+            ).resolveTxBoundsViaReferenceHeaders(probeOffset);
+
+            expect(result).to.equal(null);
+            expect(counterStub.calledWith({ result: 'mismatch' })).to.be.true;
+          } finally {
+            counterStub.restore();
+          }
         });
 
         it('reuses the per-tx cache for a second offset in the same tx', async function () {
