@@ -44,6 +44,7 @@ import {
   ArnsNameAssessments,
   ArnsNamesSource,
   ArnsResolution,
+  ChunkHeaderMetadata,
   EntropySource,
   EpochTimestampSource,
   GatewayAssessments,
@@ -1209,7 +1210,7 @@ export class Observer {
     txStartOffset: number;
     txEndOffset: number;
   } | null> {
-    let metadata;
+    let metadata: ChunkHeaderMetadata | null;
     try {
       const result = await this.referenceGateway.getChunkMetadata({ offset });
       metadata = result.metadata;

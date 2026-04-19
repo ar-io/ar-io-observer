@@ -94,4 +94,14 @@ describe('parseChunkHeaderMetadata', function () {
     expect(parsed).to.not.equal(null);
     expect(parsed!.txId).to.equal('first-tx-id');
   });
+
+  it('accepts zero for chunkRelativeStartOffset (first chunk of a tx)', function () {
+    const zero = {
+      ...completeHeaders,
+      'x-arweave-chunk-relative-start-offset': '0',
+    };
+    const parsed = parseChunkHeaderMetadata(zero);
+    expect(parsed).to.not.equal(null);
+    expect(parsed!.chunkRelativeStartOffset).to.equal(0n);
+  });
 });

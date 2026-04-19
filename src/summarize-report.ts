@@ -35,11 +35,15 @@ function resolveReportPath(arg: string | undefined): string {
   const entries = fs
     .readdirSync(REPORTS_DIR)
     .filter((f) => f.endsWith('.json'))
-    .map((f) => ({
-      name: f,
-      // Filenames are epoch start heights — sort numerically, fall back to name.
-      key: Number.parseInt(path.basename(f, '.json'), 10),
-    }))
+    .map((f) => {
+      const base = path.basename(f, '.json');
+      // Only filenames that are strictly numeric are treated as epoch
+      // start heights. Anything else (e.g. 123-backup.json) sorts
+      // alphabetically so an auxiliary file can't masquerade as the
+      // latest epoch.
+      const key = /^\d+$/.test(base) ? Number.parseInt(base, 10) : NaN;
+      return { name: f, key };
+    })
     .sort((a, b) => {
       if (Number.isNaN(a.key) || Number.isNaN(b.key)) {
         return a.name.localeCompare(b.name);
@@ -142,10 +146,11 @@ function sortReleases(keys: string[]): string[] {
   return keys.sort((a, b) => {
     if (a === UNKNOWN_RELEASE) return 1;
     if (b === UNKNOWN_RELEASE) return -1;
-    const na = Number.parseFloat(a);
-    const nb = Number.parseFloat(b);
-    if (!Number.isNaN(na) && !Number.isNaN(nb)) return nb - na;
-    return a.localeCompare(b);
+    // Numeric-aware comparison so "1.10.0" sorts above "1.9.0".
+    return b.localeCompare(a, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
   });
 }
 
