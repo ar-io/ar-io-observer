@@ -599,11 +599,23 @@ describe('CompositeReferenceGateway', function () {
       expect(result.metadata).to.not.equal(null);
     });
 
-    it('returns host/metadata unchanged when explicit returns metadata:null', async function () {
+    it('falls back to network when explicit returns metadata:null in mode 2', async function () {
+      // Older explicit gateways surface as metadata:null (no probe headers
+      // or 404/410 on /chunk/{offset}/data). That's NOT authoritative — we
+      // should keep trying via the network pool so one old host can't
+      // disable the optimization for everyone else.
       (mockExplicitGateway.getChunkMetadata as sinon.SinonStub).resolves({
         host: 'explicit.example.com',
         metadata: null,
       });
+
+      (
+        mockNetworkGatewaySource.getEligibleGateways as sinon.SinonStub
+      ).resolves([createGateway('network1.example.com')]);
+
+      nock('https://network1.example.com')
+        .head('/chunk/12345/data')
+        .reply(200, '', completeHeaders);
 
       const gateway = new CompositeReferenceGateway({
         explicitGateway: mockExplicitGateway,
@@ -617,10 +629,70 @@ describe('CompositeReferenceGateway', function () {
 
       const result = await gateway.getChunkMetadata({ offset: 12345 });
 
+      expect(result.host).to.equal('network1.example.com');
+      expect(result.metadata).to.not.equal(null);
+      expect(
+        networkFallbackCounterStub.calledWith({
+          operation: 'getChunkMetadata',
+          status: 'triggered',
+        }),
+      ).to.be.true;
+    });
+
+    it('returns explicit host with metadata:null when mode 1 and explicit has no metadata', async function () {
+      (mockExplicitGateway.getChunkMetadata as sinon.SinonStub).resolves({
+        host: 'explicit.example.com',
+        metadata: null,
+      });
+
+      const gateway = new CompositeReferenceGateway({
+        explicitGateway: mockExplicitGateway,
+        networkGatewaySource: null,
+        consensusResolver: null,
+        networkOnly: false,
+        networkFallback: false,
+        nodeReleaseVersion: 'test',
+        log: logStub,
+      });
+
+      const result = await gateway.getChunkMetadata({ offset: 12345 });
+
       expect(result.host).to.equal('explicit.example.com');
       expect(result.metadata).to.equal(null);
-      // metadata:null from explicit is authoritative — no network fallback
+      // Mode 1: no network configured, no fallback expected
       expect(networkFallbackCounterStub.called).to.be.false;
+    });
+
+    it('keeps explicit host in result when mode-2 network fallback also yields metadata:null', async function () {
+      (mockExplicitGateway.getChunkMetadata as sinon.SinonStub).resolves({
+        host: 'explicit.example.com',
+        metadata: null,
+      });
+
+      (
+        mockNetworkGatewaySource.getEligibleGateways as sinon.SinonStub
+      ).resolves([createGateway('network1.example.com')]);
+
+      nock('https://network1.example.com')
+        .head('/chunk/12345/data')
+        .reply(200, '', {});
+
+      const gateway = new CompositeReferenceGateway({
+        explicitGateway: mockExplicitGateway,
+        networkGatewaySource: mockNetworkGatewaySource,
+        consensusResolver: mockConsensusResolver,
+        networkOnly: false,
+        networkFallback: true,
+        nodeReleaseVersion: 'test',
+        log: logStub,
+      });
+
+      const result = await gateway.getChunkMetadata({ offset: 12345 });
+
+      // Prefer reporting the explicit host we heard back from over a
+      // placeholder network-side host when neither found metadata.
+      expect(result.host).to.equal('explicit.example.com');
+      expect(result.metadata).to.equal(null);
     });
 
     it('falls back to network when explicit throws in mode 2', async function () {

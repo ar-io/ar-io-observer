@@ -638,9 +638,33 @@ describe('FallbackReferenceGateway', function () {
       expect(result.metadata).to.equal(null);
     });
 
-    it('returns metadata:null on authoritative 404', async function () {
+    it('falls through to next host on 404 (endpoint may not be supported)', async function () {
       const gateway = new FallbackReferenceGateway({
         hosts: ['gateway1.com', 'gateway2.com'],
+        nodeReleaseVersion: 'test-version',
+        log: logStub,
+      });
+
+      nock('https://gateway1.com').head('/chunk/12345/data').reply(404);
+      nock('https://gateway2.com')
+        .head('/chunk/12345/data')
+        .reply(200, '', completeHeaders);
+
+      const result = await gateway.getChunkMetadata({ offset: 12345 });
+
+      expect(result.host).to.equal('gateway2.com');
+      expect(result.metadata).to.not.equal(null);
+      expect(
+        fallbackCounterStub.calledWith({
+          operation: 'getChunkMetadata',
+          host: 'gateway2.com',
+        }),
+      ).to.be.true;
+    });
+
+    it('returns metadata:null against last reachable host when only host returns 404', async function () {
+      const gateway = new FallbackReferenceGateway({
+        hosts: ['gateway1.com'],
         nodeReleaseVersion: 'test-version',
         log: logStub,
       });
@@ -651,10 +675,9 @@ describe('FallbackReferenceGateway', function () {
 
       expect(result.host).to.equal('gateway1.com');
       expect(result.metadata).to.equal(null);
-      expect(fallbackCounterStub.called).to.be.false;
     });
 
-    it('returns metadata:null on authoritative 410', async function () {
+    it('returns metadata:null against last reachable host when only host returns 410', async function () {
       const gateway = new FallbackReferenceGateway({
         hosts: ['gateway1.com'],
         nodeReleaseVersion: 'test-version',
@@ -665,6 +688,7 @@ describe('FallbackReferenceGateway', function () {
 
       const result = await gateway.getChunkMetadata({ offset: 12345 });
 
+      expect(result.host).to.equal('gateway1.com');
       expect(result.metadata).to.equal(null);
     });
 

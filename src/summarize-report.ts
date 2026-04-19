@@ -45,10 +45,14 @@ function resolveReportPath(arg: string | undefined): string {
       return { name: f, key };
     })
     .sort((a, b) => {
-      if (Number.isNaN(a.key) || Number.isNaN(b.key)) {
-        return a.name.localeCompare(b.name);
-      }
-      return b.key - a.key;
+      const aNumeric = !Number.isNaN(a.key);
+      const bNumeric = !Number.isNaN(b.key);
+      // Numeric epoch filenames always outrank non-numeric auxiliary files
+      // so a stray `050-backup.json` can't be picked as the default report.
+      if (aNumeric && bNumeric) return b.key - a.key;
+      if (aNumeric) return -1;
+      if (bNumeric) return 1;
+      return a.name.localeCompare(b.name);
     });
   if (entries.length === 0) {
     throw new Error(`No report files found in ${REPORTS_DIR}`);
