@@ -363,6 +363,13 @@ export class CompositeReferenceGateway
 
   /**
    * Fetch chunk metadata headers with fallback support.
+   *
+   * Unlike checkChunkAvailability, a null metadata result from the
+   * explicit gateway is NOT authoritative — older gateways and those
+   * that lack the probe endpoint all surface as null. So when network
+   * fallback is on, we proceed to network gateways whenever the
+   * explicit side couldn't produce metadata, regardless of whether it
+   * returned null or threw.
    */
   async getChunkMetadata(params: {
     offset: number;
@@ -375,44 +382,71 @@ export class CompositeReferenceGateway
     }
 
     // Mode 1 & 2: Try explicit gateway first
+    let explicitResult: {
+      host: string;
+      metadata: ChunkHeaderMetadata | null;
+    } | null = null;
+    let explicitError: any;
     try {
-      return await this.explicitGateway!.getChunkMetadata(params);
-    } catch (explicitError: any) {
-      // Mode 1: Explicit only
-      if (!this.networkFallback) {
-        return { host: 'explicit', metadata: null };
+      explicitResult = await this.explicitGateway!.getChunkMetadata(params);
+      if (explicitResult.metadata !== null) {
+        return explicitResult;
       }
+    } catch (err: any) {
+      explicitError = err;
+    }
 
-      this.log.debug(
-        'Explicit gateway chunk metadata failed, falling back to network',
-        {
-          offset,
-          explicitError: explicitError?.message?.slice(0, 256),
-        },
-      );
+    // Mode 1: pass through whatever explicit produced.
+    if (!this.networkFallback) {
+      if (explicitResult !== null) {
+        return explicitResult;
+      }
+      return { host: 'explicit', metadata: null };
+    }
+
+    // Mode 2: explicit didn't yield metadata — try network.
+    this.log.debug(
+      'Explicit gateway produced no chunk metadata, falling back to network',
+      {
+        offset,
+        explicitHost: explicitResult?.host,
+        explicitError: explicitError?.message?.slice(0, 256),
+      },
+    );
+
+    metrics.networkFallbackCounter.inc({
+      operation: 'getChunkMetadata',
+      status: 'triggered',
+    });
+
+    try {
+      const result = await this.getChunkMetadataFromNetwork({ offset });
 
       metrics.networkFallbackCounter.inc({
         operation: 'getChunkMetadata',
-        status: 'triggered',
+        status: result.metadata !== null ? 'success' : 'failure',
       });
 
-      try {
-        const result = await this.getChunkMetadataFromNetwork({ offset });
-
-        metrics.networkFallbackCounter.inc({
-          operation: 'getChunkMetadata',
-          status: result.metadata !== null ? 'success' : 'failure',
-        });
-
+      if (result.metadata !== null) {
         return result;
-      } catch {
-        metrics.networkFallbackCounter.inc({
-          operation: 'getChunkMetadata',
-          status: 'failure',
-        });
-
-        return { host: 'network', metadata: null };
       }
+      // Network also couldn't produce metadata. Prefer reporting the
+      // explicit-side reachable host so the caller sees a coherent
+      // "feature unavailable" outcome rather than a placeholder.
+      if (explicitResult !== null) {
+        return explicitResult;
+      }
+      return result;
+    } catch {
+      metrics.networkFallbackCounter.inc({
+        operation: 'getChunkMetadata',
+        status: 'failure',
+      });
+
+      if (explicitResult !== null) {
+        return explicitResult;
+      }
+      return { host: 'network', metadata: null };
     }
   }
 
@@ -439,7 +473,7 @@ export class CompositeReferenceGateway
       throw new Error('No eligible network gateways available');
     }
 
-    let lastHostWithoutHeaders: string | undefined;
+    let lastReachableHost: string | undefined;
 
     for (const gateway of gateways) {
       try {
@@ -457,6 +491,7 @@ export class CompositeReferenceGateway
 
         if (response.statusCode !== 200) {
           // Reachable but returned non-200 — try next host, don't blacklist.
+          lastReachableHost = gateway.fqdn;
           continue;
         }
 
@@ -471,17 +506,20 @@ export class CompositeReferenceGateway
           gateway: gateway.fqdn,
           offset,
         });
-        lastHostWithoutHeaders = gateway.fqdn;
+        lastReachableHost = gateway.fqdn;
         continue;
       } catch (error: any) {
         const statusCode = error?.response?.statusCode;
 
+        // 404/410 on /chunk/{offset}/data can just mean "endpoint not
+        // implemented on this host", so it's not authoritative — keep
+        // trying later gateways.
         if (statusCode === 404 || statusCode === 410) {
-          this.log.debug('Chunk metadata not found on network gateway', {
-            gateway: gateway.fqdn,
-            offset,
-            statusCode,
-          });
+          this.log.debug(
+            'Network gateway returned 404/410 for metadata probe, trying next',
+            { gateway: gateway.fqdn, offset, statusCode },
+          );
+          lastReachableHost = gateway.fqdn;
           continue;
         }
 
@@ -498,6 +536,7 @@ export class CompositeReferenceGateway
               error: error?.message?.slice(0, 256),
             },
           );
+          lastReachableHost = gateway.fqdn;
           continue;
         }
 
@@ -512,8 +551,8 @@ export class CompositeReferenceGateway
       }
     }
 
-    if (lastHostWithoutHeaders !== undefined) {
-      return { host: lastHostWithoutHeaders, metadata: null };
+    if (lastReachableHost !== undefined) {
+      return { host: lastReachableHost, metadata: null };
     }
 
     return { host: 'network', metadata: null };

@@ -242,12 +242,20 @@ export class FallbackReferenceGateway implements ReferenceGatewaySource {
   }): Promise<{ host: string; metadata: ChunkHeaderMetadata | null }> {
     const { offset } = params;
     let lastError: Error | undefined;
-    // Track the most recent reachable host that returned a successful
-    // response without the required headers. If every host lacks header
-    // support we return null against that host rather than throwing, so
-    // the caller knows this is a "feature unavailable" outcome rather
-    // than "all hosts down".
-    let lastHostWithoutHeaders: string | undefined;
+    // Track the most recent host that produced any HTTP response (200
+    // without headers, 404, 410, etc.) so we can return metadata:null
+    // against a reachable host rather than throwing when no host ends
+    // up advertising the headers.
+    let lastReachableHost: string | undefined;
+
+    const incrementFallbackCounter = (nextHostIndex: number) => {
+      if (nextHostIndex < this.hosts.length) {
+        metrics.referenceGatewayFallbackCounter.inc({
+          operation: 'getChunkMetadata',
+          host: this.hosts[nextHostIndex],
+        });
+      }
+    };
 
     for (let i = 0; i < this.hosts.length; i++) {
       const host = this.hosts[i];
@@ -271,32 +279,29 @@ export class FallbackReferenceGateway implements ReferenceGatewaySource {
           return { host, metadata };
         }
 
-        // 200 without usable headers: the host is reachable but doesn't
-        // expose the chunk metadata headers (older deployment). Try the
-        // next host in case it does.
+        // 200 without usable headers: reachable but doesn't expose the
+        // chunk metadata headers (older deployment). Try the next host.
         this.log.debug(
           'Chunk metadata headers missing or malformed, trying fallback',
           { host, offset, hostIndex: i, totalHosts: this.hosts.length },
         );
-        lastHostWithoutHeaders = host;
-
-        if (i + 1 < this.hosts.length) {
-          metrics.referenceGatewayFallbackCounter.inc({
-            operation: 'getChunkMetadata',
-            host: this.hosts[i + 1],
-          });
-        }
+        lastReachableHost = host;
+        incrementFallbackCounter(i + 1);
         continue;
       } catch (error: any) {
         const statusCode = error?.response?.statusCode;
 
+        // Unlike `/chunk/{offset}`, a 404/410 on `/chunk/{offset}/data`
+        // can just mean "this host doesn't expose that endpoint" — it's
+        // not authoritative. Keep trying later hosts that might.
         if (statusCode === 404 || statusCode === 410) {
-          this.log.debug('Chunk metadata not available (authoritative)', {
-            host,
-            offset,
-            statusCode,
-          });
-          return { host, metadata: null };
+          this.log.debug(
+            'Chunk metadata endpoint returned 404/410, trying fallback',
+            { host, offset, statusCode },
+          );
+          lastReachableHost = host;
+          incrementFallbackCounter(i + 1);
+          continue;
         }
 
         lastError = error;
@@ -307,21 +312,19 @@ export class FallbackReferenceGateway implements ReferenceGatewaySource {
           statusCode,
           error: error?.message?.slice(0, 256),
         });
-
-        if (i + 1 < this.hosts.length) {
-          metrics.referenceGatewayFallbackCounter.inc({
-            operation: 'getChunkMetadata',
-            host: this.hosts[i + 1],
-          });
+        if (statusCode !== undefined) {
+          // Any other HTTP response still counts as reachable.
+          lastReachableHost = host;
         }
+        incrementFallbackCounter(i + 1);
       }
     }
 
     // Prefer reporting the reachable-but-unsupported outcome over the
-    // network error so callers can distinguish "feature unavailable"
+    // transport error so callers can distinguish "feature unavailable"
     // from "reference side down".
-    if (lastHostWithoutHeaders !== undefined) {
-      return { host: lastHostWithoutHeaders, metadata: null };
+    if (lastReachableHost !== undefined) {
+      return { host: lastReachableHost, metadata: null };
     }
 
     throw new Error(
