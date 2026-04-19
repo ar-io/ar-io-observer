@@ -594,7 +594,7 @@ describe('FallbackReferenceGateway', function () {
       expect(fallbackCounterStub.called).to.be.false;
     });
 
-    it('returns metadata:null when first host returns 200 but omits headers', async function () {
+    it('falls through to next host when first returns 200 but omits headers', async function () {
       const gateway = new FallbackReferenceGateway({
         hosts: ['gateway1.com', 'gateway2.com'],
         nodeReleaseVersion: 'test-version',
@@ -603,13 +603,39 @@ describe('FallbackReferenceGateway', function () {
 
       // Older gateway: 200 OK but no x-arweave-chunk-* headers
       nock('https://gateway1.com').head('/chunk/12345/data').reply(200, '', {});
+      // Newer gateway further down the list supports the headers
+      nock('https://gateway2.com')
+        .head('/chunk/12345/data')
+        .reply(200, '', completeHeaders);
 
       const result = await gateway.getChunkMetadata({ offset: 12345 });
 
-      expect(result.host).to.equal('gateway1.com');
+      expect(result.host).to.equal('gateway2.com');
+      expect(result.metadata).to.not.equal(null);
+      expect(
+        fallbackCounterStub.calledWith({
+          operation: 'getChunkMetadata',
+          host: 'gateway2.com',
+        }),
+      ).to.be.true;
+    });
+
+    it('returns metadata:null against last reachable host when no host exposes headers', async function () {
+      const gateway = new FallbackReferenceGateway({
+        hosts: ['gateway1.com', 'gateway2.com'],
+        nodeReleaseVersion: 'test-version',
+        log: logStub,
+      });
+
+      nock('https://gateway1.com').head('/chunk/12345/data').reply(200, '', {});
+      nock('https://gateway2.com').head('/chunk/12345/data').reply(200, '', {});
+
+      const result = await gateway.getChunkMetadata({ offset: 12345 });
+
+      // Last reachable host reported — caller distinguishes "feature
+      // unavailable" (metadata null) from "all hosts down" (throws).
+      expect(result.host).to.equal('gateway2.com');
       expect(result.metadata).to.equal(null);
-      // Successful response — don't fall through to the second host
-      expect(fallbackCounterStub.called).to.be.false;
     });
 
     it('returns metadata:null on authoritative 404', async function () {

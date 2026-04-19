@@ -682,5 +682,109 @@ describe('CompositeReferenceGateway', function () {
       expect(result.host).to.equal('network1.example.com');
       expect(result.metadata).to.not.equal(null);
     });
+
+    it('does not mark network gateway unresponsive for HTTP errors on the probe', async function () {
+      (
+        mockNetworkGatewaySource.getEligibleGateways as sinon.SinonStub
+      ).resolves([
+        createGateway('network1.example.com'),
+        createGateway('network2.example.com'),
+      ]);
+
+      // 405/501/5xx from a reachable gateway means the probe isn't
+      // supported — the gateway is still alive.
+      nock('https://network1.example.com').head('/chunk/12345/data').reply(501);
+      nock('https://network2.example.com')
+        .head('/chunk/12345/data')
+        .reply(200, '', completeHeaders);
+
+      const gateway = new CompositeReferenceGateway({
+        explicitGateway: null,
+        networkGatewaySource: mockNetworkGatewaySource,
+        consensusResolver: mockConsensusResolver,
+        networkOnly: true,
+        networkFallback: false,
+        nodeReleaseVersion: 'test',
+        log: logStub,
+      });
+
+      const result = await gateway.getChunkMetadata({ offset: 12345 });
+
+      expect(result.host).to.equal('network2.example.com');
+      expect(result.metadata).to.not.equal(null);
+      expect(
+        (mockNetworkGatewaySource.markUnresponsive as sinon.SinonStub).called,
+      ).to.be.false;
+    });
+
+    it('marks network gateway unresponsive only on transport errors', async function () {
+      (
+        mockNetworkGatewaySource.getEligibleGateways as sinon.SinonStub
+      ).resolves([
+        createGateway('network1.example.com'),
+        createGateway('network2.example.com'),
+      ]);
+
+      // Transport-level failure: no HTTP response produced.
+      nock('https://network1.example.com')
+        .head('/chunk/12345/data')
+        .replyWithError('ECONNREFUSED');
+      nock('https://network2.example.com')
+        .head('/chunk/12345/data')
+        .reply(200, '', completeHeaders);
+
+      const gateway = new CompositeReferenceGateway({
+        explicitGateway: null,
+        networkGatewaySource: mockNetworkGatewaySource,
+        consensusResolver: mockConsensusResolver,
+        networkOnly: true,
+        networkFallback: false,
+        nodeReleaseVersion: 'test',
+        log: logStub,
+      });
+
+      const result = await gateway.getChunkMetadata({ offset: 12345 });
+
+      expect(result.host).to.equal('network2.example.com');
+      expect(
+        (
+          mockNetworkGatewaySource.markUnresponsive as sinon.SinonStub
+        ).calledOnceWithExactly('network1.example.com'),
+      ).to.be.true;
+    });
+
+    it('falls through to next network gateway when first returns 200 without headers', async function () {
+      (
+        mockNetworkGatewaySource.getEligibleGateways as sinon.SinonStub
+      ).resolves([
+        createGateway('network1.example.com'),
+        createGateway('network2.example.com'),
+      ]);
+
+      nock('https://network1.example.com')
+        .head('/chunk/12345/data')
+        .reply(200, '', {});
+      nock('https://network2.example.com')
+        .head('/chunk/12345/data')
+        .reply(200, '', completeHeaders);
+
+      const gateway = new CompositeReferenceGateway({
+        explicitGateway: null,
+        networkGatewaySource: mockNetworkGatewaySource,
+        consensusResolver: mockConsensusResolver,
+        networkOnly: true,
+        networkFallback: false,
+        nodeReleaseVersion: 'test',
+        log: logStub,
+      });
+
+      const result = await gateway.getChunkMetadata({ offset: 12345 });
+
+      expect(result.host).to.equal('network2.example.com');
+      expect(result.metadata).to.not.equal(null);
+      expect(
+        (mockNetworkGatewaySource.markUnresponsive as sinon.SinonStub).called,
+      ).to.be.false;
+    });
   });
 });
