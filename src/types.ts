@@ -125,6 +125,7 @@ export interface ReferenceGatewaySource {
 export interface OwnershipAssessment {
   expectedWallets: string[];
   observedWallet: string | null;
+  observedRelease?: string;
   failureReason?: string;
   pass: boolean;
 }

@@ -263,11 +263,16 @@ export async function assessOwnership({
   try {
     const url = `https://${host}/ar-io/info`;
     const resp = await client.get(url).json<any>();
+    const observedRelease =
+      resp?.release === undefined || resp?.release === null
+        ? undefined
+        : String(resp.release);
     if (resp?.wallet) {
       if (!expectedWallets.includes(resp.wallet)) {
         const result = {
           expectedWallets,
           observedWallet: resp.wallet,
+          observedRelease,
           failureReason: `Wallet mismatch: expected one of ${expectedWallets.join(
             ', ',
           )} but found ${resp.wallet}`,
@@ -282,6 +287,7 @@ export async function assessOwnership({
         const result = {
           expectedWallets,
           observedWallet: resp.wallet,
+          observedRelease,
           pass: true,
         };
         metrics.ownershipAssessmentsCounter.inc({
@@ -294,6 +300,7 @@ export async function assessOwnership({
     const result = {
       expectedWallets,
       observedWallet: null,
+      observedRelease,
       failureReason: `No wallet found`,
       pass: false,
     };

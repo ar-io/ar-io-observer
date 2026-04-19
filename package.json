@@ -85,6 +85,7 @@
     "build": "yarn clean && npx tsc --project ./tsconfig.prod.json && cp -r src/data dist/",
     "clean": "npx rimraf [ .nyc_output coverage dist ]",
     "observe": "NODE_OPTIONS=\"--no-warnings --loader ts-node/esm\" node src/cli.ts",
+    "summarize": "NODE_OPTIONS=\"--no-warnings --loader ts-node/esm\" node src/summarize-report.ts",
     "service": "NODE_OPTIONS=\"--no-warnings --loader ts-node/esm\" node src/service.ts",
     "start:watch": "NODE_OPTIONS=\"--no-warnings --loader ts-node/esm\" nodemon --watch src --ext ts --exec ts-node -r dotenv/config src/service.ts",
     "test": "mocha --no-warnings",
