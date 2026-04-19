@@ -25,6 +25,11 @@ import pMap from 'p-map';
 import { MAX_FORK_DEPTH } from './arweave.js';
 import * as config from './config.js';
 import { BlockOffsetMapping } from './lib/block-offset-mapping.js';
+import {
+  AnchoredChunkMetadata,
+  ChainAnchorMismatchError,
+  anchorChunkMetadata,
+} from './lib/chunk-metadata-anchor.js';
 import { customHashPRNG } from './lib/prng.js';
 import {
   parseTxPath,
@@ -361,6 +366,14 @@ export class Observer {
   private transactionCache = new LRUCache<string, { data_root: string }>({
     max: 10000, // 5x blocks: minimal memory per entry, same transactions accessed repeatedly for offset validation
   });
+  // Chain-anchored metadata per tx: caches the cross-check of reference-gateway
+  // chunk headers against /tx/{id}/offset (+ optional /tx/{id}) so repeated
+  // offsets inside the same tx pay zero additional node calls.
+  private anchoredTxMetadataCache = new LRUCache<string, AnchoredChunkMetadata>(
+    {
+      max: 10000,
+    },
+  );
   private blockOffsetMapping?: BlockOffsetMapping;
 
   constructor({
@@ -1176,6 +1189,240 @@ export class Observer {
     return { isValid: true };
   }
 
+  /**
+   * Resolve the transaction containing `offset` to yield its data_root and
+   * weave bounds, anchored against the chain.
+   *
+   * Fast path: HEAD the reference gateway's `/chunk/{offset}/data`, read
+   * the `x-arweave-chunk-*` headers, and cross-check them against the
+   * Arweave node via `/tx/{id}/offset` (plus `/tx/{id}` for data_root).
+   * On success this costs one HEAD and one O(1) node lookup per unique
+   * tx, versus ~20-30 node calls for the binary-search fallback.
+   *
+   * On any mismatch or when the reference gateway omits the headers the
+   * method logs and returns null so the caller falls back to the
+   * existing chain-search path. The reference gateway's headers are
+   * never trusted over the chain.
+   */
+  private async resolveTxBoundsViaReferenceHeaders(offset: number): Promise<{
+    effectiveDataRoot: Uint8Array;
+    txStartOffset: number;
+    txEndOffset: number;
+  } | null> {
+    let metadata;
+    try {
+      const result = await this.referenceGateway.getChunkMetadata({ offset });
+      metadata = result.metadata;
+    } catch (error: any) {
+      log.debug('Reference chunk metadata fetch failed', {
+        offset,
+        error: error?.message,
+      });
+      metrics.chunkMetadataAnchorCounter.inc({ result: 'error' });
+      return null;
+    }
+
+    if (metadata === null) {
+      metrics.chunkMetadataAnchorCounter.inc({ result: 'metadata_missing' });
+      return null;
+    }
+
+    const cached = this.anchoredTxMetadataCache.get(metadata.txId);
+    if (cached !== undefined) {
+      if (
+        offset < cached.txStartOffset ||
+        offset > cached.txEndOffset ||
+        cached.dataRoot.toString('base64url') !== metadata.dataRoot
+      ) {
+        log.warn('Cached anchored metadata inconsistent with new headers', {
+          offset,
+          txId: metadata.txId.slice(0, 12) + '...',
+        });
+        metrics.chunkMetadataAnchorCounter.inc({ result: 'mismatch' });
+        return null;
+      }
+      metrics.chunkMetadataAnchorCounter.inc({ result: 'cache_hit' });
+      return {
+        effectiveDataRoot: cached.dataRoot,
+        txStartOffset: cached.txStartOffset,
+        txEndOffset: cached.txEndOffset,
+      };
+    }
+
+    try {
+      const anchored = await anchorChunkMetadata({
+        headerMetadata: metadata,
+        offset,
+        fetchTxOffset: (txId) =>
+          this.getTransactionOffset(this.arweaveBaseUrl, txId),
+        fetchTransaction: async (txId) => {
+          const tx = await this.getTransaction(this.arweaveBaseUrl, txId);
+          return { data_root: tx.data_root };
+        },
+      });
+      this.anchoredTxMetadataCache.set(metadata.txId, anchored);
+      metrics.chunkMetadataAnchorCounter.inc({ result: 'hit' });
+      return {
+        effectiveDataRoot: anchored.dataRoot,
+        txStartOffset: anchored.txStartOffset,
+        txEndOffset: anchored.txEndOffset,
+      };
+    } catch (error: any) {
+      if (error instanceof ChainAnchorMismatchError) {
+        log.warn('Chain anchor mismatch; falling back to chain search', {
+          offset,
+          txId: metadata.txId.slice(0, 12) + '...',
+          field: error.field,
+          headerValue: error.headerValue,
+          chainValue: error.chainValue,
+        });
+        metrics.chunkMetadataAnchorCounter.inc({ result: 'mismatch' });
+      } else {
+        log.debug('Chain anchor failed', {
+          offset,
+          error: error?.message,
+        });
+        metrics.chunkMetadataAnchorCounter.inc({ result: 'error' });
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Locate tx bounds and data_root by walking the chain: block-height
+   * binary search + (tx_path shortcut OR tx binary search). This is the
+   * original implementation, preserved as a fallback when the reference
+   * gateway can't supply chunk header metadata or disagrees with chain
+   * state.
+   */
+  private async resolveTxBoundsViaChainSearch({
+    targetHost,
+    offset,
+    maxSearchHeight,
+    chunkResponse,
+  }: {
+    targetHost: string;
+    offset: number;
+    maxSearchHeight: number;
+    chunkResponse: { tx_path?: string };
+  }): Promise<{
+    effectiveDataRoot?: Uint8Array;
+    txStartOffset?: number;
+    txEndOffset?: number;
+  }> {
+    try {
+      // Step 1: Find the containing block (with offset mapping optimization)
+      log.debug('Finding containing block for offset', { targetHost, offset });
+
+      const containingBlockHeight = await this.binarySearchBlocks(
+        targetHost,
+        offset,
+        1,
+        maxSearchHeight,
+      );
+
+      // Step 2: Try TX path parsing if tx_path is present
+      if (
+        chunkResponse.tx_path !== undefined &&
+        chunkResponse.tx_path.length > 0
+      ) {
+        const txPathResult = await this.tryParseTxPath({
+          txPath: chunkResponse.tx_path,
+          targetOffset: offset,
+          containingBlockHeight,
+        });
+
+        if (txPathResult) {
+          log.debug(
+            'TX path parsing succeeded, skipping transaction binary search',
+            {
+              targetHost,
+              offset,
+              txStartOffset: txPathResult.txStartOffset,
+              txEndOffset: txPathResult.txEndOffset,
+            },
+          );
+
+          return {
+            effectiveDataRoot: txPathResult.dataRoot,
+            txStartOffset: txPathResult.txStartOffset,
+            txEndOffset: txPathResult.txEndOffset,
+          };
+        }
+
+        log.debug('TX path parsing failed, falling back to binary search', {
+          targetHost,
+          offset,
+        });
+      }
+
+      // Step 3: Fall back to transaction binary search
+      log.debug('Finding transaction for offset using binary search', {
+        targetHost,
+        offset,
+        containingBlockHeight,
+      });
+
+      const transactionInfo = await this.findTransactionForOffset(
+        targetHost,
+        offset,
+        maxSearchHeight,
+        containingBlockHeight,
+      );
+
+      const effectiveDataRoot = Buffer.from(
+        transactionInfo.dataRoot,
+        'base64url',
+      );
+
+      log.debug('Found transaction and data_root via binary search', {
+        targetHost,
+        offset,
+        txId: transactionInfo.txId.slice(0, 12) + '...',
+        dataRootLength: effectiveDataRoot.length,
+        txStartOffset: transactionInfo.txStartOffset,
+        txEndOffset: transactionInfo.txEndOffset,
+      });
+
+      return {
+        effectiveDataRoot,
+        txStartOffset: transactionInfo.txStartOffset,
+        txEndOffset: transactionInfo.txEndOffset,
+      };
+    } catch (searchError: any) {
+      log.debug('Transaction search failed', {
+        targetHost,
+        offset,
+        error: searchError?.message,
+      });
+      return {};
+    }
+  }
+
+  /**
+   * Entry point used by validateChunkAtOffset: try the reference-header
+   * fast path and fall through to chain search if it doesn't pan out.
+   */
+  private async resolveTxBoundsForOffset(params: {
+    targetHost: string;
+    offset: number;
+    maxSearchHeight: number;
+    chunkResponse: { tx_path?: string };
+  }): Promise<{
+    effectiveDataRoot?: Uint8Array;
+    txStartOffset?: number;
+    txEndOffset?: number;
+  }> {
+    const headerResult = await this.resolveTxBoundsViaReferenceHeaders(
+      params.offset,
+    );
+    if (headerResult !== null) {
+      return headerResult;
+    }
+    metrics.chunkMetadataAnchorCounter.inc({ result: 'fallback' });
+    return this.resolveTxBoundsViaChainSearch(params);
+  }
+
   private async validateChunkAtOffset({
     targetHost,
     offset,
@@ -1284,106 +1531,14 @@ export class Observer {
             }
           })(),
 
-          // Get the data_root for validation - try TX path parsing first, then binary search
-          (async (): Promise<{
-            effectiveDataRoot?: Uint8Array;
-            txStartOffset?: number;
-            txEndOffset?: number;
-          }> => {
-            try {
-              // Step 1: Find the containing block (with offset mapping optimization)
-              log.debug('Finding containing block for offset', {
-                targetHost,
-                offset,
-              });
-
-              const containingBlockHeight = await this.binarySearchBlocks(
-                targetHost,
-                offset,
-                1,
-                maxSearchHeight,
-              );
-
-              // Step 2: Try TX path parsing if tx_path is present
-              if (
-                chunkResponse.tx_path !== undefined &&
-                chunkResponse.tx_path.length > 0
-              ) {
-                const txPathResult = await this.tryParseTxPath({
-                  txPath: chunkResponse.tx_path,
-                  targetOffset: offset,
-                  containingBlockHeight,
-                });
-
-                if (txPathResult) {
-                  log.debug(
-                    'TX path parsing succeeded, skipping transaction binary search',
-                    {
-                      targetHost,
-                      offset,
-                      txStartOffset: txPathResult.txStartOffset,
-                      txEndOffset: txPathResult.txEndOffset,
-                    },
-                  );
-
-                  return {
-                    effectiveDataRoot: txPathResult.dataRoot,
-                    txStartOffset: txPathResult.txStartOffset,
-                    txEndOffset: txPathResult.txEndOffset,
-                  };
-                }
-
-                log.debug(
-                  'TX path parsing failed, falling back to binary search',
-                  {
-                    targetHost,
-                    offset,
-                  },
-                );
-              }
-
-              // Step 3: Fall back to transaction binary search (reuse block we already found)
-              log.debug('Finding transaction for offset using binary search', {
-                targetHost,
-                offset,
-                containingBlockHeight,
-              });
-
-              const transactionInfo = await this.findTransactionForOffset(
-                targetHost,
-                offset,
-                maxSearchHeight,
-                containingBlockHeight,
-              );
-
-              const effectiveDataRoot = Buffer.from(
-                transactionInfo.dataRoot,
-                'base64url',
-              );
-
-              log.debug('Found transaction and data_root via binary search', {
-                targetHost,
-                offset,
-                txId: transactionInfo.txId.slice(0, 12) + '...',
-                dataRootLength: effectiveDataRoot.length,
-                txStartOffset: transactionInfo.txStartOffset,
-                txEndOffset: transactionInfo.txEndOffset,
-              });
-
-              return {
-                effectiveDataRoot,
-                txStartOffset: transactionInfo.txStartOffset,
-                txEndOffset: transactionInfo.txEndOffset,
-              };
-            } catch (searchError: any) {
-              log.debug('Transaction search failed', {
-                targetHost,
-                offset,
-                error: searchError?.message,
-              });
-              return {};
-            }
-          })(),
+          // Resolve tx boundaries + data_root: try reference-gateway headers
+          // anchored against the chain first, then fall back to chain search.
+          this.resolveTxBoundsForOffset({
+            targetHost,
+            offset,
+            maxSearchHeight,
+            chunkResponse,
+          }),
         ]);
 
       // Extract results from parallel operations

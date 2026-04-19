@@ -100,6 +100,20 @@ export const txPathParsingCounter = new Counter({
   registers: [register],
 });
 
+// Chunk metadata anchor (reference-gateway header shortcut) metrics
+export const chunkMetadataAnchorCounter = new Counter({
+  name: 'observer_chunk_metadata_anchor_total',
+  help: 'Outcomes of reference-gateway chunk metadata anchoring',
+  // 'hit' = anchored against chain & used
+  // 'cache_hit' = reused a previously anchored tx
+  // 'metadata_missing' = reference gateway returned no headers
+  // 'mismatch' = header values disagreed with chain (fell back)
+  // 'error' = network/other error fetching metadata or anchoring
+  // 'fallback' = overall path fell back to chain search
+  labelNames: ['result'],
+  registers: [register],
+});
+
 // Block search iterations histogram (to compare with/without offset mapping)
 export const blockSearchIterationsHistogram = new Histogram({
   name: 'observer_block_search_iterations',

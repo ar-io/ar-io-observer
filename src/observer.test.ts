@@ -1064,6 +1064,130 @@ describe('Observer', function () {
           expect(result.referenceGatewayAvailable).to.be.false; // Should be false on error
         });
       });
+
+      describe('resolveTxBoundsViaReferenceHeaders', function () {
+        const txId = 'T3DcnZlZg_FqOQUf9MSZXQ5j7_ETc04OEqbkX-MZRnc';
+        const dataRoot = 'qoQEdVyTqjLpkybZAgkIgtNawXUHUd5TJZwkWx0Vo-A';
+        const txStartOffset = 108631448658167n;
+        const txDataSize = 42724169n;
+        const txEndOffset = txStartOffset + txDataSize - 1n;
+        const probeOffset = 108631449706743;
+
+        const chainOffsetResponse = {
+          size: txDataSize.toString(),
+          offset: txEndOffset.toString(),
+        };
+
+        const completeMetadata = {
+          txId,
+          txStartOffset,
+          txDataSize,
+          dataRoot,
+          dataPath: 'data-path-ignored',
+          txPath: 'tx-path-ignored',
+          chunkStartOffset: BigInt(probeOffset),
+          chunkRelativeStartOffset: 1048576n,
+        };
+
+        it('returns anchored bounds and hits the chain once on success', async function () {
+          referenceGatewayStub.getChunkMetadata.resolves({
+            host: 'reference.example.com',
+            metadata: completeMetadata,
+          });
+
+          const txOffsetScope = nock('https://arweave.net')
+            .get(`/tx/${txId}/offset`)
+            .reply(200, chainOffsetResponse);
+          const txScope = nock('https://arweave.net')
+            .get(`/tx/${txId}`)
+            .reply(200, { id: txId, data_root: dataRoot, data_size: '1' });
+
+          const result = await (
+            observer as any
+          ).resolveTxBoundsViaReferenceHeaders(probeOffset);
+
+          expect(result).to.not.equal(null);
+          expect(result.txStartOffset).to.equal(Number(txStartOffset));
+          expect(result.txEndOffset).to.equal(Number(txEndOffset));
+          expect(result.effectiveDataRoot.length).to.be.greaterThan(0);
+          expect(txOffsetScope.isDone()).to.be.true;
+          expect(txScope.isDone()).to.be.true;
+        });
+
+        it('returns null when the reference gateway has no metadata', async function () {
+          referenceGatewayStub.getChunkMetadata.resolves({
+            host: 'reference.example.com',
+            metadata: null,
+          });
+
+          const result = await (
+            observer as any
+          ).resolveTxBoundsViaReferenceHeaders(probeOffset);
+
+          expect(result).to.equal(null);
+        });
+
+        it('returns null and does not throw when chain disagrees with headers', async function () {
+          referenceGatewayStub.getChunkMetadata.resolves({
+            host: 'reference.example.com',
+            metadata: completeMetadata,
+          });
+
+          // Chain reports a different size → mismatch
+          nock('https://arweave.net')
+            .get(`/tx/${txId}/offset`)
+            .reply(200, {
+              size: (txDataSize + 1n).toString(),
+              offset: (txEndOffset + 1n).toString(),
+            });
+
+          const result = await (
+            observer as any
+          ).resolveTxBoundsViaReferenceHeaders(probeOffset);
+
+          expect(result).to.equal(null);
+        });
+
+        it('reuses the per-tx cache for a second offset in the same tx', async function () {
+          referenceGatewayStub.getChunkMetadata.resolves({
+            host: 'reference.example.com',
+            metadata: completeMetadata,
+          });
+
+          // Only stub the chain calls once — cache hit on the second call
+          // should not require additional network activity.
+          nock('https://arweave.net')
+            .get(`/tx/${txId}/offset`)
+            .reply(200, chainOffsetResponse);
+          nock('https://arweave.net')
+            .get(`/tx/${txId}`)
+            .reply(200, { id: txId, data_root: dataRoot, data_size: '1' });
+
+          const first = await (
+            observer as any
+          ).resolveTxBoundsViaReferenceHeaders(probeOffset);
+          expect(first).to.not.equal(null);
+
+          const secondOffset = probeOffset + 262144;
+          referenceGatewayStub.getChunkMetadata.resolves({
+            host: 'reference.example.com',
+            metadata: {
+              ...completeMetadata,
+              chunkStartOffset: BigInt(secondOffset),
+            },
+          });
+
+          const second = await (
+            observer as any
+          ).resolveTxBoundsViaReferenceHeaders(secondOffset);
+
+          expect(second).to.not.equal(null);
+          expect(second.txStartOffset).to.equal(first.txStartOffset);
+          // No additional /tx/* activity should be required; nock would
+          // complain on an unexpected request.
+          expect(nock.pendingMocks()).to.deep.equal([]);
+        });
+      });
     });
   });
 });
