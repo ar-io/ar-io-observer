@@ -71,6 +71,7 @@ describe('CompositeReferenceGateway', function () {
     mockExplicitGateway = {
       getArnsResolution: sinon.stub(),
       checkChunkAvailability: sinon.stub(),
+      getChunkMetadata: sinon.stub(),
     };
 
     mockNetworkGatewaySource = {
@@ -560,6 +561,126 @@ describe('CompositeReferenceGateway', function () {
           mockNetworkGatewaySource.markUnresponsive as sinon.SinonStub
         ).calledWith('network1.example.com'),
       ).to.be.true;
+    });
+  });
+
+  describe('getChunkMetadata', function () {
+    const completeHeaders = {
+      'x-arweave-chunk-tx-id': 'T3DcnZlZg_FqOQUf9MSZXQ5j7_ETc04OEqbkX-MZRnc',
+      'x-arweave-chunk-tx-start-offset': '108631448658167',
+      'x-arweave-chunk-tx-data-size': '42724169',
+      'x-arweave-chunk-data-root':
+        'qoQEdVyTqjLpkybZAgkIgtNawXUHUd5TJZwkWx0Vo-A',
+      'x-arweave-chunk-data-path': 'E2OKmVV7k4k',
+      'x-arweave-chunk-tx-path': 'H9gNFx8dbHj',
+      'x-arweave-chunk-start-offset': '108631449706743',
+      'x-arweave-chunk-relative-start-offset': '1048576',
+    };
+
+    it('delegates to explicit gateway in mode 1', async function () {
+      (mockExplicitGateway.getChunkMetadata as sinon.SinonStub).resolves({
+        host: 'explicit.example.com',
+        metadata: { txId: 'tx', dataRoot: 'root' },
+      });
+
+      const gateway = new CompositeReferenceGateway({
+        explicitGateway: mockExplicitGateway,
+        networkGatewaySource: null,
+        consensusResolver: null,
+        networkOnly: false,
+        networkFallback: false,
+        nodeReleaseVersion: 'test',
+        log: logStub,
+      });
+
+      const result = await gateway.getChunkMetadata({ offset: 12345 });
+
+      expect(result.host).to.equal('explicit.example.com');
+      expect(result.metadata).to.not.equal(null);
+    });
+
+    it('returns host/metadata unchanged when explicit returns metadata:null', async function () {
+      (mockExplicitGateway.getChunkMetadata as sinon.SinonStub).resolves({
+        host: 'explicit.example.com',
+        metadata: null,
+      });
+
+      const gateway = new CompositeReferenceGateway({
+        explicitGateway: mockExplicitGateway,
+        networkGatewaySource: mockNetworkGatewaySource,
+        consensusResolver: mockConsensusResolver,
+        networkOnly: false,
+        networkFallback: true,
+        nodeReleaseVersion: 'test',
+        log: logStub,
+      });
+
+      const result = await gateway.getChunkMetadata({ offset: 12345 });
+
+      expect(result.host).to.equal('explicit.example.com');
+      expect(result.metadata).to.equal(null);
+      // metadata:null from explicit is authoritative — no network fallback
+      expect(networkFallbackCounterStub.called).to.be.false;
+    });
+
+    it('falls back to network when explicit throws in mode 2', async function () {
+      (mockExplicitGateway.getChunkMetadata as sinon.SinonStub).rejects(
+        new Error('getChunkMetadata failed on all hosts'),
+      );
+
+      (
+        mockNetworkGatewaySource.getEligibleGateways as sinon.SinonStub
+      ).resolves([createGateway('network1.example.com')]);
+
+      nock('https://network1.example.com')
+        .head('/chunk/12345/data')
+        .reply(200, '', completeHeaders);
+
+      const gateway = new CompositeReferenceGateway({
+        explicitGateway: mockExplicitGateway,
+        networkGatewaySource: mockNetworkGatewaySource,
+        consensusResolver: mockConsensusResolver,
+        networkOnly: false,
+        networkFallback: true,
+        nodeReleaseVersion: 'test',
+        log: logStub,
+      });
+
+      const result = await gateway.getChunkMetadata({ offset: 12345 });
+
+      expect(result.host).to.equal('network1.example.com');
+      expect(result.metadata).to.not.equal(null);
+      expect(
+        networkFallbackCounterStub.calledWith({
+          operation: 'getChunkMetadata',
+          status: 'triggered',
+        }),
+      ).to.be.true;
+    });
+
+    it('uses network directly in mode 3', async function () {
+      (
+        mockNetworkGatewaySource.getEligibleGateways as sinon.SinonStub
+      ).resolves([createGateway('network1.example.com')]);
+
+      nock('https://network1.example.com')
+        .head('/chunk/12345/data')
+        .reply(200, '', completeHeaders);
+
+      const gateway = new CompositeReferenceGateway({
+        explicitGateway: null,
+        networkGatewaySource: mockNetworkGatewaySource,
+        consensusResolver: mockConsensusResolver,
+        networkOnly: true,
+        networkFallback: false,
+        nodeReleaseVersion: 'test',
+        log: logStub,
+      });
+
+      const result = await gateway.getChunkMetadata({ offset: 12345 });
+
+      expect(result.host).to.equal('network1.example.com');
+      expect(result.metadata).to.not.equal(null);
     });
   });
 });

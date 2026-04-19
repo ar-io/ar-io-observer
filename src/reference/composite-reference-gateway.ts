@@ -19,11 +19,13 @@
 import { Got } from 'got';
 import { Logger } from 'winston';
 
+import { parseChunkHeaderMetadata } from '../lib/chunk-header-parser.js';
 import { createGatewayHttpClient } from '../lib/http-client.js';
 import * as metrics from '../metrics.js';
 import {
   ArnsConsensusResolver,
   ArnsResolution,
+  ChunkHeaderMetadata,
   CompositeReferenceGatewaySource,
   NetworkGatewaySource,
   ReferenceGatewaySource,
@@ -357,5 +359,129 @@ export class CompositeReferenceGateway
 
     // All gateways failed or chunk not found
     return { host: 'network', available: false };
+  }
+
+  /**
+   * Fetch chunk metadata headers with fallback support.
+   */
+  async getChunkMetadata(params: {
+    offset: number;
+  }): Promise<{ host: string; metadata: ChunkHeaderMetadata | null }> {
+    const { offset } = params;
+
+    // Mode 3: Network only
+    if (this.networkOnly) {
+      return this.getChunkMetadataFromNetwork({ offset });
+    }
+
+    // Mode 1 & 2: Try explicit gateway first
+    try {
+      return await this.explicitGateway!.getChunkMetadata(params);
+    } catch (explicitError: any) {
+      // Mode 1: Explicit only
+      if (!this.networkFallback) {
+        return { host: 'explicit', metadata: null };
+      }
+
+      this.log.debug(
+        'Explicit gateway chunk metadata failed, falling back to network',
+        {
+          offset,
+          explicitError: explicitError?.message?.slice(0, 256),
+        },
+      );
+
+      metrics.networkFallbackCounter.inc({
+        operation: 'getChunkMetadata',
+        status: 'triggered',
+      });
+
+      try {
+        const result = await this.getChunkMetadataFromNetwork({ offset });
+
+        metrics.networkFallbackCounter.inc({
+          operation: 'getChunkMetadata',
+          status: result.metadata !== null ? 'success' : 'failure',
+        });
+
+        return result;
+      } catch {
+        metrics.networkFallbackCounter.inc({
+          operation: 'getChunkMetadata',
+          status: 'failure',
+        });
+
+        return { host: 'network', metadata: null };
+      }
+    }
+  }
+
+  /**
+   * Fetch chunk metadata headers from network gateways (sequential).
+   */
+  private async getChunkMetadataFromNetwork(params: {
+    offset: number;
+  }): Promise<{ host: string; metadata: ChunkHeaderMetadata | null }> {
+    if (this.networkGatewaySource === null) {
+      throw new Error('Network gateway source not configured');
+    }
+
+    const { offset } = params;
+
+    const excludeFqdns =
+      this.observedGatewayFqdn !== null ? [this.observedGatewayFqdn] : [];
+
+    const gateways = await this.networkGatewaySource.getEligibleGateways({
+      excludeFqdns,
+    });
+
+    if (gateways.length === 0) {
+      throw new Error('No eligible network gateways available');
+    }
+
+    for (const gateway of gateways) {
+      try {
+        const portPart = gateway.port !== 443 ? `:${gateway.port}` : '';
+        const url = `https://${gateway.fqdn}${portPart}/chunk/${offset}/data`;
+
+        this.log.debug('Fetching chunk metadata from network gateway', {
+          gateway: gateway.fqdn,
+          offset,
+        });
+
+        const response = await this.gotClient.head(url, {
+          timeout: { request: 3000 },
+        });
+
+        if (response.statusCode !== 200) {
+          continue;
+        }
+
+        const metadata = parseChunkHeaderMetadata(response.headers);
+        return { host: gateway.fqdn, metadata };
+      } catch (error: any) {
+        const statusCode = error?.response?.statusCode;
+
+        if (statusCode === 404 || statusCode === 410) {
+          this.log.debug('Chunk metadata not found on network gateway', {
+            gateway: gateway.fqdn,
+            offset,
+            statusCode,
+          });
+          continue;
+        }
+
+        this.log.debug('Network gateway metadata fetch failed, trying next', {
+          gateway: gateway.fqdn,
+          offset,
+          statusCode,
+          error: error?.message?.slice(0, 256),
+        });
+
+        this.networkGatewaySource.markUnresponsive(gateway.fqdn);
+      }
+    }
+
+    return { host: 'network', metadata: null };
   }
 }

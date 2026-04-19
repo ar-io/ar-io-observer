@@ -106,6 +106,17 @@ export interface ArnsResolution {
   timings: any | null;
 }
 
+export interface ChunkHeaderMetadata {
+  txId: string;
+  txStartOffset: bigint;
+  txDataSize: bigint;
+  dataRoot: string;
+  dataPath: string;
+  txPath: string;
+  chunkStartOffset: bigint;
+  chunkRelativeStartOffset: bigint;
+}
+
 export interface ReferenceGatewaySource {
   getArnsResolution(params: {
     arnsName: string;
@@ -116,6 +127,10 @@ export interface ReferenceGatewaySource {
   checkChunkAvailability(params: {
     offset: number;
   }): Promise<{ host: string; available: boolean }>;
+
+  getChunkMetadata(params: {
+    offset: number;
+  }): Promise<{ host: string; metadata: ChunkHeaderMetadata | null }>;
 }
 
 //

@@ -448,6 +448,9 @@ describe('Observer', function () {
       referenceGatewayStub = {
         getArnsResolution: sinon.stub(),
         checkChunkAvailability: sinon.stub(),
+        getChunkMetadata: sinon
+          .stub()
+          .resolves({ host: 'reference.example.com', metadata: null }),
       };
 
       observer = new Observer({
