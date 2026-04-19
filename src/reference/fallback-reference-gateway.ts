@@ -20,10 +20,15 @@ import { Got } from 'got';
 import { Logger } from 'winston';
 
 import { validateArnsResolutionHeaders } from '../lib/arns-validation.js';
+import { parseChunkHeaderMetadata } from '../lib/chunk-header-parser.js';
 import { createGatewayHttpClient } from '../lib/http-client.js';
 import * as metrics from '../metrics.js';
 import { getArnsResolution } from '../observer.js';
-import { ArnsResolution, ReferenceGatewaySource } from '../types.js';
+import {
+  ArnsResolution,
+  ChunkHeaderMetadata,
+  ReferenceGatewaySource,
+} from '../types.js';
 
 /**
  * FallbackReferenceGateway provides reference gateway operations with
@@ -217,6 +222,84 @@ export class FallbackReferenceGateway implements ReferenceGatewaySource {
     // All hosts failed with non-404/410 errors - throw to trigger network fallback
     throw new Error(
       `checkChunkAvailability failed on all hosts: ${lastError?.message}`,
+    );
+  }
+
+  /**
+   * Fetch chunk metadata headers from reference gateways with fallback.
+   *
+   * Performs a HEAD request to `/chunk/{offset}/data` and extracts the
+   * `x-arweave-chunk-*` headers that advertise tx boundaries, data_root,
+   * and merkle proofs.
+   *
+   * Returns `metadata: null` when the first successful host omits the
+   * required headers (older gateway) — caller should fall back. 404/410
+   * responses are authoritative "chunk not found" and also return null.
+   * Throws only when every host fails with network/HTTP errors.
+   */
+  async getChunkMetadata(params: {
+    offset: number;
+  }): Promise<{ host: string; metadata: ChunkHeaderMetadata | null }> {
+    const { offset } = params;
+    let lastError: Error | undefined;
+
+    for (let i = 0; i < this.hosts.length; i++) {
+      const host = this.hosts[i];
+      const url = `https://${host}/chunk/${offset}/data`;
+
+      this.log.debug('Fetching chunk metadata headers', { host, offset, url });
+
+      try {
+        const response = await this.gotClient.head(url, {
+          timeout: { request: 3000 },
+        });
+
+        if (response.statusCode !== 200) {
+          throw new Error(
+            `Unexpected status code ${response.statusCode} from ${host}`,
+          );
+        }
+
+        const metadata = parseChunkHeaderMetadata(response.headers);
+        if (metadata === null) {
+          this.log.debug('Chunk metadata headers missing or malformed', {
+            host,
+            offset,
+          });
+        }
+        return { host, metadata };
+      } catch (error: any) {
+        const statusCode = error?.response?.statusCode;
+
+        if (statusCode === 404 || statusCode === 410) {
+          this.log.debug('Chunk metadata not available (authoritative)', {
+            host,
+            offset,
+            statusCode,
+          });
+          return { host, metadata: null };
+        }
+
+        lastError = error;
+        this.log.debug('Chunk metadata fetch failed, trying fallback', {
+          host,
+          hostIndex: i,
+          totalHosts: this.hosts.length,
+          statusCode,
+          error: error?.message?.slice(0, 256),
+        });
+
+        if (i + 1 < this.hosts.length) {
+          metrics.referenceGatewayFallbackCounter.inc({
+            operation: 'getChunkMetadata',
+            host: this.hosts[i + 1],
+          });
+        }
+      }
+    }
+
+    throw new Error(
+      `getChunkMetadata failed on all hosts: ${lastError?.message}`,
     );
   }
 }

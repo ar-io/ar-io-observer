@@ -558,4 +558,155 @@ describe('FallbackReferenceGateway', function () {
       ).to.be.true;
     });
   });
+
+  describe('getChunkMetadata', function () {
+    const completeHeaders = {
+      'x-arweave-chunk-tx-id': 'T3DcnZlZg_FqOQUf9MSZXQ5j7_ETc04OEqbkX-MZRnc',
+      'x-arweave-chunk-tx-start-offset': '108631448658167',
+      'x-arweave-chunk-tx-data-size': '42724169',
+      'x-arweave-chunk-data-root':
+        'qoQEdVyTqjLpkybZAgkIgtNawXUHUd5TJZwkWx0Vo-A',
+      'x-arweave-chunk-data-path': 'E2OKmVV7k4k',
+      'x-arweave-chunk-tx-path': 'H9gNFx8dbHj',
+      'x-arweave-chunk-start-offset': '108631449706743',
+      'x-arweave-chunk-relative-start-offset': '1048576',
+    };
+
+    it('returns parsed metadata when all required headers are present', async function () {
+      const gateway = new FallbackReferenceGateway({
+        hosts: ['gateway1.com'],
+        nodeReleaseVersion: 'test-version',
+        log: logStub,
+      });
+
+      nock('https://gateway1.com')
+        .head('/chunk/12345/data')
+        .reply(200, '', completeHeaders);
+
+      const result = await gateway.getChunkMetadata({ offset: 12345 });
+
+      expect(result.host).to.equal('gateway1.com');
+      expect(result.metadata).to.not.equal(null);
+      expect(result.metadata!.txId).to.equal(
+        completeHeaders['x-arweave-chunk-tx-id'],
+      );
+      expect(result.metadata!.txStartOffset).to.equal(108631448658167n);
+      expect(fallbackCounterStub.called).to.be.false;
+    });
+
+    it('returns metadata:null when first host returns 200 but omits headers', async function () {
+      const gateway = new FallbackReferenceGateway({
+        hosts: ['gateway1.com', 'gateway2.com'],
+        nodeReleaseVersion: 'test-version',
+        log: logStub,
+      });
+
+      // Older gateway: 200 OK but no x-arweave-chunk-* headers
+      nock('https://gateway1.com').head('/chunk/12345/data').reply(200, '', {});
+
+      const result = await gateway.getChunkMetadata({ offset: 12345 });
+
+      expect(result.host).to.equal('gateway1.com');
+      expect(result.metadata).to.equal(null);
+      // Successful response — don't fall through to the second host
+      expect(fallbackCounterStub.called).to.be.false;
+    });
+
+    it('returns metadata:null on authoritative 404', async function () {
+      const gateway = new FallbackReferenceGateway({
+        hosts: ['gateway1.com', 'gateway2.com'],
+        nodeReleaseVersion: 'test-version',
+        log: logStub,
+      });
+
+      nock('https://gateway1.com').head('/chunk/12345/data').reply(404);
+
+      const result = await gateway.getChunkMetadata({ offset: 12345 });
+
+      expect(result.host).to.equal('gateway1.com');
+      expect(result.metadata).to.equal(null);
+      expect(fallbackCounterStub.called).to.be.false;
+    });
+
+    it('returns metadata:null on authoritative 410', async function () {
+      const gateway = new FallbackReferenceGateway({
+        hosts: ['gateway1.com'],
+        nodeReleaseVersion: 'test-version',
+        log: logStub,
+      });
+
+      nock('https://gateway1.com').head('/chunk/12345/data').reply(410);
+
+      const result = await gateway.getChunkMetadata({ offset: 12345 });
+
+      expect(result.metadata).to.equal(null);
+    });
+
+    it('falls back to second host on network error and increments counter', async function () {
+      const gateway = new FallbackReferenceGateway({
+        hosts: ['gateway1.com', 'gateway2.com'],
+        nodeReleaseVersion: 'test-version',
+        log: logStub,
+      });
+
+      nock('https://gateway1.com')
+        .head('/chunk/12345/data')
+        .replyWithError('ENOTFOUND');
+
+      nock('https://gateway2.com')
+        .head('/chunk/12345/data')
+        .reply(200, '', completeHeaders);
+
+      const result = await gateway.getChunkMetadata({ offset: 12345 });
+
+      expect(result.host).to.equal('gateway2.com');
+      expect(result.metadata).to.not.equal(null);
+      expect(
+        fallbackCounterStub.calledWith({
+          operation: 'getChunkMetadata',
+          host: 'gateway2.com',
+        }),
+      ).to.be.true;
+    });
+
+    it('throws when all hosts fail with non-404/410 errors', async function () {
+      const gateway = new FallbackReferenceGateway({
+        hosts: ['gateway1.com', 'gateway2.com'],
+        nodeReleaseVersion: 'test-version',
+        log: logStub,
+      });
+
+      nock('https://gateway1.com')
+        .head('/chunk/12345/data')
+        .replyWithError('ENOTFOUND');
+      nock('https://gateway2.com').head('/chunk/12345/data').reply(500);
+
+      try {
+        await gateway.getChunkMetadata({ offset: 12345 });
+        expect.fail('Should have thrown');
+      } catch (error: any) {
+        expect(error.message).to.include(
+          'getChunkMetadata failed on all hosts',
+        );
+      }
+    });
+
+    it('returns metadata:null when headers are malformed', async function () {
+      const gateway = new FallbackReferenceGateway({
+        hosts: ['gateway1.com'],
+        nodeReleaseVersion: 'test-version',
+        log: logStub,
+      });
+
+      nock('https://gateway1.com')
+        .head('/chunk/12345/data')
+        .reply(200, '', {
+          ...completeHeaders,
+          'x-arweave-chunk-tx-start-offset': 'not-a-number',
+        });
+
+      const result = await gateway.getChunkMetadata({ offset: 12345 });
+      expect(result.metadata).to.equal(null);
+    });
+  });
 });
