@@ -242,6 +242,12 @@ export class FallbackReferenceGateway implements ReferenceGatewaySource {
   }): Promise<{ host: string; metadata: ChunkHeaderMetadata | null }> {
     const { offset } = params;
     let lastError: Error | undefined;
+    // Track the most recent reachable host that returned a successful
+    // response without the required headers. If every host lacks header
+    // support we return null against that host rather than throwing, so
+    // the caller knows this is a "feature unavailable" outcome rather
+    // than "all hosts down".
+    let lastHostWithoutHeaders: string | undefined;
 
     for (let i = 0; i < this.hosts.length; i++) {
       const host = this.hosts[i];
@@ -261,13 +267,26 @@ export class FallbackReferenceGateway implements ReferenceGatewaySource {
         }
 
         const metadata = parseChunkHeaderMetadata(response.headers);
-        if (metadata === null) {
-          this.log.debug('Chunk metadata headers missing or malformed', {
-            host,
-            offset,
+        if (metadata !== null) {
+          return { host, metadata };
+        }
+
+        // 200 without usable headers: the host is reachable but doesn't
+        // expose the chunk metadata headers (older deployment). Try the
+        // next host in case it does.
+        this.log.debug(
+          'Chunk metadata headers missing or malformed, trying fallback',
+          { host, offset, hostIndex: i, totalHosts: this.hosts.length },
+        );
+        lastHostWithoutHeaders = host;
+
+        if (i + 1 < this.hosts.length) {
+          metrics.referenceGatewayFallbackCounter.inc({
+            operation: 'getChunkMetadata',
+            host: this.hosts[i + 1],
           });
         }
-        return { host, metadata };
+        continue;
       } catch (error: any) {
         const statusCode = error?.response?.statusCode;
 
@@ -296,6 +315,13 @@ export class FallbackReferenceGateway implements ReferenceGatewaySource {
           });
         }
       }
+    }
+
+    // Prefer reporting the reachable-but-unsupported outcome over the
+    // network error so callers can distinguish "feature unavailable"
+    // from "reference side down".
+    if (lastHostWithoutHeaders !== undefined) {
+      return { host: lastHostWithoutHeaders, metadata: null };
     }
 
     throw new Error(

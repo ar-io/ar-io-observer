@@ -439,6 +439,8 @@ export class CompositeReferenceGateway
       throw new Error('No eligible network gateways available');
     }
 
+    let lastHostWithoutHeaders: string | undefined;
+
     for (const gateway of gateways) {
       try {
         const portPart = gateway.port !== 443 ? `:${gateway.port}` : '';
@@ -454,11 +456,23 @@ export class CompositeReferenceGateway
         });
 
         if (response.statusCode !== 200) {
+          // Reachable but returned non-200 — try next host, don't blacklist.
           continue;
         }
 
         const metadata = parseChunkHeaderMetadata(response.headers);
-        return { host: gateway.fqdn, metadata };
+        if (metadata !== null) {
+          return { host: gateway.fqdn, metadata };
+        }
+
+        // Reachable, 200, no usable headers: treat like other gateways that
+        // don't support this probe yet — fall through.
+        this.log.debug('Network gateway lacks chunk metadata headers', {
+          gateway: gateway.fqdn,
+          offset,
+        });
+        lastHostWithoutHeaders = gateway.fqdn;
+        continue;
       } catch (error: any) {
         const statusCode = error?.response?.statusCode;
 
@@ -471,15 +485,35 @@ export class CompositeReferenceGateway
           continue;
         }
 
-        this.log.debug('Network gateway metadata fetch failed, trying next', {
+        if (statusCode !== undefined) {
+          // Gateway is reachable (it produced an HTTP response) but does
+          // not support this probe. Do not blacklist the gateway from the
+          // shared pool used by unrelated workloads; just try the next.
+          this.log.debug(
+            'Network gateway returned HTTP error for metadata probe, trying next',
+            {
+              gateway: gateway.fqdn,
+              offset,
+              statusCode,
+              error: error?.message?.slice(0, 256),
+            },
+          );
+          continue;
+        }
+
+        // No HTTP response at all → transport failure (DNS/TLS/timeout/
+        // connection). Safe to mark unresponsive.
+        this.log.debug('Network gateway transport failure on metadata probe', {
           gateway: gateway.fqdn,
           offset,
-          statusCode,
           error: error?.message?.slice(0, 256),
         });
-
         this.networkGatewaySource.markUnresponsive(gateway.fqdn);
       }
+    }
+
+    if (lastHostWithoutHeaders !== undefined) {
+      return { host: lastHostWithoutHeaders, metadata: null };
     }
 
     return { host: 'network', metadata: null };
