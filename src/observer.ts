@@ -1230,14 +1230,23 @@ export class Observer {
 
     const cached = this.anchoredTxMetadataCache.get(metadata.txId);
     if (cached !== undefined) {
+      const cachedTxStartOffset = BigInt(cached.txStartOffset);
+      const cachedTxDataSize =
+        BigInt(cached.txEndOffset) - cachedTxStartOffset + 1n;
       if (
         offset < cached.txStartOffset ||
         offset > cached.txEndOffset ||
+        metadata.txStartOffset !== cachedTxStartOffset ||
+        metadata.txDataSize !== cachedTxDataSize ||
         cached.dataRoot.toString('base64url') !== metadata.dataRoot
       ) {
         log.warn('Cached anchored metadata inconsistent with new headers', {
           offset,
           txId: metadata.txId.slice(0, 12) + '...',
+          headerTxStartOffset: metadata.txStartOffset.toString(),
+          cachedTxStartOffset: cachedTxStartOffset.toString(),
+          headerTxDataSize: metadata.txDataSize.toString(),
+          cachedTxDataSize: cachedTxDataSize.toString(),
         });
         metrics.chunkMetadataAnchorCounter.inc({ result: 'mismatch' });
         return null;

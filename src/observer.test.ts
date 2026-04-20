@@ -1108,8 +1108,8 @@ describe('Observer', function () {
           ).resolveTxBoundsViaReferenceHeaders(probeOffset);
 
           expect(result).to.not.equal(null);
-          expect(result.txStartOffset).to.equal(Number(txStartOffset));
-          expect(result.txEndOffset).to.equal(Number(txEndOffset));
+          expect(BigInt(result.txStartOffset)).to.equal(txStartOffset);
+          expect(BigInt(result.txEndOffset)).to.equal(txEndOffset);
           expect(result.effectiveDataRoot.length).to.be.greaterThan(0);
           expect(txOffsetScope.isDone()).to.be.true;
           expect(txScope.isDone()).to.be.true;
@@ -1160,43 +1160,48 @@ describe('Observer', function () {
         });
 
         it('reuses the per-tx cache for a second offset in the same tx', async function () {
-          referenceGatewayStub.getChunkMetadata.resolves({
-            host: 'reference.example.com',
-            metadata: completeMetadata,
-          });
+          nock.disableNetConnect();
+          try {
+            referenceGatewayStub.getChunkMetadata.resolves({
+              host: 'reference.example.com',
+              metadata: completeMetadata,
+            });
 
-          // Only stub the chain calls once — cache hit on the second call
-          // should not require additional network activity.
-          nock('https://arweave.net')
-            .get(`/tx/${txId}/offset`)
-            .reply(200, chainOffsetResponse);
-          nock('https://arweave.net')
-            .get(`/tx/${txId}`)
-            .reply(200, { id: txId, data_root: dataRoot, data_size: '1' });
+            // Only stub the chain calls once — cache hit on the second call
+            // should not require additional network activity.
+            nock('https://arweave.net')
+              .get(`/tx/${txId}/offset`)
+              .reply(200, chainOffsetResponse);
+            nock('https://arweave.net')
+              .get(`/tx/${txId}`)
+              .reply(200, { id: txId, data_root: dataRoot, data_size: '1' });
 
-          const first = await (
-            observer as any
-          ).resolveTxBoundsViaReferenceHeaders(probeOffset);
-          expect(first).to.not.equal(null);
+            const first = await (
+              observer as any
+            ).resolveTxBoundsViaReferenceHeaders(probeOffset);
+            expect(first).to.not.equal(null);
 
-          const secondOffset = probeOffset + 262144;
-          referenceGatewayStub.getChunkMetadata.resolves({
-            host: 'reference.example.com',
-            metadata: {
-              ...completeMetadata,
-              chunkStartOffset: BigInt(secondOffset),
-            },
-          });
+            const secondOffset = probeOffset + 262144;
+            referenceGatewayStub.getChunkMetadata.resolves({
+              host: 'reference.example.com',
+              metadata: {
+                ...completeMetadata,
+                chunkStartOffset: BigInt(secondOffset),
+              },
+            });
 
-          const second = await (
-            observer as any
-          ).resolveTxBoundsViaReferenceHeaders(secondOffset);
+            const second = await (
+              observer as any
+            ).resolveTxBoundsViaReferenceHeaders(secondOffset);
 
-          expect(second).to.not.equal(null);
-          expect(second.txStartOffset).to.equal(first.txStartOffset);
-          // No additional /tx/* activity should be required; nock would
-          // complain on an unexpected request.
-          expect(nock.pendingMocks()).to.deep.equal([]);
+            expect(second).to.not.equal(null);
+            expect(second.txStartOffset).to.equal(first.txStartOffset);
+            // No additional /tx/* activity should be required; any escape
+            // would now throw rather than hit the real network.
+            expect(nock.pendingMocks()).to.deep.equal([]);
+          } finally {
+            nock.enableNetConnect();
+          }
         });
       });
     });
