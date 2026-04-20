@@ -20,6 +20,7 @@ import nock from 'nock';
 import * as sinon from 'sinon';
 import * as winston from 'winston';
 
+import { completeHeaders } from '../lib/chunk-header.fixtures.js';
 import * as metrics from '../metrics.js';
 import { FallbackReferenceGateway } from './fallback-reference-gateway.js';
 
@@ -560,18 +561,6 @@ describe('FallbackReferenceGateway', function () {
   });
 
   describe('getChunkMetadata', function () {
-    const completeHeaders = {
-      'x-arweave-chunk-tx-id': 'T3DcnZlZg_FqOQUf9MSZXQ5j7_ETc04OEqbkX-MZRnc',
-      'x-arweave-chunk-tx-start-offset': '108631448658167',
-      'x-arweave-chunk-tx-data-size': '42724169',
-      'x-arweave-chunk-data-root':
-        'qoQEdVyTqjLpkybZAgkIgtNawXUHUd5TJZwkWx0Vo-A',
-      'x-arweave-chunk-data-path': 'E2OKmVV7k4k',
-      'x-arweave-chunk-tx-path': 'H9gNFx8dbHj',
-      'x-arweave-chunk-start-offset': '108631449706743',
-      'x-arweave-chunk-relative-start-offset': '1048576',
-    };
-
     it('returns parsed metadata when all required headers are present', async function () {
       const gateway = new FallbackReferenceGateway({
         hosts: ['gateway1.com'],
