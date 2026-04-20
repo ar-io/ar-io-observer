@@ -347,7 +347,20 @@ export class ContinuousObserver {
 
       // Finalize current epoch if we haven't submitted yet
       if (!this.state.reportSubmitted) {
-        await this.finalizeAndSubmitReport();
+        const submitted = await this.finalizeAndSubmitReport();
+        if (!submitted) {
+          this.log.warn(
+            'Deferring epoch transition until report submission succeeds',
+            {
+              epochIndex: this.state.epochIndex,
+              nextEpochIndex: currentEpochIndex,
+            },
+          );
+          return;
+        }
+
+        this.state.reportSubmitted = true;
+        await this.stateStore.save(this.state);
       }
 
       // Clear state and reinitialize
@@ -360,9 +373,11 @@ export class ContinuousObserver {
     // Window complete? Finalize and wait
     if (this.scheduler.isWindowComplete(now)) {
       if (!this.state.reportSubmitted) {
-        await this.finalizeAndSubmitReport();
-        this.state.reportSubmitted = true;
-        await this.stateStore.save(this.state);
+        const submitted = await this.finalizeAndSubmitReport();
+        if (submitted) {
+          this.state.reportSubmitted = true;
+          await this.stateStore.save(this.state);
+        }
       }
       return;
     }
@@ -478,7 +493,7 @@ export class ContinuousObserver {
   /**
    * Finalize observations and submit the report.
    */
-  private async finalizeAndSubmitReport(): Promise<void> {
+  private async finalizeAndSubmitReport(): Promise<boolean> {
     if (!this.state) {
       throw new Error('State not initialized');
     }
@@ -495,11 +510,13 @@ export class ContinuousObserver {
       this.log.info('Report submitted successfully', {
         epochIndex: report.epochIndex,
       });
+      return true;
     } catch (error: any) {
       this.log.error('Failed to submit report', {
         epochIndex: report.epochIndex,
         error: error.message,
       });
+      return false;
     }
   }
 
