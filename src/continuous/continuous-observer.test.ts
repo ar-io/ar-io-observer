@@ -17,8 +17,10 @@
  */
 
 import { expect } from 'chai';
+import * as sinon from 'sinon';
 import { createLogger, transports } from 'winston';
 
+import { ContinuousObserver } from './continuous-observer.js';
 import { EntropySource, GatewayHost } from '../types.js';
 import { ContinuousObservationScheduler } from './continuous-observation-scheduler.js';
 import { FsObservationStateStore } from './observation-state-store.js';
@@ -201,6 +203,196 @@ describe('ContinuousObserver Integration', function () {
       const remainingCount =
         newScheduler.getSchedule().get(firstGateway)?.length ?? 0;
       expect(remainingCount).to.equal(2);
+    });
+  });
+
+  describe('Report Submission State', function () {
+    let clock: sinon.SinonFakeTimers;
+
+    beforeEach(function () {
+      clock = sinon.useFakeTimers({
+        now: new Date('2026-01-01T00:00:00.000Z'),
+        shouldAdvanceTime: false,
+      });
+    });
+
+    afterEach(function () {
+      clock.restore();
+      sinon.restore();
+    });
+
+    function createObserver({
+      epochIndex,
+      reportSink,
+      stateStore,
+    }: {
+      epochIndex: number;
+      reportSink: { saveReport: sinon.SinonStub };
+      stateStore: {
+        load: sinon.SinonStub;
+        save: sinon.SinonStub;
+        clear: sinon.SinonStub;
+      };
+    }): ContinuousObserver {
+      return new ContinuousObserver({
+        observerAddress: 'observer-wallet',
+        referenceGateway: {
+          getArnsResolution: sinon.stub().rejects(new Error('unused')),
+          checkChunkAvailability: sinon.stub().rejects(new Error('unused')),
+          getChunkMetadata: sinon.stub().rejects(new Error('unused')),
+        },
+        epochSource: {
+          getEpochIndex: sinon.stub().resolves(epochIndex),
+          getEpochStartTimestamp: sinon.stub().resolves(epochStartTimestamp),
+          getEpochEndTimestamp: sinon.stub().resolves(epochEndTimestamp),
+          getEpochStartHeight: sinon.stub().resolves(epochStartHeight),
+          getEpochSettings: sinon.stub().resolves({
+            epochZeroStartTimestamp: 0,
+            durationMs: epochEndTimestamp - epochStartTimestamp,
+          }),
+        },
+        hostsSource: {
+          getHosts: sinon.stub().resolves(gateways),
+        },
+        prescribedNamesSource: {
+          getNames: sinon.stub().resolves([]),
+        },
+        chosenNamesSource: {
+          getNames: sinon.stub().resolves([]),
+        },
+        entropySource,
+        stateStore,
+        reportSink,
+        nodeReleaseVersion: 'test-release',
+        nameAssessmentConcurrency: 1,
+        config: {
+          cycleIntervalMs: 1000,
+          observationsPerGateway: 3,
+          majorityThreshold: 2,
+          gatewayAssessmentConcurrency: 1,
+        },
+        log: testLog,
+      });
+    }
+
+    function createState({
+      reportSubmitted = false,
+      epoch = 1,
+      windowStartOffsetMs = -60_000,
+      windowEndOffsetMs = -1_000,
+    }: {
+      reportSubmitted?: boolean;
+      epoch?: number;
+      windowStartOffsetMs?: number;
+      windowEndOffsetMs?: number;
+    }): ObservationState {
+      return {
+        epochIndex: epoch,
+        epochStartTimestamp,
+        epochEndTimestamp,
+        epochStartHeight,
+        windowStart: Date.now() + windowStartOffsetMs,
+        windowEnd: Date.now() + windowEndOffsetMs,
+        pendingObservations: new Map(),
+        gatewayObservations: new Map(
+          gateways.map((g) => [
+            g.fqdn,
+            {
+              fqdn: g.fqdn,
+              wallet: g.wallet,
+              observations: [],
+            },
+          ]),
+        ),
+        gatewayWallets: new Map(gateways.map((g) => [g.fqdn, [g.wallet]])),
+        offsetAssessmentGateways: new Set(),
+        lastCycleTimestamp: Date.now(),
+        reportSubmitted,
+      };
+    }
+
+    function restoreObserverState(
+      observer: ContinuousObserver,
+      state: ObservationState,
+    ): void {
+      (observer as any).state = state;
+      (observer as any).scheduler.restoreFromState(state);
+    }
+
+    it('keeps reportSubmitted false when submission fails at window close', async function () {
+      const reportSink = {
+        saveReport: sinon
+          .stub()
+          .onFirstCall()
+          .rejects(new Error('sink unavailable'))
+          .onSecondCall()
+          .resolves({ report: {} as any }),
+      };
+      const stateStore = {
+        load: sinon.stub().resolves(null),
+        save: sinon.stub().resolves(),
+        clear: sinon.stub().resolves(),
+      };
+      const observer = createObserver({
+        epochIndex: 1,
+        reportSink,
+        stateStore,
+      });
+      const state = createState({});
+
+      restoreObserverState(observer, state);
+
+      await (observer as any).runObservationCycle();
+
+      expect(state.reportSubmitted).to.be.false;
+      expect(stateStore.save.called).to.be.false;
+
+      await (observer as any).runObservationCycle();
+
+      expect(state.reportSubmitted).to.be.true;
+      expect(stateStore.save.calledOnceWithExactly(state)).to.be.true;
+    });
+
+    it('preserves state on epoch rollover until submission succeeds', async function () {
+      const reportSink = {
+        saveReport: sinon
+          .stub()
+          .onFirstCall()
+          .rejects(new Error('sink unavailable'))
+          .onSecondCall()
+          .resolves({ report: {} as any }),
+      };
+      const stateStore = {
+        load: sinon.stub().resolves(null),
+        save: sinon.stub().resolves(),
+        clear: sinon.stub().resolves(),
+      };
+      const observer = createObserver({
+        epochIndex: 2,
+        reportSink,
+        stateStore,
+      });
+      const state = createState({
+        epoch: 1,
+        windowStartOffsetMs: -120_000,
+        windowEndOffsetMs: 120_000,
+      });
+
+      restoreObserverState(observer, state);
+
+      await (observer as any).runObservationCycle();
+
+      expect((observer as any).state).to.equal(state);
+      expect(state.reportSubmitted).to.be.false;
+      expect(stateStore.clear.called).to.be.false;
+      expect(stateStore.save.called).to.be.false;
+
+      await (observer as any).runObservationCycle();
+
+      expect(state.reportSubmitted).to.be.true;
+      expect(stateStore.save.calledWithExactly(state)).to.be.true;
+      expect(stateStore.clear.calledOnce).to.be.true;
+      expect((observer as any).state.epochIndex).to.equal(2);
     });
   });
 
