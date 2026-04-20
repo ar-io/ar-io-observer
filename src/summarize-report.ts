@@ -70,6 +70,7 @@ interface ReleaseBucket {
   passed: number;
   ownershipFailures: number;
   arnsFailures: number;
+  offsetObserved: number;
   offsetFailures: number;
   gateways: {
     host: string;
@@ -87,6 +88,7 @@ function summarize(report: ObserverReport) {
     passed: 0,
     ownershipFailures: 0,
     arnsFailures: 0,
+    offsetObserved: 0,
     offsetFailures: 0,
   };
 
@@ -99,6 +101,7 @@ function summarize(report: ObserverReport) {
         passed: 0,
         ownershipFailures: 0,
         arnsFailures: 0,
+        offsetObserved: 0,
         offsetFailures: 0,
         gateways: [],
       };
@@ -124,9 +127,13 @@ function summarize(report: ObserverReport) {
       bucket.arnsFailures += 1;
       overall.arnsFailures += 1;
     }
-    if (offsetPass === false) {
-      bucket.offsetFailures += 1;
-      overall.offsetFailures += 1;
+    if (offsetPass !== null) {
+      bucket.offsetObserved += 1;
+      overall.offsetObserved += 1;
+      if (offsetPass === false) {
+        bucket.offsetFailures += 1;
+        overall.offsetFailures += 1;
+      }
     }
 
     bucket.gateways.push({
@@ -186,7 +193,7 @@ function main(): void {
     )})`,
   );
   console.log(
-    `  failures: ownership=${overall.ownershipFailures} arns=${overall.arnsFailures} offset=${overall.offsetFailures}`,
+    `  failures: ownership=${overall.ownershipFailures} arns=${overall.arnsFailures} offset=${overall.offsetFailures}/${overall.offsetObserved} (${pct(overall.offsetFailures, overall.offsetObserved)})`,
   );
   console.log('');
   console.log('By release:');
@@ -198,7 +205,7 @@ function main(): void {
       `  release=${release}  ${b.passed}/${b.total} passed (${pct(
         b.passed,
         b.total,
-      )})  ownership=${b.ownershipFailures} arns=${b.arnsFailures} offset=${b.offsetFailures}`,
+      )})  ownership=${b.ownershipFailures} arns=${b.arnsFailures} offset=${b.offsetFailures}/${b.offsetObserved} (${pct(b.offsetFailures, b.offsetObserved)})`,
     );
     const failed = b.gateways.filter((g) => !g.pass);
     if (failed.length > 0) {
