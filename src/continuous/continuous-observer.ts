@@ -351,9 +351,6 @@ export class ContinuousObserver {
 
     const now = Date.now();
 
-    // Update progress and state metrics
-    this.updateCycleMetrics(now);
-
     // Check for epoch transition
     const currentEpochIndex = await this.epochSource.getEpochIndex();
     if (currentEpochIndex !== this.state.epochIndex) {
@@ -382,12 +379,29 @@ export class ContinuousObserver {
 
     // Not yet in window? Wait
     if (this.scheduler.isBeforeWindow(now)) {
+      this.updateCycleMetrics(now);
       this.log.debug('Before observation window, waiting', {
         windowStart: new Date(this.scheduler.getWindowStart()).toISOString(),
         now: new Date(now).toISOString(),
       });
       return;
     }
+
+    if (
+      !this.state.submissionDeadlineExceeded &&
+      now >= this.scheduler.getSubmissionDeadline()
+    ) {
+      this.state.submissionDeadlineExceeded = true;
+      this.state.pendingObservations = [];
+      this.scheduler.clearSchedule();
+      await this.stateStore.save(this.state);
+      this.log.warn('Submission window closed for epoch', {
+        epochIndex: this.state.epochIndex,
+      });
+    }
+
+    // Update progress and state metrics after deadline transitions.
+    this.updateCycleMetrics(now);
 
     if (this.state.submissionDeadlineExceeded) {
       return;
@@ -448,17 +462,6 @@ export class ContinuousObserver {
       this.state.pendingObservations = this.scheduler.getSchedule();
 
       await this.stateStore.save(this.state);
-    }
-
-    if (now >= this.scheduler.getSubmissionDeadline()) {
-      this.state.submissionDeadlineExceeded = true;
-      this.state.pendingObservations = [];
-      this.scheduler.clearSchedule();
-      await this.stateStore.save(this.state);
-      this.log.warn('Submission window closed for epoch', {
-        epochIndex: this.state.epochIndex,
-      });
-      return;
     }
 
     if (
@@ -649,8 +652,10 @@ export class ContinuousObserver {
         : 0;
     metrics.windowProgressGauge.set(progress);
 
-    // Observer state: 0=waiting, 1=observing, 2=finalizing
-    if (this.scheduler.isBeforeWindow(now)) {
+    // Observer state: 0=waiting, 1=observing, 2=finalizing, 3=expired
+    if (this.state.submissionDeadlineExceeded) {
+      metrics.continuousObserverStateGauge.set(3);
+    } else if (this.scheduler.isBeforeWindow(now)) {
       metrics.continuousObserverStateGauge.set(0);
     } else if (
       this.scheduler.isWindowComplete(now) &&

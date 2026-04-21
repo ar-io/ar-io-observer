@@ -778,12 +778,78 @@ describe('ContinuousObserver Integration', function () {
 
       const firstCallCount = assessor.assessOwnership.callCount;
       expect(state.submissionDeadlineExceeded).to.be.true;
-      expect(firstCallCount).to.equal(1);
+      expect(firstCallCount).to.equal(0);
       expect(reportSink.saveReport.called).to.be.false;
 
       await (observer as any).runObservationCycle();
 
       expect(assessor.assessOwnership.callCount).to.equal(firstCallCount);
+      expect(reportSink.saveReport.called).to.be.false;
+    });
+
+    it('does not run restored overdue observations after restart past the submission deadline', async function () {
+      const deadlinePassedWindowEnd = Date.now() - 5_000_000;
+      const state: ObservationState = {
+        epochIndex: 1,
+        epochStartTimestamp,
+        epochEndTimestamp,
+        epochStartHeight,
+        windowStart: deadlinePassedWindowEnd - 60_000,
+        windowEnd: deadlinePassedWindowEnd,
+        pendingObservations: [
+          {
+            id: 'gateway1.example.com:0',
+            fqdn: 'gateway1.example.com',
+            scheduledAt: deadlinePassedWindowEnd - 120_000,
+          },
+        ],
+        gatewayObservations: new Map([
+          [
+            'gateway1.example.com',
+            {
+              fqdn: 'gateway1.example.com',
+              wallet: 'wallet1',
+              observations: [],
+            },
+          ],
+        ]),
+        gatewayWallets: new Map([['gateway1.example.com', ['wallet1']]]),
+        offsetAssessmentGateways: new Set(),
+        lastCycleTimestamp: Date.now(),
+        reportSubmitted: false,
+        submissionDeadlineExceeded: false,
+      };
+      const stateStore = {
+        load: sinon.stub().resolves(state),
+        save: sinon.stub().resolves(),
+        clear: sinon.stub().resolves(),
+      };
+      const reportSink = {
+        saveReport: sinon.stub().resolves({ report: {} as any }),
+      };
+      const observer = createObserverForCatchUp({
+        stateStore,
+        reportSink,
+      });
+      const assessor = {
+        assessOwnership: sinon.stub().rejects(new Error('should not run')),
+        assessGatewayArns: sinon.stub().resolves({
+          prescribedNames: {},
+          chosenNames: {},
+          pass: true,
+        }),
+        initializeForEpoch: sinon.stub(),
+        clearEpochState: sinon.stub(),
+      };
+      (observer as any).assessor = assessor;
+
+      await (observer as any).initializeOrRestore();
+      await (observer as any).runObservationCycle();
+
+      expect(assessor.assessOwnership.called).to.be.false;
+      expect(state.submissionDeadlineExceeded).to.be.true;
+      expect(state.pendingObservations).to.be.empty;
+      expect(stateStore.save.calledOnceWithExactly(state)).to.be.true;
       expect(reportSink.saveReport.called).to.be.false;
     });
   });

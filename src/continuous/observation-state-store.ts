@@ -131,19 +131,20 @@ export class FsObservationStateStore implements ObservationStateStore {
       return [];
     }
 
-    const first = pendingObservations[0];
-    if (
-      Array.isArray(first) &&
-      first.length === 2 &&
-      typeof first[0] === 'string' &&
-      Array.isArray(first[1])
-    ) {
+    const isLegacyPendingObservation = (
+      observation: ScheduledObservation | [string, number[]],
+    ): observation is [string, number[]] =>
+      Array.isArray(observation) &&
+      observation.length === 2 &&
+      typeof observation[0] === 'string' &&
+      Array.isArray(observation[1]) &&
+      observation[1].every(
+        (scheduledAt): scheduledAt is number => typeof scheduledAt === 'number',
+      );
+
+    if (pendingObservations.every(isLegacyPendingObservation)) {
       this.log.info('Migrating legacy pending observation state format');
-      const legacyPendingObservations = pendingObservations as [
-        string,
-        number[],
-      ][];
-      return legacyPendingObservations
+      return pendingObservations
         .flatMap(([fqdn, scheduledTimes]) =>
           scheduledTimes.map((scheduledAt: number, index: number) => ({
             id: `${fqdn}:${index}`,
