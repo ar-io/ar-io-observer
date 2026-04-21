@@ -18,6 +18,7 @@
 
 import { expect } from 'chai';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createLogger, transports } from 'winston';
 
@@ -30,28 +31,18 @@ const testLog = createLogger({
 });
 
 describe('FsObservationStateStore', function () {
-  const testDir = './data/test';
-  const testStatePath = path.join(testDir, 'test-observation-state.json');
+  let testDir: string;
+  let testStatePath: string;
 
   beforeEach(async function () {
-    // Ensure test directory exists
-    await fs.promises.mkdir(testDir, { recursive: true });
-
-    // Clean up any existing test file
-    try {
-      await fs.promises.unlink(testStatePath);
-    } catch {
-      // Ignore if file doesn't exist
-    }
+    testDir = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), 'observation-state-store-'),
+    );
+    testStatePath = path.join(testDir, 'test-observation-state.json');
   });
 
   afterEach(async function () {
-    // Clean up test file
-    try {
-      await fs.promises.unlink(testStatePath);
-    } catch {
-      // Ignore if file doesn't exist
-    }
+    await fs.promises.rm(testDir, { recursive: true, force: true });
   });
 
   function createTestState(): ObservationState {
@@ -211,6 +202,61 @@ describe('FsObservationStateStore', function () {
           scheduledAt: 140,
         },
       ]);
+    });
+
+    it('should return null for malformed mixed pending observation formats', async function () {
+      const store = new FsObservationStateStore({
+        statePath: testStatePath,
+        log: testLog,
+      });
+
+      await fs.promises.writeFile(
+        testStatePath,
+        JSON.stringify({
+          epochIndex: 42,
+          epochStartTimestamp: 100,
+          epochEndTimestamp: 200,
+          epochStartHeight: 1000,
+          windowStart: 110,
+          windowEnd: 150,
+          pendingObservations: [
+            ['gateway2.example.com', [140]],
+            {
+              id: 'gateway1.example.com:0',
+              fqdn: 'gateway1.example.com',
+              scheduledAt: 120,
+            },
+          ],
+          gatewayObservations: [],
+          gatewayWallets: [],
+          offsetAssessmentGateways: [],
+          lastCycleTimestamp: 123,
+          reportSubmitted: false,
+          submissionDeadlineExceeded: false,
+        }),
+      );
+
+      const loadedState = await store.load();
+
+      expect(loadedState).to.be.null;
+    });
+
+    it('should preserve submissionDeadlineExceeded through save and load', async function () {
+      const store = new FsObservationStateStore({
+        statePath: testStatePath,
+        log: testLog,
+      });
+
+      const originalState = {
+        ...createTestState(),
+        submissionDeadlineExceeded: true,
+      };
+      await store.save(originalState);
+
+      const loadedState = await store.load();
+
+      expect(loadedState).to.not.be.null;
+      expect(loadedState!.submissionDeadlineExceeded).to.be.true;
     });
   });
 
