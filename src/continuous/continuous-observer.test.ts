@@ -20,6 +20,7 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { createLogger, transports } from 'winston';
 
+import * as metrics from '../metrics.js';
 import { ContinuousObserver } from './continuous-observer.js';
 import { EntropySource, GatewayHost } from '../types.js';
 import { ContinuousObservationScheduler } from './continuous-observation-scheduler.js';
@@ -491,6 +492,8 @@ describe('ContinuousObserver Integration', function () {
         stateStore,
         reportSink,
       });
+      (observer as any).prescribedNames = ['prescribed1', 'prescribed2'];
+      (observer as any).chosenNames = ['chosen1'];
       const state: ObservationState = {
         epochIndex: 1,
         epochStartTimestamp,
@@ -566,6 +569,8 @@ describe('ContinuousObserver Integration', function () {
         stateStore,
         reportSink,
       });
+      (observer as any).prescribedNames = ['prescribed1', 'prescribed2'];
+      (observer as any).chosenNames = ['chosen1'];
       const state: ObservationState = {
         epochIndex: 1,
         epochStartTimestamp,
@@ -666,6 +671,8 @@ describe('ContinuousObserver Integration', function () {
         stateStore,
         reportSink,
       });
+      (observer as any).prescribedNames = ['prescribed1', 'prescribed2'];
+      (observer as any).chosenNames = ['chosen1'];
       const state: ObservationState = {
         epochIndex: 1,
         epochStartTimestamp,
@@ -717,6 +724,94 @@ describe('ContinuousObserver Integration', function () {
         state.gatewayObservations.get('gateway1.example.com')!.observations[0]
           .ownershipAssessment.failureReason,
       ).to.equal('Observation deadline exceeded after repeated errors');
+      expect(
+        Object.keys(
+          state.gatewayObservations.get('gateway1.example.com')!.observations[0]
+            .arnsAssessments.prescribedNames,
+        ),
+      ).to.deep.equal(['prescribed1', 'prescribed2']);
+      expect(
+        Object.keys(
+          state.gatewayObservations.get('gateway1.example.com')!.observations[0]
+            .arnsAssessments.chosenNames,
+        ),
+      ).to.deep.equal(['chosen1']);
+    });
+
+    it('records forced deadline misses separately from execution errors', async function () {
+      const stateStore = {
+        load: sinon.stub().resolves(null),
+        save: sinon.stub().resolves(),
+        clear: sinon.stub().resolves(),
+      };
+      const reportSink = {
+        saveReport: sinon.stub().resolves({ report: {} as any }),
+      };
+      const observer = createObserverForCatchUp({
+        stateStore,
+        reportSink,
+      });
+      const state: ObservationState = {
+        epochIndex: 1,
+        epochStartTimestamp,
+        epochEndTimestamp,
+        epochStartHeight,
+        windowStart: Date.now() - 5_000_000,
+        windowEnd: Date.now() - 5_000_000,
+        pendingObservations: [
+          {
+            id: 'gateway1.example.com:0',
+            fqdn: 'gateway1.example.com',
+            scheduledAt: Date.now() - 5_100_000,
+          },
+        ],
+        gatewayObservations: new Map([
+          [
+            'gateway1.example.com',
+            {
+              fqdn: 'gateway1.example.com',
+              wallet: 'wallet1',
+              observations: [],
+            },
+          ],
+        ]),
+        gatewayWallets: new Map([['gateway1.example.com', ['wallet1']]]),
+        offsetAssessmentGateways: new Set(),
+        lastCycleTimestamp: Date.now(),
+        reportSubmitted: false,
+      };
+      const assessor = {
+        assessOwnership: sinon.stub().rejects(new Error('persistent failure')),
+        assessGatewayArns: sinon.stub().resolves({
+          prescribedNames: {},
+          chosenNames: {},
+          pass: true,
+        }),
+        clearEpochState: sinon.stub(),
+      };
+      const counterStub = sinon.stub(metrics.gatewayObservationsCounter, 'inc');
+
+      restoreState(observer, state);
+      (observer as any).assessor = assessor;
+
+      try {
+        await (observer as any).runObservationCycle();
+      } finally {
+        counterStub.restore();
+      }
+
+      expect(
+        counterStub.calledWithMatch(sinon.match({
+          fqdn: 'gateway1.example.com',
+          status: 'error',
+        })),
+      ).to.be.true;
+      expect(
+        counterStub.calledWithMatch(sinon.match({
+          fqdn: 'gateway1.example.com',
+          status: 'deadline',
+        })),
+      ).to.be.true;
     });
   });
 
