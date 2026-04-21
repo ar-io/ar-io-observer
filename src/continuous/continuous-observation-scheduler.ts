@@ -241,6 +241,13 @@ export class ContinuousObservationScheduler {
   }
 
   /**
+   * Clear all pending scheduled observations.
+   */
+  clearSchedule(): void {
+    this.schedule = [];
+  }
+
+  /**
    * Check if the observation window has completed.
    */
   isWindowComplete(currentTime: number): boolean {

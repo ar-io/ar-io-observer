@@ -23,7 +23,6 @@ import { GatewayAssessor } from '../assessment/gateway-assessor.js';
 import * as metrics from '../metrics.js';
 import { REPORT_FORMAT_VERSION } from '../observer.js';
 import {
-  ArnsNameAssessments,
   ArnsNamesSource,
   EntropySource,
   EpochTimestampSource,
@@ -290,6 +289,7 @@ export class ContinuousObserver {
       offsetAssessmentGateways: new Set(), // TODO: implement offset selection
       lastCycleTimestamp: Date.now(),
       reportSubmitted: false,
+      submissionDeadlineExceeded: false,
     };
 
     // Load names and initialize assessor
@@ -362,24 +362,15 @@ export class ContinuousObserver {
         currentEpoch: currentEpochIndex,
       });
 
-      // Finalize current epoch if we haven't submitted yet
       if (!this.state.reportSubmitted) {
-        this.forceMissedObservations(
-          'Observation deadline exceeded before epoch transition',
+        this.log.warn(
+          'Discarding unsubmitted epoch state after submission window closed',
+          {
+            epochIndex: this.state.epochIndex,
+            nextEpochIndex: currentEpochIndex,
+            submissionDeadlineExceeded: this.state.submissionDeadlineExceeded,
+          },
         );
-        const submitted = await this.finalizeAndSubmitReport();
-        if (!submitted) {
-          this.log.warn(
-            'Deferring epoch transition until report submission succeeds',
-            {
-              epochIndex: this.state.epochIndex,
-              nextEpochIndex: currentEpochIndex,
-            },
-          );
-          return;
-        }
-
-        this.state.reportSubmitted = true;
       }
 
       // Clear state and reinitialize
@@ -395,6 +386,10 @@ export class ContinuousObserver {
         windowStart: new Date(this.scheduler.getWindowStart()).toISOString(),
         now: new Date(now).toISOString(),
       });
+      return;
+    }
+
+    if (this.state.submissionDeadlineExceeded) {
       return;
     }
 
@@ -455,15 +450,15 @@ export class ContinuousObserver {
       await this.stateStore.save(this.state);
     }
 
-    if (
-      this.scheduler.isWindowComplete(now) &&
-      now >= this.scheduler.getSubmissionDeadline() &&
-      this.scheduler.getPendingObservationCount() > 0
-    ) {
-      this.forceMissedObservations(
-        'Observation deadline exceeded after repeated errors',
-      );
+    if (now >= this.scheduler.getSubmissionDeadline()) {
+      this.state.submissionDeadlineExceeded = true;
+      this.state.pendingObservations = [];
+      this.scheduler.clearSchedule();
       await this.stateStore.save(this.state);
+      this.log.warn('Submission window closed for epoch', {
+        epochIndex: this.state.epochIndex,
+      });
+      return;
     }
 
     if (
@@ -478,28 +473,6 @@ export class ContinuousObserver {
         }
       }
     }
-  }
-
-  private forceMissedObservations(failureReason: string): void {
-    if (!this.state) {
-      throw new Error('State not initialized');
-    }
-
-    for (const observation of this.scheduler.getSchedule()) {
-      const aggregate = this.state.gatewayObservations.get(observation.fqdn);
-      if (aggregate) {
-        aggregate.observations.push(
-          this.createMissedObservation(observation, failureReason),
-        );
-      }
-      this.scheduler.markObservationComplete(observation.id);
-      metrics.gatewayObservationsCounter?.inc({
-        fqdn: observation.fqdn,
-        status: 'deadline',
-      });
-    }
-
-    this.state.pendingObservations = this.scheduler.getSchedule();
   }
 
   /**
@@ -550,49 +523,6 @@ export class ContinuousObserver {
       ownershipAssessment,
       arnsAssessments,
       pass,
-    };
-  }
-
-  private createMissedObservation(
-    observation: ScheduledObservation,
-    failureReason: string,
-  ): GatewayObservationResult {
-    const createMissedNameAssessments = (
-      names: string[],
-    ): ArnsNameAssessments => {
-      const assessedAt = Math.floor(Date.now() / 1000);
-      return Object.fromEntries(
-        names.map((name) => [
-          name,
-          {
-            assessedAt,
-            expectedId: null,
-            resolvedId: null,
-            expectedDataHash: null,
-            resolvedDataHash: null,
-            failureReason,
-            pass: false,
-          },
-        ]),
-      );
-    };
-
-    return {
-      fqdn: observation.fqdn,
-      observedAt: Date.now(),
-      scheduledAt: observation.scheduledAt,
-      ownershipAssessment: {
-        expectedWallets: this.state!.gatewayWallets.get(observation.fqdn) ?? [],
-        observedWallet: null,
-        failureReason,
-        pass: false,
-      },
-      arnsAssessments: {
-        prescribedNames: createMissedNameAssessments(this.prescribedNames),
-        chosenNames: createMissedNameAssessments(this.chosenNames),
-        pass: false,
-      },
-      pass: false,
     };
   }
 
