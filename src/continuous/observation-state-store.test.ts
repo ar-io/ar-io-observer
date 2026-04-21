@@ -161,6 +161,55 @@ describe('FsObservationStateStore', function () {
         originalState.pendingObservations,
       );
     });
+
+    it('should migrate legacy pending observation tuples', async function () {
+      const store = new FsObservationStateStore({
+        statePath: testStatePath,
+        log: testLog,
+      });
+
+      await fs.promises.writeFile(
+        testStatePath,
+        JSON.stringify({
+          epochIndex: 42,
+          epochStartTimestamp: 100,
+          epochEndTimestamp: 200,
+          epochStartHeight: 1000,
+          windowStart: 110,
+          windowEnd: 150,
+          pendingObservations: [
+            ['gateway2.example.com', [140]],
+            ['gateway1.example.com', [120, 130]],
+          ],
+          gatewayObservations: [],
+          gatewayWallets: [],
+          offsetAssessmentGateways: [],
+          lastCycleTimestamp: 123,
+          reportSubmitted: false,
+        }),
+      );
+
+      const loadedState = await store.load();
+
+      expect(loadedState).to.not.be.null;
+      expect(loadedState!.pendingObservations).to.deep.equal([
+        {
+          id: 'gateway1.example.com:0',
+          fqdn: 'gateway1.example.com',
+          scheduledAt: 120,
+        },
+        {
+          id: 'gateway1.example.com:1',
+          fqdn: 'gateway1.example.com',
+          scheduledAt: 130,
+        },
+        {
+          id: 'gateway2.example.com:0',
+          fqdn: 'gateway2.example.com',
+          scheduledAt: 140,
+        },
+      ]);
+    });
   });
 
   describe('clear', function () {

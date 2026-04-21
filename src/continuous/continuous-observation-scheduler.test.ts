@@ -243,4 +243,26 @@ describe('ContinuousObservationScheduler', function () {
       ).to.be.false;
     });
   });
+
+  describe('getSubmissionDeadline', function () {
+    it('should place submission deadline after window end by the configured buffer', async function () {
+      const scheduler = new ContinuousObservationScheduler({
+        entropySource,
+        config: {
+          observationsPerGateway: 3,
+          submissionBufferMs: 1234,
+        },
+        log: testLog,
+      });
+
+      const { windowEnd } = await scheduler.initializeEpoch({
+        gateways,
+        epochStartTimestamp,
+        epochEndTimestamp,
+        epochStartHeight,
+      });
+
+      expect(scheduler.getSubmissionDeadline()).to.equal(windowEnd + 1234);
+    });
+  });
 });

@@ -20,7 +20,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Logger } from 'winston';
 
-import { ObservationState, SerializedObservationState } from './types.js';
+import {
+  ObservationState,
+  ScheduledObservation,
+  SerializedObservationState,
+} from './types.js';
 
 /**
  * Interface for persisting observation state
@@ -90,7 +94,9 @@ export class FsObservationStateStore implements ObservationStateStore {
         epochStartHeight: parsed.epochStartHeight,
         windowStart: parsed.windowStart,
         windowEnd: parsed.windowEnd,
-        pendingObservations: parsed.pendingObservations,
+        pendingObservations: this.parsePendingObservations(
+          parsed.pendingObservations,
+        ),
         gatewayObservations: new Map(parsed.gatewayObservations),
         gatewayWallets: new Map(parsed.gatewayWallets),
         offsetAssessmentGateways: new Set(parsed.offsetAssessmentGateways),
@@ -114,6 +120,53 @@ export class FsObservationStateStore implements ObservationStateStore {
       });
       return null;
     }
+  }
+
+  private parsePendingObservations(
+    pendingObservations: SerializedObservationState['pendingObservations'],
+  ): ScheduledObservation[] {
+    if (pendingObservations.length === 0) {
+      return [];
+    }
+
+    const first = pendingObservations[0];
+    if (
+      Array.isArray(first) &&
+      first.length === 2 &&
+      typeof first[0] === 'string' &&
+      Array.isArray(first[1])
+    ) {
+      this.log.info('Migrating legacy pending observation state format');
+      const legacyPendingObservations = pendingObservations as [
+        string,
+        number[],
+      ][];
+      return legacyPendingObservations
+        .flatMap(([fqdn, scheduledTimes]) =>
+          scheduledTimes.map((scheduledAt: number, index: number) => ({
+            id: `${fqdn}:${index}`,
+            fqdn,
+            scheduledAt,
+          })),
+        )
+        .sort((left, right) => left.scheduledAt - right.scheduledAt);
+    }
+
+    if (
+      pendingObservations.every(
+        (observation): observation is ScheduledObservation =>
+          !Array.isArray(observation) &&
+          typeof observation.id === 'string' &&
+          typeof observation.fqdn === 'string' &&
+          typeof observation.scheduledAt === 'number',
+      )
+    ) {
+      return [...pendingObservations].sort(
+        (left, right) => left.scheduledAt - right.scheduledAt,
+      );
+    }
+
+    throw new Error('Unsupported pending observation state format');
   }
 
   async clear(): Promise<void> {
