@@ -208,7 +208,9 @@ describe('ContinuousObserver Integration', function () {
       // Should have 2 remaining observations for first gateway
       const remainingCount = newScheduler
         .getSchedule()
-        .filter((scheduledObservation) => scheduledObservation.fqdn === firstGateway).length;
+        .filter(
+          (scheduledObservation) => scheduledObservation.fqdn === firstGateway,
+        ).length;
       expect(remainingCount).to.equal(2);
     });
   });
@@ -366,7 +368,7 @@ describe('ContinuousObserver Integration', function () {
         saveReport: sinon
           .stub()
           .onFirstCall()
-          .rejects(new Error('sink unavailable'))
+          .rejects(new Error('sink unavailable')),
       };
       const stateStore = {
         load: sinon.stub().resolves(null),
@@ -616,7 +618,10 @@ describe('ContinuousObserver Integration', function () {
         assessOwnership: sinon
           .stub()
           .callsFake(async ({ host }: { host: string }) => {
-            if (host === 'gateway2.example.com' && gateway2FailuresRemaining > 0) {
+            if (
+              host === 'gateway2.example.com' &&
+              gateway2FailuresRemaining > 0
+            ) {
               gateway2FailuresRemaining -= 1;
               throw new Error('temporary failure');
             }

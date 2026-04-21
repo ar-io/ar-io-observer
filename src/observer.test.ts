@@ -43,7 +43,8 @@ const OneMiB = 1048576;
 const entropy = Buffer.from('entropy');
 
 function createReport(
-  overrides: Partial<ObserverReport> & Pick<ObserverReport, 'gatewayAssessments'>,
+  overrides: Partial<ObserverReport> &
+    Pick<ObserverReport, 'gatewayAssessments'>,
 ): ObserverReport {
   return {
     formatVersion: 2,
@@ -1180,9 +1181,8 @@ describe('Observer', function () {
             ).resolveTxBoundsViaReferenceHeaders(probeOffset);
 
             expect(result).to.equal(null);
-            expect(
-              counterStub.calledWith(sinon.match({ result: 'mismatch' })),
-            ).to.be.true;
+            expect(counterStub.calledWith(sinon.match({ result: 'mismatch' })))
+              .to.be.true;
           } finally {
             counterStub.restore();
           }
