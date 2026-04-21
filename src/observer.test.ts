@@ -21,7 +21,6 @@ import nock from 'nock';
 import crypto from 'node:crypto';
 import sinon from 'sinon';
 
-import * as config from './config.js';
 import { customHashPRNG } from './lib/prng.js';
 import * as metrics from './metrics.js';
 import {
@@ -31,7 +30,6 @@ import {
 } from './observer.js';
 import { ReferenceGatewaySource } from './types.js';
 import type {
-  GatewayAssessments,
   ObserverReport,
   GatewayHost,
   ArnsNamesSource,
@@ -43,6 +41,21 @@ import type {
 const OneMiB = 1048576;
 
 const entropy = Buffer.from('entropy');
+
+function createReport(
+  overrides: Partial<ObserverReport> & Pick<ObserverReport, 'gatewayAssessments'>,
+): ObserverReport {
+  return {
+    formatVersion: 2,
+    observerAddress: 'test-observer',
+    generatedAt: 100,
+    epochStartTimestamp: 100,
+    epochEndTimestamp: 200,
+    epochStartHeight: 1000,
+    epochIndex: 1,
+    ...overrides,
+  };
+}
 
 describe('Observer', function () {
   describe('getArnsResolution', function () {
@@ -421,6 +434,7 @@ describe('Observer', function () {
 
     beforeEach(function () {
       epochSourceStub = {
+        getEpochSettings: sinon.stub(),
         getEpochStartTimestamp: sinon.stub(),
         getEpochEndTimestamp: sinon.stub(),
         getEpochStartHeight: sinon.stub(),
@@ -449,10 +463,12 @@ describe('Observer', function () {
       referenceGatewayStub = {
         getArnsResolution: sinon.stub(),
         checkChunkAvailability: sinon.stub(),
-        getChunkMetadata: sinon
-          .stub()
-          .resolves({ host: 'reference.example.com', metadata: null }),
+        getChunkMetadata: sinon.stub(),
       };
+      referenceGatewayStub.getChunkMetadata.resolves({
+        host: 'reference.example.com',
+        metadata: null,
+      });
 
       observer = new Observer({
         observerAddress: 'test-observer',
@@ -477,24 +493,16 @@ describe('Observer', function () {
 
     describe('calculateFailureRate', function () {
       it('should return 0 for empty report', function () {
-        const report: ObserverReport = {
-          epochStartTimestamp: 100,
-          epochEndTimestamp: 200,
-          epochStartHeight: 1000,
-          epochIndex: 1,
+        const report: ObserverReport = createReport({
           gatewayAssessments: {},
-        };
+        });
 
         const failureRate = (observer as any).calculateFailureRate(report);
         expect(failureRate).to.equal(0);
       });
 
       it('should calculate correct failure rate for single gateway', function () {
-        const report: ObserverReport = {
-          epochStartTimestamp: 100,
-          epochEndTimestamp: 200,
-          epochStartHeight: 1000,
-          epochIndex: 1,
+        const report: ObserverReport = createReport({
           gatewayAssessments: {
             'gateway1.com': {
               ownershipAssessment: {
@@ -509,6 +517,10 @@ describe('Observer', function () {
                     failureReason: 'timeout',
                     expectedStatusCode: 200,
                     assessedAt: 100,
+                    expectedId: null,
+                    resolvedId: null,
+                    expectedDataHash: null,
+                    resolvedDataHash: null,
                   },
                 },
                 chosenNames: {
@@ -523,10 +535,12 @@ describe('Observer', function () {
                     resolvedDataHash: 'hash1',
                   },
                 },
+                pass: false,
               },
+              pass: false,
             },
           },
-        };
+        });
 
         const failureRate = (observer as any).calculateFailureRate(report);
         // 1 failure out of 3 assessments (1 ownership + 2 names)
@@ -534,11 +548,7 @@ describe('Observer', function () {
       });
 
       it('should calculate correct failure rate for multiple gateways', function () {
-        const report: ObserverReport = {
-          epochStartTimestamp: 100,
-          epochEndTimestamp: 200,
-          epochStartHeight: 1000,
-          epochIndex: 1,
+        const report: ObserverReport = createReport({
           gatewayAssessments: {
             'gateway1.com': {
               ownershipAssessment: {
@@ -549,7 +559,9 @@ describe('Observer', function () {
               arnsAssessments: {
                 prescribedNames: {},
                 chosenNames: {},
+                pass: true,
               },
+              pass: true,
             },
             'gateway2.com': {
               ownershipAssessment: {
@@ -561,10 +573,12 @@ describe('Observer', function () {
               arnsAssessments: {
                 prescribedNames: {},
                 chosenNames: {},
+                pass: true,
               },
+              pass: false,
             },
           },
-        };
+        });
 
         const failureRate = (observer as any).calculateFailureRate(report);
         // 1 failure out of 2 assessments
@@ -604,6 +618,9 @@ describe('Observer', function () {
 
         // Return mock reports for each call
         runSingleObservationStub.resolves({
+          formatVersion: 2,
+          observerAddress: 'test-observer',
+          generatedAt: 100,
           epochStartTimestamp: 100,
           epochEndTimestamp: 200,
           epochStartHeight: 1000,
@@ -618,7 +635,9 @@ describe('Observer', function () {
               arnsAssessments: {
                 prescribedNames: {},
                 chosenNames: {},
+                pass: true,
               },
+              pass: true,
             },
           },
         });
@@ -640,7 +659,6 @@ describe('Observer', function () {
         );
 
         // Mock different failure rates for each observation
-        let observationCount = 0;
         const runSingleObservationStub = sinon.stub(
           observer as any,
           'runSingleObservation',
@@ -648,6 +666,9 @@ describe('Observer', function () {
 
         // First observation with high failure rate
         runSingleObservationStub.onCall(0).resolves({
+          formatVersion: 2,
+          observerAddress: 'test-observer',
+          generatedAt: 100,
           epochStartTimestamp: 100,
           epochEndTimestamp: 200,
           epochStartHeight: 1000,
@@ -663,13 +684,18 @@ describe('Observer', function () {
               arnsAssessments: {
                 prescribedNames: {},
                 chosenNames: {},
+                pass: false,
               },
+              pass: false,
             },
           },
         });
 
         // Second observation with low failure rate
         runSingleObservationStub.onCall(1).resolves({
+          formatVersion: 2,
+          observerAddress: 'test-observer',
+          generatedAt: 100,
           epochStartTimestamp: 100,
           epochEndTimestamp: 200,
           epochStartHeight: 1000,
@@ -684,7 +710,9 @@ describe('Observer', function () {
               arnsAssessments: {
                 prescribedNames: {},
                 chosenNames: {},
+                pass: true,
               },
+              pass: true,
             },
           },
         });
@@ -717,10 +745,6 @@ describe('Observer', function () {
         // const shuffledGatewayHosts = [...gatewayHosts].sort(() => Math.random() - 0.5);
 
         // Spy on the original runSingleObservation before stubbing
-        const originalMethod = (observer as any).runSingleObservation.bind(
-          observer,
-        );
-
         // Track calls to verify shuffling logic is present
         let callCount = 0;
         const runSingleObservationStub = sinon.stub(
@@ -731,6 +755,9 @@ describe('Observer', function () {
           callCount++;
           // The implementation creates a new shuffled array each time
           return {
+            formatVersion: 2,
+            observerAddress: 'test-observer',
+            generatedAt: 100,
             epochStartTimestamp: args[0],
             epochEndTimestamp: args[1],
             epochStartHeight: args[2],
@@ -1153,7 +1180,9 @@ describe('Observer', function () {
             ).resolveTxBoundsViaReferenceHeaders(probeOffset);
 
             expect(result).to.equal(null);
-            expect(counterStub.calledWith({ result: 'mismatch' })).to.be.true;
+            expect(
+              counterStub.calledWith(sinon.match({ result: 'mismatch' })),
+            ).to.be.true;
           } finally {
             counterStub.restore();
           }

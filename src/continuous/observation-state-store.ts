@@ -57,7 +57,7 @@ export class FsObservationStateStore implements ObservationStateStore {
       epochStartHeight: state.epochStartHeight,
       windowStart: state.windowStart,
       windowEnd: state.windowEnd,
-      pendingObservations: Array.from(state.pendingObservations.entries()),
+      pendingObservations: state.pendingObservations,
       gatewayObservations: Array.from(state.gatewayObservations.entries()),
       gatewayWallets: Array.from(state.gatewayWallets.entries()),
       offsetAssessmentGateways: Array.from(state.offsetAssessmentGateways),
@@ -74,10 +74,7 @@ export class FsObservationStateStore implements ObservationStateStore {
     this.log.debug('Observation state saved', {
       epochIndex: state.epochIndex,
       gatewayCount: state.gatewayObservations.size,
-      pendingCount: Array.from(state.pendingObservations.values()).reduce(
-        (sum, times) => sum + times.length,
-        0,
-      ),
+      pendingCount: state.pendingObservations.length,
     });
   }
 
@@ -93,7 +90,7 @@ export class FsObservationStateStore implements ObservationStateStore {
         epochStartHeight: parsed.epochStartHeight,
         windowStart: parsed.windowStart,
         windowEnd: parsed.windowEnd,
-        pendingObservations: new Map(parsed.pendingObservations),
+        pendingObservations: parsed.pendingObservations,
         gatewayObservations: new Map(parsed.gatewayObservations),
         gatewayWallets: new Map(parsed.gatewayWallets),
         offsetAssessmentGateways: new Set(parsed.offsetAssessmentGateways),

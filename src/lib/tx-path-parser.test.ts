@@ -393,7 +393,7 @@ describe('tx-path-parser', function () {
       const txPath = Buffer.from(txPathB64, 'base64url');
       const txRoot = Buffer.from(txRootB64, 'base64url');
 
-      const { result, rejectionReason, branchCount } = await parseTxPath({
+      const { result } = await parseTxPath({
         txRoot,
         txPath,
         targetOffset,

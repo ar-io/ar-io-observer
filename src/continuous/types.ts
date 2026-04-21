@@ -45,6 +45,15 @@ export interface GatewayObservationAggregate {
 }
 
 /**
+ * Scheduled observation event persisted for catch-up and restart recovery.
+ */
+export interface ScheduledObservation {
+  id: string;
+  fqdn: string;
+  scheduledAt: number;
+}
+
+/**
  * Complete observation state for an epoch (persisted)
  */
 export interface ObservationState {
@@ -54,8 +63,8 @@ export interface ObservationState {
   epochStartHeight: number;
   windowStart: number;
   windowEnd: number;
-  // Scheduled observation times per gateway (key = fqdn)
-  pendingObservations: Map<string, number[]>;
+  // Scheduled observation events pending completion
+  pendingObservations: ScheduledObservation[];
   // Completed observations per gateway (key = fqdn)
   gatewayObservations: Map<string, GatewayObservationAggregate>;
   // Gateway to wallet mapping
@@ -78,7 +87,7 @@ export interface SerializedObservationState {
   epochStartHeight: number;
   windowStart: number;
   windowEnd: number;
-  pendingObservations: [string, number[]][]; // Array of tuples for Map
+  pendingObservations: ScheduledObservation[];
   gatewayObservations: [string, GatewayObservationAggregate][];
   gatewayWallets: [string, string[]][];
   offsetAssessmentGateways: string[];

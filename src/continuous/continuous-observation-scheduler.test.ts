@@ -116,11 +116,7 @@ describe('ContinuousObservationScheduler', function () {
       expect(result1.windowEnd).to.equal(result2.windowEnd);
 
       // Same schedule for each gateway
-      for (const gateway of gateways) {
-        const times1 = result1.schedule.get(gateway.fqdn);
-        const times2 = result2.schedule.get(gateway.fqdn);
-        expect(times1).to.deep.equal(times2);
-      }
+      expect(result1.schedule).to.deep.equal(result2.schedule);
     });
 
     it('should schedule correct number of observations per gateway', async function () {
@@ -139,13 +135,34 @@ describe('ContinuousObservationScheduler', function () {
       });
 
       for (const gateway of gateways) {
-        const times = schedule.get(gateway.fqdn);
-        expect(times).to.have.length(observationsPerGateway);
+        const events = schedule.filter(({ fqdn }) => fqdn === gateway.fqdn);
+        expect(events).to.have.length(observationsPerGateway);
       }
+    });
+
+    it('should spread observations across the full window instead of per-gateway waves', async function () {
+      const scheduler = new ContinuousObservationScheduler({
+        entropySource,
+        config: { observationsPerGateway: 3 },
+        log: testLog,
+      });
+
+      const { schedule } = await scheduler.initializeEpoch({
+        gateways,
+        epochStartTimestamp,
+        epochEndTimestamp,
+        epochStartHeight,
+      });
+
+      const scheduledHosts = schedule.map(({ fqdn }) => fqdn);
+      expect(new Set(scheduledHosts).size).to.equal(gateways.length);
+      expect(scheduledHosts.slice(0, gateways.length)).to.not.deep.equal(
+        gateways.map((gateway) => gateway.fqdn),
+      );
     });
   });
 
-  describe('getGatewaysDue', function () {
+  describe('getObservationsDue', function () {
     it('should return empty array before window starts', async function () {
       const scheduler = new ContinuousObservationScheduler({
         entropySource,
@@ -159,11 +176,11 @@ describe('ContinuousObservationScheduler', function () {
         epochStartHeight,
       });
 
-      const due = scheduler.getGatewaysDue(epochStartTimestamp);
+      const due = scheduler.getObservationsDue(epochStartTimestamp);
       expect(due).to.be.an('array').that.is.empty;
     });
 
-    it('should return empty array after window ends', async function () {
+    it('should continue returning overdue observations after window ends', async function () {
       const scheduler = new ContinuousObservationScheduler({
         entropySource,
         log: testLog,
@@ -176,11 +193,11 @@ describe('ContinuousObservationScheduler', function () {
         epochStartHeight,
       });
 
-      const due = scheduler.getGatewaysDue(epochEndTimestamp);
-      expect(due).to.be.an('array').that.is.empty;
+      const due = scheduler.getObservationsDue(epochEndTimestamp);
+      expect(due.length).to.equal(gateways.length * 3);
     });
 
-    it('should return gateways with passed scheduled times', async function () {
+    it('should return all passed scheduled observations', async function () {
       const scheduler = new ContinuousObservationScheduler({
         entropySource,
         log: testLog,
@@ -194,8 +211,8 @@ describe('ContinuousObservationScheduler', function () {
       });
 
       // Check at end of window - all observations should be due
-      const due = scheduler.getGatewaysDue(windowEnd - 1);
-      expect(due.length).to.be.greaterThan(0);
+      const due = scheduler.getObservationsDue(windowEnd - 1);
+      expect(due.length).to.equal(gateways.length * 3);
     });
   });
 
@@ -214,14 +231,16 @@ describe('ContinuousObservationScheduler', function () {
         epochStartHeight,
       });
 
-      const fqdn = gateways[0].fqdn;
-      const initialCount = scheduler.getSchedule().get(fqdn)?.length ?? 0;
+      const firstObservation = scheduler.getSchedule()[0];
+      const initialCount = scheduler.getPendingObservationCount();
 
       // Mark one observation complete
-      scheduler.markObservationComplete(fqdn, Date.now() + 10 * 60 * 60 * 1000);
+      scheduler.markObservationComplete(firstObservation.id);
 
-      const newCount = scheduler.getSchedule().get(fqdn)?.length ?? 0;
-      expect(newCount).to.equal(initialCount - 1);
+      expect(scheduler.getPendingObservationCount()).to.equal(initialCount - 1);
+      expect(
+        scheduler.getSchedule().some(({ id }) => id === firstObservation.id),
+      ).to.be.false;
     });
   });
 });

@@ -6,7 +6,6 @@
  */
 
 import { expect } from 'chai';
-import fs from 'node:fs';
 import path from 'node:path';
 import { BlockOffsetMapping } from './block-offset-mapping.js';
 
