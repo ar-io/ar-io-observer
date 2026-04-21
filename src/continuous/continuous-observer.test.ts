@@ -128,7 +128,7 @@ describe('ContinuousObserver Integration', function () {
       expect(loadedState!.epochIndex).to.equal(1);
       expect(loadedState!.windowStart).to.equal(windowStart);
       expect(loadedState!.windowEnd).to.equal(windowEnd);
-      expect(loadedState!.pendingObservations.size).to.equal(schedule.size);
+      expect(loadedState!.pendingObservations).to.deep.equal(schedule);
       expect(loadedState!.gatewayObservations.size).to.equal(3);
       expect(loadedState!.offsetAssessmentGateways.has('gateway1.example.com'))
         .to.be.true;
@@ -145,7 +145,7 @@ describe('ContinuousObserver Integration', function () {
       // Verify scheduler state matches
       expect(restoredScheduler.getWindowStart()).to.equal(windowStart);
       expect(restoredScheduler.getWindowEnd()).to.equal(windowEnd);
-      expect(restoredScheduler.getSchedule().size).to.equal(schedule.size);
+      expect(restoredScheduler.getSchedule()).to.deep.equal(schedule);
     });
 
     it('should track observation completion through save/restore cycle', async function () {
@@ -163,14 +163,18 @@ describe('ContinuousObserver Integration', function () {
           epochStartHeight,
         });
 
-      // Get initial count for first gateway
       const firstGateway = gateways[0].fqdn;
-      const initialCount = schedule.get(firstGateway)?.length ?? 0;
+      const initialCount = schedule.filter(
+        (observation) => observation.fqdn === firstGateway,
+      ).length;
       expect(initialCount).to.equal(3);
 
       // Mark one observation complete
-      const midWindowTime = windowStart + (windowEnd - windowStart) / 2;
-      scheduler.markObservationComplete(firstGateway, midWindowTime);
+      const observation = schedule.find(
+        (scheduledObservation) => scheduledObservation.fqdn === firstGateway,
+      );
+      expect(observation).to.not.be.undefined;
+      scheduler.markObservationComplete(observation!.id);
 
       // Save state
       const state: ObservationState = {
@@ -200,8 +204,9 @@ describe('ContinuousObserver Integration', function () {
       newScheduler.restoreFromState(loadedState!);
 
       // Should have 2 remaining observations for first gateway
-      const remainingCount =
-        newScheduler.getSchedule().get(firstGateway)?.length ?? 0;
+      const remainingCount = newScheduler
+        .getSchedule()
+        .filter((scheduledObservation) => scheduledObservation.fqdn === firstGateway).length;
       expect(remainingCount).to.equal(2);
     });
   });
@@ -293,7 +298,7 @@ describe('ContinuousObserver Integration', function () {
         epochStartHeight,
         windowStart: Date.now() + windowStartOffsetMs,
         windowEnd: Date.now() + windowEndOffsetMs,
-        pendingObservations: new Map(),
+        pendingObservations: [],
         gatewayObservations: new Map(
           gateways.map((g) => [
             g.fqdn,
@@ -393,6 +398,259 @@ describe('ContinuousObserver Integration', function () {
       expect(stateStore.save.calledWithExactly(state)).to.be.true;
       expect(stateStore.clear.calledOnce).to.be.true;
       expect((observer as any).state.epochIndex).to.equal(2);
+    });
+  });
+
+  describe('Overdue Observation Catch-up', function () {
+    let clock: sinon.SinonFakeTimers;
+
+    beforeEach(function () {
+      clock = sinon.useFakeTimers({
+        now: new Date('2026-01-01T00:00:00.000Z'),
+        shouldAdvanceTime: false,
+      });
+    });
+
+    afterEach(function () {
+      clock.restore();
+      sinon.restore();
+    });
+
+    function createObserverForCatchUp({
+      stateStore,
+      reportSink,
+      epochIndex = 1,
+    }: {
+      stateStore: {
+        load: sinon.SinonStub;
+        save: sinon.SinonStub;
+        clear: sinon.SinonStub;
+      };
+      reportSink: { saveReport: sinon.SinonStub };
+      epochIndex?: number;
+    }): ContinuousObserver {
+      return new ContinuousObserver({
+        observerAddress: 'observer-wallet',
+        referenceGateway: {
+          getArnsResolution: sinon.stub().rejects(new Error('unused')),
+          checkChunkAvailability: sinon.stub().rejects(new Error('unused')),
+          getChunkMetadata: sinon.stub().rejects(new Error('unused')),
+        },
+        epochSource: {
+          getEpochIndex: sinon.stub().resolves(epochIndex),
+          getEpochStartTimestamp: sinon.stub().resolves(epochStartTimestamp),
+          getEpochEndTimestamp: sinon.stub().resolves(epochEndTimestamp),
+          getEpochStartHeight: sinon.stub().resolves(epochStartHeight),
+          getEpochSettings: sinon.stub().resolves({
+            epochZeroStartTimestamp: 0,
+            durationMs: epochEndTimestamp - epochStartTimestamp,
+          }),
+        },
+        hostsSource: {
+          getHosts: sinon.stub().resolves(gateways),
+        },
+        prescribedNamesSource: {
+          getNames: sinon.stub().resolves([]),
+        },
+        chosenNamesSource: {
+          getNames: sinon.stub().resolves([]),
+        },
+        entropySource,
+        stateStore,
+        reportSink,
+        nodeReleaseVersion: 'test-release',
+        nameAssessmentConcurrency: 1,
+        config: {
+          cycleIntervalMs: 1000,
+          observationsPerGateway: 3,
+          majorityThreshold: 2,
+          gatewayAssessmentConcurrency: 2,
+        },
+        log: testLog,
+      });
+    }
+
+    function restoreState(
+      observer: ContinuousObserver,
+      state: ObservationState,
+    ): void {
+      (observer as any).state = state;
+      (observer as any).scheduler.restoreFromState(state);
+    }
+
+    it('drains multiple overdue observations for the same gateway in one cycle', async function () {
+      const stateStore = {
+        load: sinon.stub().resolves(null),
+        save: sinon.stub().resolves(),
+        clear: sinon.stub().resolves(),
+      };
+      const reportSink = {
+        saveReport: sinon.stub().resolves({ report: {} as any }),
+      };
+      const observer = createObserverForCatchUp({
+        stateStore,
+        reportSink,
+      });
+      const state: ObservationState = {
+        epochIndex: 1,
+        epochStartTimestamp,
+        epochEndTimestamp,
+        epochStartHeight,
+        windowStart: Date.now() - 120_000,
+        windowEnd: Date.now() - 1_000,
+        pendingObservations: [
+          {
+            id: 'gateway1.example.com:0',
+            fqdn: 'gateway1.example.com',
+            scheduledAt: Date.now() - 10_000,
+          },
+          {
+            id: 'gateway1.example.com:1',
+            fqdn: 'gateway1.example.com',
+            scheduledAt: Date.now() - 5_000,
+          },
+        ],
+        gatewayObservations: new Map([
+          [
+            'gateway1.example.com',
+            {
+              fqdn: 'gateway1.example.com',
+              wallet: 'wallet1',
+              observations: [],
+            },
+          ],
+        ]),
+        gatewayWallets: new Map([['gateway1.example.com', ['wallet1']]]),
+        offsetAssessmentGateways: new Set(),
+        lastCycleTimestamp: Date.now(),
+        reportSubmitted: false,
+      };
+      const assessor = {
+        assessOwnership: sinon.stub().resolves({
+          expectedWallets: ['wallet1'],
+          observedWallet: 'wallet1',
+          pass: true,
+        }),
+        assessGatewayArns: sinon.stub().resolves({
+          prescribedNames: {},
+          chosenNames: {},
+          pass: true,
+        }),
+        clearEpochState: sinon.stub(),
+      };
+
+      restoreState(observer, state);
+      (observer as any).assessor = assessor;
+
+      await (observer as any).runObservationCycle();
+
+      expect(assessor.assessOwnership.callCount).to.equal(2);
+      expect(
+        state.gatewayObservations.get('gateway1.example.com')!.observations,
+      ).to.have.length(2);
+      expect(state.pendingObservations).to.be.empty;
+      expect(state.reportSubmitted).to.be.true;
+      expect(reportSink.saveReport.calledOnce).to.be.true;
+    });
+
+    it('retries overdue observations after window close before submitting', async function () {
+      const stateStore = {
+        load: sinon.stub().resolves(null),
+        save: sinon.stub().resolves(),
+        clear: sinon.stub().resolves(),
+      };
+      const reportSink = {
+        saveReport: sinon.stub().resolves({ report: {} as any }),
+      };
+      const observer = createObserverForCatchUp({
+        stateStore,
+        reportSink,
+      });
+      const state: ObservationState = {
+        epochIndex: 1,
+        epochStartTimestamp,
+        epochEndTimestamp,
+        epochStartHeight,
+        windowStart: Date.now() - 120_000,
+        windowEnd: Date.now() - 1_000,
+        pendingObservations: [
+          {
+            id: 'gateway1.example.com:0',
+            fqdn: 'gateway1.example.com',
+            scheduledAt: Date.now() - 10_000,
+          },
+          {
+            id: 'gateway2.example.com:0',
+            fqdn: 'gateway2.example.com',
+            scheduledAt: Date.now() - 5_000,
+          },
+        ],
+        gatewayObservations: new Map([
+          [
+            'gateway1.example.com',
+            {
+              fqdn: 'gateway1.example.com',
+              wallet: 'wallet1',
+              observations: [],
+            },
+          ],
+          [
+            'gateway2.example.com',
+            {
+              fqdn: 'gateway2.example.com',
+              wallet: 'wallet2',
+              observations: [],
+            },
+          ],
+        ]),
+        gatewayWallets: new Map([
+          ['gateway1.example.com', ['wallet1']],
+          ['gateway2.example.com', ['wallet2']],
+        ]),
+        offsetAssessmentGateways: new Set(),
+        lastCycleTimestamp: Date.now(),
+        reportSubmitted: false,
+      };
+      let gateway2FailuresRemaining = 1;
+      const assessor = {
+        assessOwnership: sinon
+          .stub()
+          .callsFake(async ({ host }: { host: string }) => {
+            if (host === 'gateway2.example.com' && gateway2FailuresRemaining > 0) {
+              gateway2FailuresRemaining -= 1;
+              throw new Error('temporary failure');
+            }
+
+            return {
+              expectedWallets:
+                host === 'gateway1.example.com' ? ['wallet1'] : ['wallet2'],
+              observedWallet:
+                host === 'gateway1.example.com' ? 'wallet1' : 'wallet2',
+              pass: true,
+            };
+          }),
+        assessGatewayArns: sinon.stub().resolves({
+          prescribedNames: {},
+          chosenNames: {},
+          pass: true,
+        }),
+        clearEpochState: sinon.stub(),
+      };
+
+      restoreState(observer, state);
+      (observer as any).assessor = assessor;
+
+      await (observer as any).runObservationCycle();
+
+      expect(state.reportSubmitted).to.be.false;
+      expect(state.pendingObservations).to.have.length(1);
+      expect(reportSink.saveReport.called).to.be.false;
+
+      await (observer as any).runObservationCycle();
+
+      expect(state.pendingObservations).to.be.empty;
+      expect(state.reportSubmitted).to.be.true;
+      expect(reportSink.saveReport.calledOnce).to.be.true;
     });
   });
 

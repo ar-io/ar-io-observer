@@ -20,7 +20,11 @@ import { Logger } from 'winston';
 
 import { customHashPRNG, shuffleWithPRNG } from '../lib/prng.js';
 import { EntropySource, GatewayHost } from '../types.js';
-import { ObservationState, SchedulerConfig } from './types.js';
+import {
+  ObservationState,
+  ScheduledObservation,
+  SchedulerConfig,
+} from './types.js';
 
 // Default configuration values
 const DEFAULT_OBSERVATIONS_PER_GATEWAY = 3;
@@ -42,7 +46,7 @@ export class ContinuousObservationScheduler {
 
   private windowStart: number = 0;
   private windowEnd: number = 0;
-  private schedule: Map<string, number[]> = new Map();
+  private schedule: ScheduledObservation[] = [];
 
   constructor({
     entropySource,
@@ -85,7 +89,7 @@ export class ContinuousObservationScheduler {
   }): Promise<{
     windowStart: number;
     windowEnd: number;
-    schedule: Map<string, number[]>;
+    schedule: ScheduledObservation[];
   }> {
     const epochDuration = epochEndTimestamp - epochStartTimestamp;
     const windowLength = epochDuration * this.config.windowFraction;
@@ -114,29 +118,33 @@ export class ContinuousObservationScheduler {
     this.windowStart = earliestStart + startOffset;
     this.windowEnd = this.windowStart + windowLength;
 
-    // Shuffle gateways deterministically
-    const shuffledGateways = shuffleWithPRNG(gateways, rng);
+    // Schedule unique gateways only; wallet multiplicity is handled separately.
+    const uniqueFqdns = [...new Set(gateways.map((gateway) => gateway.fqdn))];
+    const observationAssignments = shuffleWithPRNG(
+      uniqueFqdns.flatMap((fqdn) =>
+        Array.from({ length: this.config.observationsPerGateway }, () => fqdn),
+      ),
+      rng,
+    );
 
-    // Schedule observations for each gateway
-    this.schedule = new Map();
-    const slotLength = windowLength / this.config.observationsPerGateway;
+    // Spread every observation event across the full window.
+    const slotLength =
+      observationAssignments.length > 0
+        ? windowLength / observationAssignments.length
+        : windowLength;
 
-    for (const gateway of shuffledGateways) {
-      const times: number[] = [];
-
-      for (let i = 0; i < this.config.observationsPerGateway; i++) {
-        const slotStart = this.windowStart + i * slotLength;
-        // Use 80% of slot for jitter to avoid observations bunching at slot boundaries
+    this.schedule = observationAssignments
+      .map((fqdn, index) => {
+        const slotStart = this.windowStart + index * slotLength;
         const jitter = rng() * slotLength * 0.8;
-        times.push(slotStart + jitter);
-      }
 
-      // Sort times to ensure they're in chronological order
-      this.schedule.set(
-        gateway.fqdn,
-        times.sort((a, b) => a - b),
-      );
-    }
+        return {
+          id: `${fqdn}:${index}`,
+          fqdn,
+          scheduledAt: slotStart + jitter,
+        };
+      })
+      .sort((left, right) => left.scheduledAt - right.scheduledAt);
 
     this.log.info('Epoch observation schedule initialized', {
       epochStartTimestamp,
@@ -145,9 +153,9 @@ export class ContinuousObservationScheduler {
       windowStart: this.windowStart,
       windowEnd: this.windowEnd,
       windowLength,
-      gatewayCount: gateways.length,
+      gatewayCount: uniqueFqdns.length,
       observationsPerGateway: this.config.observationsPerGateway,
-      totalObservations: gateways.length * this.config.observationsPerGateway,
+      totalObservations: this.schedule.length,
     });
 
     return {
@@ -163,17 +171,16 @@ export class ContinuousObservationScheduler {
   restoreFromState(state: ObservationState): void {
     this.windowStart = state.windowStart;
     this.windowEnd = state.windowEnd;
-    this.schedule = new Map(state.pendingObservations);
+    this.schedule = [...state.pendingObservations].sort(
+      (left, right) => left.scheduledAt - right.scheduledAt,
+    );
 
     this.log.info('Scheduler state restored', {
       epochIndex: state.epochIndex,
       windowStart: this.windowStart,
       windowEnd: this.windowEnd,
-      pendingGateways: this.schedule.size,
-      pendingObservations: Array.from(this.schedule.values()).reduce(
-        (sum, times) => sum + times.length,
-        0,
-      ),
+      pendingGateways: new Set(this.schedule.map(({ fqdn }) => fqdn)).size,
+      pendingObservations: this.schedule.length,
     });
   }
 
@@ -194,50 +201,35 @@ export class ContinuousObservationScheduler {
   /**
    * Get the full schedule map.
    */
-  getSchedule(): Map<string, number[]> {
-    return this.schedule;
+  getSchedule(): ScheduledObservation[] {
+    return [...this.schedule];
   }
 
   /**
-   * Get gateways that have observations due at or before the current time.
+   * Get observation events that are due at or before the current time.
    *
-   * Returns gateways with at least one scheduled observation time that has passed.
-   * This handles catch-up after observer downtime.
+   * After the observation window closes, overdue events remain due so the
+   * observer can catch up before finalizing the epoch.
    */
-  getGatewaysDue(currentTime: number): string[] {
-    if (currentTime < this.windowStart || currentTime > this.windowEnd) {
+  getObservationsDue(currentTime: number): ScheduledObservation[] {
+    if (currentTime < this.windowStart) {
       return [];
     }
 
-    const due: string[] = [];
-    for (const [fqdn, times] of this.schedule) {
-      // Find any scheduled time that has passed
-      const overdueTime = times.find((t) => t <= currentTime);
-      if (overdueTime !== undefined) {
-        due.push(fqdn);
-      }
-    }
-    return due;
+    return this.schedule.filter(
+      (observation) => observation.scheduledAt <= currentTime,
+    );
   }
 
   /**
-   * Mark an observation as complete for a gateway.
-   *
-   * Removes the earliest due observation time from the schedule.
+   * Mark an observation event as complete.
    */
-  markObservationComplete(fqdn: string, completedAt: number): void {
-    const times = this.schedule.get(fqdn);
-    if (times) {
-      // Remove the first time that's at or before completedAt
-      const idx = times.findIndex((t) => t <= completedAt);
-      if (idx !== -1) {
-        times.splice(idx, 1);
-      }
-
-      // If no more observations for this gateway, remove from schedule
-      if (times.length === 0) {
-        this.schedule.delete(fqdn);
-      }
+  markObservationComplete(observationId: string): void {
+    const index = this.schedule.findIndex(
+      (observation) => observation.id === observationId,
+    );
+    if (index !== -1) {
+      this.schedule.splice(index, 1);
     }
   }
 
@@ -259,16 +251,13 @@ export class ContinuousObservationScheduler {
    * Get the number of pending observations across all gateways.
    */
   getPendingObservationCount(): number {
-    return Array.from(this.schedule.values()).reduce(
-      (sum, times) => sum + times.length,
-      0,
-    );
+    return this.schedule.length;
   }
 
   /**
    * Get the number of gateways with pending observations.
    */
   getPendingGatewayCount(): number {
-    return this.schedule.size;
+    return new Set(this.schedule.map(({ fqdn }) => fqdn)).size;
   }
 }

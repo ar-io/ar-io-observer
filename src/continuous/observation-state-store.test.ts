@@ -62,10 +62,23 @@ describe('FsObservationStateStore', function () {
       epochStartHeight: 1000,
       windowStart: Date.now(),
       windowEnd: Date.now() + 12 * 60 * 60 * 1000,
-      pendingObservations: new Map([
-        ['gateway1.example.com', [Date.now() + 1000, Date.now() + 2000]],
-        ['gateway2.example.com', [Date.now() + 3000]],
-      ]),
+      pendingObservations: [
+        {
+          id: 'gateway1.example.com:0',
+          fqdn: 'gateway1.example.com',
+          scheduledAt: Date.now() + 1000,
+        },
+        {
+          id: 'gateway1.example.com:1',
+          fqdn: 'gateway1.example.com',
+          scheduledAt: Date.now() + 2000,
+        },
+        {
+          id: 'gateway2.example.com:0',
+          fqdn: 'gateway2.example.com',
+          scheduledAt: Date.now() + 3000,
+        },
+      ],
       gatewayObservations: new Map([
         [
           'gateway1.example.com',
@@ -137,20 +150,15 @@ describe('FsObservationStateStore', function () {
       expect(loadedState!.windowStart).to.equal(originalState.windowStart);
       expect(loadedState!.windowEnd).to.equal(originalState.windowEnd);
 
-      // Verify Map structures are restored
-      expect(loadedState!.pendingObservations).to.be.instanceOf(Map);
+      // Verify collection structures are restored
+      expect(loadedState!.pendingObservations).to.be.an('array');
       expect(loadedState!.gatewayObservations).to.be.instanceOf(Map);
       expect(loadedState!.gatewayWallets).to.be.instanceOf(Map);
       expect(loadedState!.offsetAssessmentGateways).to.be.instanceOf(Set);
 
       // Verify content is preserved
-      expect(loadedState!.pendingObservations.size).to.equal(
-        originalState.pendingObservations.size,
-      );
-      expect(
-        loadedState!.pendingObservations.get('gateway1.example.com'),
-      ).to.deep.equal(
-        originalState.pendingObservations.get('gateway1.example.com'),
+      expect(loadedState!.pendingObservations).to.deep.equal(
+        originalState.pendingObservations,
       );
     });
   });

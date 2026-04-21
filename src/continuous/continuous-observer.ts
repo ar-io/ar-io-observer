@@ -38,6 +38,7 @@ import {
   ContinuousObserverConfig,
   GatewayObservationResult,
   ObservationState,
+  ScheduledObservation,
 } from './types.js';
 
 // Default configuration values
@@ -255,6 +256,8 @@ export class ContinuousObserver {
     }
 
     // Initialize state
+    const uniqueFqdns = [...new Set(gateways.map((gateway) => gateway.fqdn))];
+
     this.state = {
       epochIndex,
       epochStartTimestamp,
@@ -262,11 +265,15 @@ export class ContinuousObserver {
       epochStartHeight,
       windowStart,
       windowEnd,
-      pendingObservations: new Map(schedule),
+      pendingObservations: [...schedule],
       gatewayObservations: new Map(
-        gateways.map((g) => [
-          g.fqdn,
-          { fqdn: g.fqdn, wallet: g.wallet, observations: [] },
+        uniqueFqdns.map((fqdn) => [
+          fqdn,
+          {
+            fqdn,
+            wallet: gateways.find((gateway) => gateway.fqdn === fqdn)?.wallet ?? '',
+            observations: [],
+          },
         ]),
       ),
       gatewayWallets,
@@ -283,10 +290,10 @@ export class ContinuousObserver {
 
     this.log.info('Epoch initialized', {
       epochIndex,
-      gatewayCount: gateways.length,
+      gatewayCount: uniqueFqdns.length,
       windowStart: new Date(windowStart).toISOString(),
       windowEnd: new Date(windowEnd).toISOString(),
-      totalObservations: gateways.length * this.config.observationsPerGateway,
+      totalObservations: schedule.length,
     });
   }
 
@@ -370,18 +377,6 @@ export class ContinuousObserver {
       return;
     }
 
-    // Window complete? Finalize and wait
-    if (this.scheduler.isWindowComplete(now)) {
-      if (!this.state.reportSubmitted) {
-        const submitted = await this.finalizeAndSubmitReport();
-        if (submitted) {
-          this.state.reportSubmitted = true;
-          await this.stateStore.save(this.state);
-        }
-      }
-      return;
-    }
-
     // Not yet in window? Wait
     if (this.scheduler.isBeforeWindow(now)) {
       this.log.debug('Before observation window, waiting', {
@@ -392,63 +387,82 @@ export class ContinuousObserver {
     }
 
     // Get due gateways and observe with limited concurrency
-    const dueGateways = this.scheduler.getGatewaysDue(now);
-    if (dueGateways.length === 0) {
-      return;
+    const dueObservations = this.scheduler.getObservationsDue(now);
+    if (dueObservations.length > 0) {
+      const observationsByGateway = new Map<string, ScheduledObservation[]>();
+      for (const observation of dueObservations) {
+        const existing = observationsByGateway.get(observation.fqdn) ?? [];
+        existing.push(observation);
+        observationsByGateway.set(observation.fqdn, existing);
+      }
+
+      this.log.debug('Observing due gateway batches', {
+        observationCount: dueObservations.length,
+        gatewayCount: observationsByGateway.size,
+        gateways: [...observationsByGateway.keys()].slice(0, 5),
+      });
+
+      await pMap(
+        observationsByGateway.entries(),
+        async ([fqdn, observations]) => {
+          for (const observation of observations) {
+            try {
+              const result = await this.observeGateway({
+                fqdn,
+                scheduledAt: observation.scheduledAt,
+              });
+              const aggregate = this.state!.gatewayObservations.get(fqdn);
+              if (aggregate) {
+                aggregate.observations.push(result);
+              }
+              this.scheduler.markObservationComplete(observation.id);
+
+              metrics.gatewayObservationsCounter?.inc({
+                fqdn,
+                status: result.pass ? 'pass' : 'fail',
+              });
+            } catch (error: any) {
+              this.log.error('Error observing gateway', {
+                fqdn,
+                scheduledAt: observation.scheduledAt,
+                error: error.message,
+              });
+            }
+          }
+        },
+        { concurrency: this.config.gatewayAssessmentConcurrency },
+      );
+
+      this.state.lastCycleTimestamp = now;
+      this.state.pendingObservations = this.scheduler.getSchedule();
+
+      await this.stateStore.save(this.state);
     }
 
-    this.log.debug('Observing due gateways', {
-      count: dueGateways.length,
-      gateways: dueGateways.slice(0, 5),
-    });
-
-    await pMap(
-      dueGateways,
-      async (fqdn) => {
-        try {
-          const result = await this.observeGateway(fqdn);
-          const aggregate = this.state!.gatewayObservations.get(fqdn);
-          if (aggregate) {
-            aggregate.observations.push(result);
-          }
-          this.scheduler.markObservationComplete(fqdn, now);
-
-          // Update metrics
-          metrics.gatewayObservationsCounter?.inc({
-            fqdn,
-            status: result.pass ? 'pass' : 'fail',
-          });
-        } catch (error: any) {
-          this.log.error('Error observing gateway', {
-            fqdn,
-            error: error.message,
-          });
+    if (
+      this.scheduler.isWindowComplete(now) &&
+      this.scheduler.getPendingObservationCount() === 0
+    ) {
+      if (!this.state.reportSubmitted) {
+        const submitted = await this.finalizeAndSubmitReport();
+        if (submitted) {
+          this.state.reportSubmitted = true;
+          await this.stateStore.save(this.state);
         }
-      },
-      { concurrency: this.config.gatewayAssessmentConcurrency },
-    );
-
-    // Update state
-    this.state.lastCycleTimestamp = now;
-    this.state.pendingObservations = this.scheduler.getSchedule();
-
-    // Persist state after each cycle
-    await this.stateStore.save(this.state);
+      }
+    }
   }
 
   /**
    * Observe a single gateway.
    */
-  private async observeGateway(
-    fqdn: string,
-  ): Promise<GatewayObservationResult> {
-    const scheduledTime = this.scheduler.getSchedule().get(fqdn)?.[0];
-    if (scheduledTime === undefined) {
-      this.log.warn('No scheduled time found for gateway, using current time', {
-        fqdn,
-      });
-    }
-    const scheduledAt = scheduledTime ?? Date.now();
+  private async observeGateway({
+    fqdn,
+    scheduledAt,
+  }: {
+    fqdn: string;
+    scheduledAt: number;
+  }): Promise<GatewayObservationResult> {
     const observedAt = Date.now();
 
     const expectedWallets = this.state!.gatewayWallets.get(fqdn) ?? [];
@@ -616,7 +630,10 @@ export class ContinuousObserver {
     // Observer state: 0=waiting, 1=observing, 2=finalizing
     if (this.scheduler.isBeforeWindow(now)) {
       metrics.continuousObserverStateGauge.set(0);
-    } else if (this.scheduler.isWindowComplete(now)) {
+    } else if (
+      this.scheduler.isWindowComplete(now) &&
+      this.scheduler.getPendingObservationCount() === 0
+    ) {
       metrics.continuousObserverStateGauge.set(2);
     } else {
       metrics.continuousObserverStateGauge.set(1);
