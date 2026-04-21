@@ -23,6 +23,7 @@ import { GatewayAssessor } from '../assessment/gateway-assessor.js';
 import * as metrics from '../metrics.js';
 import { REPORT_FORMAT_VERSION } from '../observer.js';
 import {
+  ArnsNameAssessments,
   ArnsNamesSource,
   EntropySource,
   EpochTimestampSource,
@@ -494,7 +495,7 @@ export class ContinuousObserver {
       this.scheduler.markObservationComplete(observation.id);
       metrics.gatewayObservationsCounter?.inc({
         fqdn: observation.fqdn,
-        status: 'error',
+        status: 'deadline',
       });
     }
 
@@ -556,6 +557,26 @@ export class ContinuousObserver {
     observation: ScheduledObservation,
     failureReason: string,
   ): GatewayObservationResult {
+    const createMissedNameAssessments = (
+      names: string[],
+    ): ArnsNameAssessments => {
+      const assessedAt = Math.floor(Date.now() / 1000);
+      return Object.fromEntries(
+        names.map((name) => [
+          name,
+          {
+            assessedAt,
+            expectedId: null,
+            resolvedId: null,
+            expectedDataHash: null,
+            resolvedDataHash: null,
+            failureReason,
+            pass: false,
+          },
+        ]),
+      );
+    };
+
     return {
       fqdn: observation.fqdn,
       observedAt: Date.now(),
@@ -567,8 +588,8 @@ export class ContinuousObserver {
         pass: false,
       },
       arnsAssessments: {
-        prescribedNames: {},
-        chosenNames: {},
+        prescribedNames: createMissedNameAssessments(this.prescribedNames),
+        chosenNames: createMissedNameAssessments(this.chosenNames),
         pass: false,
       },
       pass: false,
