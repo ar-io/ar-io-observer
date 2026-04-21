@@ -464,8 +464,25 @@ export class ContinuousObserver {
       await this.stateStore.save(this.state);
     }
 
+    // Draining observations above can take long enough to cross the
+    // submission deadline; re-check before finalizing so we don't submit late.
+    const finalizeTime = Date.now();
+    if (finalizeTime >= this.scheduler.getSubmissionDeadline()) {
+      if (!this.state.submissionDeadlineExceeded) {
+        this.state.submissionDeadlineExceeded = true;
+        this.state.pendingObservations = [];
+        this.scheduler.clearSchedule();
+        await this.stateStore.save(this.state);
+        this.log.warn('Submission window closed for epoch', {
+          epochIndex: this.state.epochIndex,
+        });
+        this.updateCycleMetrics(finalizeTime);
+      }
+      return;
+    }
+
     if (
-      this.scheduler.isWindowComplete(now) &&
+      this.scheduler.isWindowComplete(finalizeTime) &&
       this.scheduler.getPendingObservationCount() === 0
     ) {
       if (!this.state.reportSubmitted) {
