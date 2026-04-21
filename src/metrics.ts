@@ -153,8 +153,7 @@ export const epochCoverageGauge = new Gauge({
 
 export const continuousObserverStateGauge = new Gauge({
   name: 'observer_continuous_state',
-  help:
-    'Current state of continuous observer (0=waiting, 1=observing, 2=finalizing, 3=expired)',
+  help: 'Current state of continuous observer (0=waiting, 1=observing, 2=finalizing, 3=expired)',
   registers: [register],
 });
 
