@@ -199,6 +199,13 @@ export class ContinuousObservationScheduler {
   }
 
   /**
+   * Get the hard deadline for submission after catch-up retries.
+   */
+  getSubmissionDeadline(): number {
+    return this.windowEnd + this.config.submissionBufferMs;
+  }
+
+  /**
    * Get the full schedule map.
    */
   getSchedule(): ScheduledObservation[] {

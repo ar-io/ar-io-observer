@@ -395,7 +395,7 @@ describe('ContinuousObserver Integration', function () {
       await (observer as any).runObservationCycle();
 
       expect(state.reportSubmitted).to.be.true;
-      expect(stateStore.save.calledWithExactly(state)).to.be.true;
+      expect(stateStore.save.calledOnce).to.be.true;
       expect(stateStore.clear.calledOnce).to.be.true;
       expect((observer as any).state.epochIndex).to.equal(2);
     });
@@ -651,6 +651,72 @@ describe('ContinuousObserver Integration', function () {
       expect(state.pendingObservations).to.be.empty;
       expect(state.reportSubmitted).to.be.true;
       expect(reportSink.saveReport.calledOnce).to.be.true;
+    });
+
+    it('forces missed observations and submits when the submission deadline is reached', async function () {
+      const stateStore = {
+        load: sinon.stub().resolves(null),
+        save: sinon.stub().resolves(),
+        clear: sinon.stub().resolves(),
+      };
+      const reportSink = {
+        saveReport: sinon.stub().resolves({ report: {} as any }),
+      };
+      const observer = createObserverForCatchUp({
+        stateStore,
+        reportSink,
+      });
+      const state: ObservationState = {
+        epochIndex: 1,
+        epochStartTimestamp,
+        epochEndTimestamp,
+        epochStartHeight,
+        windowStart: Date.now() - 5_000_000,
+        windowEnd: Date.now() - 5_000_000,
+        pendingObservations: [
+          {
+            id: 'gateway1.example.com:0',
+            fqdn: 'gateway1.example.com',
+            scheduledAt: Date.now() - 5_100_000,
+          },
+        ],
+        gatewayObservations: new Map([
+          [
+            'gateway1.example.com',
+            {
+              fqdn: 'gateway1.example.com',
+              wallet: 'wallet1',
+              observations: [],
+            },
+          ],
+        ]),
+        gatewayWallets: new Map([['gateway1.example.com', ['wallet1']]]),
+        offsetAssessmentGateways: new Set(),
+        lastCycleTimestamp: Date.now(),
+        reportSubmitted: false,
+      };
+      const assessor = {
+        assessOwnership: sinon.stub().rejects(new Error('persistent failure')),
+        assessGatewayArns: sinon.stub().resolves({
+          prescribedNames: {},
+          chosenNames: {},
+          pass: true,
+        }),
+        clearEpochState: sinon.stub(),
+      };
+
+      restoreState(observer, state);
+      (observer as any).assessor = assessor;
+
+      await (observer as any).runObservationCycle();
+
+      expect(state.pendingObservations).to.be.empty;
+      expect(state.reportSubmitted).to.be.true;
+      expect(reportSink.saveReport.calledOnce).to.be.true;
+      expect(
+        state.gatewayObservations.get('gateway1.example.com')!.observations[0]
+          .ownershipAssessment.failureReason,
+      ).to.equal('Observation deadline exceeded after repeated errors');
     });
   });
 

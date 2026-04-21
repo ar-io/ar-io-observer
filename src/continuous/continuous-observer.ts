@@ -247,12 +247,14 @@ export class ContinuousObserver {
 
     // Build gateway wallet mapping (handle duplicates)
     const gatewayWallets = new Map<string, string[]>();
+    const walletByFqdn = new Map<string, string>();
     for (const gateway of gateways) {
       const existing = gatewayWallets.get(gateway.fqdn) ?? [];
       if (!existing.includes(gateway.wallet)) {
         existing.push(gateway.wallet);
       }
       gatewayWallets.set(gateway.fqdn, existing);
+      walletByFqdn.set(gateway.fqdn, gateway.wallet);
     }
 
     // Initialize state
@@ -267,14 +269,21 @@ export class ContinuousObserver {
       windowEnd,
       pendingObservations: [...schedule],
       gatewayObservations: new Map(
-        uniqueFqdns.map((fqdn) => [
-          fqdn,
-          {
+        uniqueFqdns.map((fqdn) => {
+          const wallet = walletByFqdn.get(fqdn);
+          if (wallet === undefined) {
+            throw new Error(`Missing wallet for gateway ${fqdn}`);
+          }
+
+          return [
             fqdn,
-            wallet: gateways.find((gateway) => gateway.fqdn === fqdn)?.wallet ?? '',
-            observations: [],
-          },
-        ]),
+            {
+              fqdn,
+              wallet,
+              observations: [],
+            },
+          ];
+        }),
       ),
       gatewayWallets,
       offsetAssessmentGateways: new Set(), // TODO: implement offset selection
@@ -354,6 +363,9 @@ export class ContinuousObserver {
 
       // Finalize current epoch if we haven't submitted yet
       if (!this.state.reportSubmitted) {
+        this.forceMissedObservations(
+          'Observation deadline exceeded before epoch transition',
+        );
         const submitted = await this.finalizeAndSubmitReport();
         if (!submitted) {
           this.log.warn(
@@ -367,7 +379,6 @@ export class ContinuousObserver {
         }
 
         this.state.reportSubmitted = true;
-        await this.stateStore.save(this.state);
       }
 
       // Clear state and reinitialize
@@ -422,6 +433,10 @@ export class ContinuousObserver {
                 status: result.pass ? 'pass' : 'fail',
               });
             } catch (error: any) {
+              metrics.gatewayObservationsCounter?.inc({
+                fqdn,
+                status: 'error',
+              });
               this.log.error('Error observing gateway', {
                 fqdn,
                 scheduledAt: observation.scheduledAt,
@@ -441,6 +456,17 @@ export class ContinuousObserver {
 
     if (
       this.scheduler.isWindowComplete(now) &&
+      now >= this.scheduler.getSubmissionDeadline() &&
+      this.scheduler.getPendingObservationCount() > 0
+    ) {
+      this.forceMissedObservations(
+        'Observation deadline exceeded after repeated errors',
+      );
+      await this.stateStore.save(this.state);
+    }
+
+    if (
+      this.scheduler.isWindowComplete(now) &&
       this.scheduler.getPendingObservationCount() === 0
     ) {
       if (!this.state.reportSubmitted) {
@@ -451,6 +477,28 @@ export class ContinuousObserver {
         }
       }
     }
+  }
+
+  private forceMissedObservations(failureReason: string): void {
+    if (!this.state) {
+      throw new Error('State not initialized');
+    }
+
+    for (const observation of this.scheduler.getSchedule()) {
+      const aggregate = this.state.gatewayObservations.get(observation.fqdn);
+      if (aggregate) {
+        aggregate.observations.push(
+          this.createMissedObservation(observation, failureReason),
+        );
+      }
+      this.scheduler.markObservationComplete(observation.id);
+      metrics.gatewayObservationsCounter?.inc({
+        fqdn: observation.fqdn,
+        status: 'error',
+      });
+    }
+
+    this.state.pendingObservations = this.scheduler.getSchedule();
   }
 
   /**
@@ -501,6 +549,29 @@ export class ContinuousObserver {
       ownershipAssessment,
       arnsAssessments,
       pass,
+    };
+  }
+
+  private createMissedObservation(
+    observation: ScheduledObservation,
+    failureReason: string,
+  ): GatewayObservationResult {
+    return {
+      fqdn: observation.fqdn,
+      observedAt: Date.now(),
+      scheduledAt: observation.scheduledAt,
+      ownershipAssessment: {
+        expectedWallets: this.state!.gatewayWallets.get(observation.fqdn) ?? [],
+        observedWallet: null,
+        failureReason,
+        pass: false,
+      },
+      arnsAssessments: {
+        prescribedNames: {},
+        chosenNames: {},
+        pass: false,
+      },
+      pass: false,
     };
   }
 

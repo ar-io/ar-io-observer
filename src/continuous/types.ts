@@ -87,7 +87,7 @@ export interface SerializedObservationState {
   epochStartHeight: number;
   windowStart: number;
   windowEnd: number;
-  pendingObservations: ScheduledObservation[];
+  pendingObservations: ScheduledObservation[] | [string, number[]][];
   gatewayObservations: [string, GatewayObservationAggregate][];
   gatewayWallets: [string, string[]][];
   offsetAssessmentGateways: string[];
