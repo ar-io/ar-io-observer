@@ -67,6 +67,7 @@ export class FsObservationStateStore implements ObservationStateStore {
       offsetAssessmentGateways: Array.from(state.offsetAssessmentGateways),
       lastCycleTimestamp: state.lastCycleTimestamp,
       reportSubmitted: state.reportSubmitted,
+      submissionDeadlineExceeded: state.submissionDeadlineExceeded,
     };
 
     // Atomic write: write to temp file then rename
@@ -102,6 +103,7 @@ export class FsObservationStateStore implements ObservationStateStore {
         offsetAssessmentGateways: new Set(parsed.offsetAssessmentGateways),
         lastCycleTimestamp: parsed.lastCycleTimestamp,
         reportSubmitted: parsed.reportSubmitted,
+        submissionDeadlineExceeded: parsed.submissionDeadlineExceeded ?? false,
       };
 
       this.log.debug('Observation state loaded', {

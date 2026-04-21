@@ -75,6 +75,8 @@ export interface ObservationState {
   lastCycleTimestamp: number;
   // Whether report has been submitted for this epoch
   reportSubmitted: boolean;
+  // Whether the submission window has expired for this epoch
+  submissionDeadlineExceeded: boolean;
 }
 
 /**
@@ -93,6 +95,7 @@ export interface SerializedObservationState {
   offsetAssessmentGateways: string[];
   lastCycleTimestamp: number;
   reportSubmitted: boolean;
+  submissionDeadlineExceeded: boolean;
 }
 
 /**

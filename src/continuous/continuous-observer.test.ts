@@ -20,7 +20,6 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { createLogger, transports } from 'winston';
 
-import * as metrics from '../metrics.js';
 import { ContinuousObserver } from './continuous-observer.js';
 import { EntropySource, GatewayHost } from '../types.js';
 import { ContinuousObservationScheduler } from './continuous-observation-scheduler.js';
@@ -113,6 +112,7 @@ describe('ContinuousObserver Integration', function () {
         offsetAssessmentGateways: new Set(['gateway1.example.com']),
         lastCycleTimestamp: Date.now(),
         reportSubmitted: false,
+        submissionDeadlineExceeded: false,
       };
 
       // Persist state
@@ -191,6 +191,7 @@ describe('ContinuousObserver Integration', function () {
         offsetAssessmentGateways: new Set(),
         lastCycleTimestamp: Date.now(),
         reportSubmitted: false,
+        submissionDeadlineExceeded: false,
       };
 
       await stateStore.save(state);
@@ -314,6 +315,7 @@ describe('ContinuousObserver Integration', function () {
         offsetAssessmentGateways: new Set(),
         lastCycleTimestamp: Date.now(),
         reportSubmitted,
+        submissionDeadlineExceeded: false,
       };
     }
 
@@ -359,14 +361,12 @@ describe('ContinuousObserver Integration', function () {
       expect(stateStore.save.calledOnceWithExactly(state)).to.be.true;
     });
 
-    it('preserves state on epoch rollover until submission succeeds', async function () {
+    it('discards stale unsubmitted epoch state on rollover', async function () {
       const reportSink = {
         saveReport: sinon
           .stub()
           .onFirstCall()
           .rejects(new Error('sink unavailable'))
-          .onSecondCall()
-          .resolves({ report: {} as any }),
       };
       const stateStore = {
         load: sinon.stub().resolves(null),
@@ -388,16 +388,9 @@ describe('ContinuousObserver Integration', function () {
 
       await (observer as any).runObservationCycle();
 
-      expect((observer as any).state).to.equal(state);
-      expect(state.reportSubmitted).to.be.false;
-      expect(stateStore.clear.called).to.be.false;
-      expect(stateStore.save.called).to.be.false;
-
-      await (observer as any).runObservationCycle();
-
-      expect(state.reportSubmitted).to.be.true;
-      expect(stateStore.save.calledOnce).to.be.true;
+      expect(reportSink.saveReport.called).to.be.false;
       expect(stateStore.clear.calledOnce).to.be.true;
+      expect(stateStore.save.calledOnce).to.be.true;
       expect((observer as any).state.epochIndex).to.equal(2);
     });
   });
@@ -527,6 +520,7 @@ describe('ContinuousObserver Integration', function () {
         offsetAssessmentGateways: new Set(),
         lastCycleTimestamp: Date.now(),
         reportSubmitted: false,
+        submissionDeadlineExceeded: false,
       };
       const assessor = {
         assessOwnership: sinon.stub().resolves({
@@ -615,6 +609,7 @@ describe('ContinuousObserver Integration', function () {
         offsetAssessmentGateways: new Set(),
         lastCycleTimestamp: Date.now(),
         reportSubmitted: false,
+        submissionDeadlineExceeded: false,
       };
       let gateway2FailuresRemaining = 1;
       const assessor = {
@@ -658,7 +653,71 @@ describe('ContinuousObserver Integration', function () {
       expect(reportSink.saveReport.calledOnce).to.be.true;
     });
 
-    it('forces missed observations and submits when the submission deadline is reached', async function () {
+    it('closes the epoch without submitting once the submission deadline is reached', async function () {
+      const stateStore = {
+        load: sinon.stub().resolves(null),
+        save: sinon.stub().resolves(),
+        clear: sinon.stub().resolves(),
+      };
+      const reportSink = {
+        saveReport: sinon.stub().resolves({ report: {} as any }),
+      };
+      const observer = createObserverForCatchUp({
+        stateStore,
+        reportSink,
+      });
+      const state: ObservationState = {
+        epochIndex: 1,
+        epochStartTimestamp,
+        epochEndTimestamp,
+        epochStartHeight,
+        windowStart: Date.now() - 5_000_000,
+        windowEnd: Date.now() - 5_000_000,
+        pendingObservations: [
+          {
+            id: 'gateway1.example.com:0',
+            fqdn: 'gateway1.example.com',
+            scheduledAt: Date.now() - 5_100_000,
+          },
+        ],
+        gatewayObservations: new Map([
+          [
+            'gateway1.example.com',
+            {
+              fqdn: 'gateway1.example.com',
+              wallet: 'wallet1',
+              observations: [],
+            },
+          ],
+        ]),
+        gatewayWallets: new Map([['gateway1.example.com', ['wallet1']]]),
+        offsetAssessmentGateways: new Set(),
+        lastCycleTimestamp: Date.now(),
+        reportSubmitted: false,
+        submissionDeadlineExceeded: false,
+      };
+      const assessor = {
+        assessOwnership: sinon.stub().rejects(new Error('persistent failure')),
+        assessGatewayArns: sinon.stub().resolves({
+          prescribedNames: {},
+          chosenNames: {},
+          pass: true,
+        }),
+        clearEpochState: sinon.stub(),
+      };
+
+      restoreState(observer, state);
+      (observer as any).assessor = assessor;
+
+      await (observer as any).runObservationCycle();
+
+      expect(state.pendingObservations).to.be.empty;
+      expect(state.reportSubmitted).to.be.false;
+      expect(state.submissionDeadlineExceeded).to.be.true;
+      expect(reportSink.saveReport.called).to.be.false;
+    });
+
+    it('does not keep retrying after the submission deadline is reached', async function () {
       const stateStore = {
         load: sinon.stub().resolves(null),
         save: sinon.stub().resolves(),
@@ -701,6 +760,7 @@ describe('ContinuousObserver Integration', function () {
         offsetAssessmentGateways: new Set(),
         lastCycleTimestamp: Date.now(),
         reportSubmitted: false,
+        submissionDeadlineExceeded: false,
       };
       const assessor = {
         assessOwnership: sinon.stub().rejects(new Error('persistent failure')),
@@ -711,107 +771,20 @@ describe('ContinuousObserver Integration', function () {
         }),
         clearEpochState: sinon.stub(),
       };
-
       restoreState(observer, state);
       (observer as any).assessor = assessor;
 
       await (observer as any).runObservationCycle();
 
-      expect(state.pendingObservations).to.be.empty;
-      expect(state.reportSubmitted).to.be.true;
-      expect(reportSink.saveReport.calledOnce).to.be.true;
-      expect(
-        state.gatewayObservations.get('gateway1.example.com')!.observations[0]
-          .ownershipAssessment.failureReason,
-      ).to.equal('Observation deadline exceeded after repeated errors');
-      expect(
-        Object.keys(
-          state.gatewayObservations.get('gateway1.example.com')!.observations[0]
-            .arnsAssessments.prescribedNames,
-        ),
-      ).to.deep.equal(['prescribed1', 'prescribed2']);
-      expect(
-        Object.keys(
-          state.gatewayObservations.get('gateway1.example.com')!.observations[0]
-            .arnsAssessments.chosenNames,
-        ),
-      ).to.deep.equal(['chosen1']);
-    });
+      const firstCallCount = assessor.assessOwnership.callCount;
+      expect(state.submissionDeadlineExceeded).to.be.true;
+      expect(firstCallCount).to.equal(1);
+      expect(reportSink.saveReport.called).to.be.false;
 
-    it('records forced deadline misses separately from execution errors', async function () {
-      const stateStore = {
-        load: sinon.stub().resolves(null),
-        save: sinon.stub().resolves(),
-        clear: sinon.stub().resolves(),
-      };
-      const reportSink = {
-        saveReport: sinon.stub().resolves({ report: {} as any }),
-      };
-      const observer = createObserverForCatchUp({
-        stateStore,
-        reportSink,
-      });
-      const state: ObservationState = {
-        epochIndex: 1,
-        epochStartTimestamp,
-        epochEndTimestamp,
-        epochStartHeight,
-        windowStart: Date.now() - 5_000_000,
-        windowEnd: Date.now() - 5_000_000,
-        pendingObservations: [
-          {
-            id: 'gateway1.example.com:0',
-            fqdn: 'gateway1.example.com',
-            scheduledAt: Date.now() - 5_100_000,
-          },
-        ],
-        gatewayObservations: new Map([
-          [
-            'gateway1.example.com',
-            {
-              fqdn: 'gateway1.example.com',
-              wallet: 'wallet1',
-              observations: [],
-            },
-          ],
-        ]),
-        gatewayWallets: new Map([['gateway1.example.com', ['wallet1']]]),
-        offsetAssessmentGateways: new Set(),
-        lastCycleTimestamp: Date.now(),
-        reportSubmitted: false,
-      };
-      const assessor = {
-        assessOwnership: sinon.stub().rejects(new Error('persistent failure')),
-        assessGatewayArns: sinon.stub().resolves({
-          prescribedNames: {},
-          chosenNames: {},
-          pass: true,
-        }),
-        clearEpochState: sinon.stub(),
-      };
-      const counterStub = sinon.stub(metrics.gatewayObservationsCounter, 'inc');
+      await (observer as any).runObservationCycle();
 
-      restoreState(observer, state);
-      (observer as any).assessor = assessor;
-
-      try {
-        await (observer as any).runObservationCycle();
-      } finally {
-        counterStub.restore();
-      }
-
-      expect(
-        counterStub.calledWithMatch(sinon.match({
-          fqdn: 'gateway1.example.com',
-          status: 'error',
-        })),
-      ).to.be.true;
-      expect(
-        counterStub.calledWithMatch(sinon.match({
-          fqdn: 'gateway1.example.com',
-          status: 'deadline',
-        })),
-      ).to.be.true;
+      expect(assessor.assessOwnership.callCount).to.equal(firstCallCount);
+      expect(reportSink.saveReport.called).to.be.false;
     });
   });
 

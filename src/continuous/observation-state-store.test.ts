@@ -96,6 +96,7 @@ describe('FsObservationStateStore', function () {
       offsetAssessmentGateways: new Set(['gateway1.example.com']),
       lastCycleTimestamp: Date.now(),
       reportSubmitted: false,
+      submissionDeadlineExceeded: false,
     };
   }
 
@@ -186,6 +187,7 @@ describe('FsObservationStateStore', function () {
           offsetAssessmentGateways: [],
           lastCycleTimestamp: 123,
           reportSubmitted: false,
+          submissionDeadlineExceeded: false,
         }),
       );
 
