@@ -354,7 +354,7 @@ const referenceGateway = new CompositeReferenceGateway({
 });
 
 export const observer = new Observer({
-  observerAddress: config.OBSERVER_WALLET,
+  observerAddress,
   referenceGateway,
   arweaveUrl: config.ARWEAVE_URL,
   epochSource,
@@ -616,7 +616,7 @@ export async function updateAndSaveCurrentReport() {
         'Always save reports enabled - saving report regardless of conditions',
       );
       reportSink.saveReport({ report });
-    } else if (!observers.includes(config.OBSERVER_WALLET)) {
+    } else if (!observers.includes(observerAddress)) {
       log.verbose('Not saving report - not selected as an observer');
     } else if (
       currentBlockTimestamp >
@@ -660,7 +660,7 @@ export const observationStateStore = new FsObservationStateStore({
  */
 export function createContinuousObserver(): ContinuousObserver {
   return new ContinuousObserver({
-    observerAddress: config.OBSERVER_WALLET,
+    observerAddress,
     referenceGateway,
     epochSource,
     hostsSource: observedGatewayHostList,
