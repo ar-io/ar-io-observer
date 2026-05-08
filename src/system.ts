@@ -21,8 +21,17 @@ import {
   AOProcess,
   ARIO,
   ARIOWriteable,
+  AoARIOWrite,
   AoWeightedObserver,
 } from '@ar.io/sdk/node';
+import { SolanaARIOWriteable } from '@ar.io/sdk/solana';
+import {
+  type KeyPairSigner,
+  createKeyPairSignerFromBytes,
+  createSolanaRpc,
+  createSolanaRpcSubscriptions,
+  fetchEncodedAccount,
+} from '@solana/kit';
 import {
   TurboAuthenticatedClient,
   TurboFactory,
@@ -111,25 +120,129 @@ const chainSource = new ChainSource({
 const signer =
   walletJwk !== undefined ? new ArweaveSigner(walletJwk) : undefined;
 
-const networkContract = ARIO.init({
-  ...(signer !== undefined ? { signer } : {}),
-  process: new AOProcess({
-    processId: config.IO_PROCESS_ID,
-    ao: connect({
-      MU_URL: config.AO_MU_URL,
-      CU_URL: config.NETWORK_AO_CU_URL,
-      GRAPHQL_URL: config.AO_GRAPHQL_URL,
-      GATEWAY_URL: config.AO_GATEWAY_URL,
-    }),
-  }),
-});
+let networkContract: AoARIOWrite | ReturnType<typeof ARIO.init>;
+let observerAddress: string = config.OBSERVER_WALLET;
 
-log.verbose(
-  `Using process ${config.IO_PROCESS_ID} to fetch contract information`,
-  {
-    processId: config.IO_PROCESS_ID,
-  },
-);
+if (config.NETWORK_SOURCE === 'solana') {
+  if (!config.SOLANA_RPC_URL) {
+    throw new Error('SOLANA_RPC_URL is required when NETWORK_SOURCE=solana');
+  }
+  if (!config.SOLANA_KEYPAIR_PATH) {
+    throw new Error(
+      'SOLANA_KEYPAIR_PATH is required when NETWORK_SOURCE=solana',
+    );
+  }
+  const solanaRpc = createSolanaRpc(config.SOLANA_RPC_URL);
+  // Derive WS URL from HTTP URL (same pattern as the SDK CLI).
+  const wsUrl = config.SOLANA_RPC_URL.replace(/^http/, 'ws');
+  const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
+  const keypairData = JSON.parse(
+    fs.readFileSync(config.SOLANA_KEYPAIR_PATH, 'utf-8'),
+  );
+  const solanaSigner: KeyPairSigner = await createKeyPairSignerFromBytes(
+    Uint8Array.from(keypairData),
+  );
+  networkContract = new SolanaARIOWriteable({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rpc: solanaRpc as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rpcSubscriptions: solanaRpcSubscriptions as any,
+    signer: solanaSigner,
+    ...(config.ARIO_CORE_PROGRAM_ID
+      ? { coreProgramId: config.ARIO_CORE_PROGRAM_ID as any }
+      : {}),
+    ...(config.ARIO_GAR_PROGRAM_ID
+      ? { garProgramId: config.ARIO_GAR_PROGRAM_ID as any }
+      : {}),
+    ...(config.ARIO_ARNS_PROGRAM_ID
+      ? { arnsProgramId: config.ARIO_ARNS_PROGRAM_ID as any }
+      : {}),
+    ...(config.ARIO_ANT_PROGRAM_ID
+      ? { antProgramId: config.ARIO_ANT_PROGRAM_ID as any }
+      : {}),
+  }) as unknown as AoARIOWrite;
+  // On Solana, observer address is the pubkey derived from the keypair.
+  observerAddress = solanaSigner.address as string;
+  log.verbose('Using Solana RPC for contract information', {
+    rpcUrl: config.SOLANA_RPC_URL,
+    observerAddress,
+  });
+
+  // Epoch cranking — opt-in via ENABLE_EPOCH_CRANKING=true. Zero overhead
+  // when disabled (dynamic import).
+  if (config.ENABLE_EPOCH_CRANKING) {
+    const { EpochCranker } = await import('./epoch/epoch-cranker.js');
+    const {
+      getEpochSettingsPDA,
+      getArnsRegistryPDA,
+      deserializeEpochSettingsFull,
+    } = await import('@ar.io/sdk/solana');
+
+    const [nameRegistryPda] = await getArnsRegistryPDA();
+    const cranker = new EpochCranker({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      contract: networkContract as unknown as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      rpc: solanaRpc as any,
+      signer: solanaSigner,
+      pollIntervalMs: config.CRANK_POLL_INTERVAL_MS,
+      batchSize: config.CRANK_BATCH_SIZE,
+      closeEpochs: config.CRANK_CLOSE_EPOCHS,
+      epochRetention: config.CRANK_EPOCH_RETENTION,
+      warnBalanceSol: config.CRANK_WARN_BALANCE_SOL,
+      criticalBalanceSol: config.CRANK_CRITICAL_BALANCE_SOL,
+      enableCleanup: config.ENABLE_CLEANUP,
+      cleanupBatchSize: config.CLEANUP_BATCH_SIZE,
+      maxCleanupTxsPerCycle: config.MAX_CLEANUP_TXS_PER_CYCLE,
+      cleanupFailureThreshold: config.CLEANUP_FAILURE_THRESHOLD,
+      cleanupMinIntervalMs: config.CLEANUP_MIN_INTERVAL_MS,
+      log,
+      nameRegistryAccount: nameRegistryPda,
+      getEpochSettings: async () => {
+        const [pda] = await getEpochSettingsPDA();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const account = await fetchEncodedAccount(solanaRpc as any, pda, {
+          commitment: 'confirmed',
+        });
+        if (!account.exists) throw new Error('EpochSettings not found');
+        const data = deserializeEpochSettingsFull(Buffer.from(account.data));
+        return {
+          currentEpochIndex: data.currentEpochIndex as number,
+          genesisTimestamp: data.genesisTimestamp as number,
+          epochDuration: data.epochDuration as number,
+          enabled: (data.enabled as boolean) ?? true,
+        };
+      },
+    });
+    cranker.start();
+    log.verbose('Epoch cranking enabled', {
+      pollIntervalMs: config.CRANK_POLL_INTERVAL_MS,
+      batchSize: config.CRANK_BATCH_SIZE,
+      epochRetention: config.CRANK_EPOCH_RETENTION,
+      enableCleanup: config.ENABLE_CLEANUP,
+    });
+  }
+} else {
+  networkContract = ARIO.init({
+    ...(signer !== undefined ? { signer } : {}),
+    process: new AOProcess({
+      processId: config.IO_PROCESS_ID,
+      ao: connect({
+        MU_URL: config.AO_MU_URL,
+        CU_URL: config.NETWORK_AO_CU_URL,
+        GRAPHQL_URL: config.AO_GRAPHQL_URL,
+        GATEWAY_URL: config.AO_GATEWAY_URL,
+      }),
+    }),
+  });
+
+  log.verbose(
+    `Using process ${config.IO_PROCESS_ID} to fetch contract information`,
+    {
+      processId: config.IO_PROCESS_ID,
+    },
+  );
+}
 
 const observedGatewayHostList =
   config.OBSERVED_GATEWAY_HOSTS.length > 0
@@ -373,12 +486,20 @@ if (config.REPORT_DATA_SINK === 'turbo') {
   });
 }
 
+// On Solana, `networkContract` is a SolanaARIOWriteable (already structurally
+// AoARIOWrite via the SDK), not an ARIOWriteable instance. Loosen the guard
+// so we still spin up the sink for the Solana path; the saveObservations
+// batching strategy is selected via the `networkSource` constructor arg.
 export const contractReportSink =
-  networkContract !== undefined && networkContract instanceof ARIOWriteable
+  networkContract !== undefined &&
+  (networkContract instanceof ARIOWriteable ||
+    config.NETWORK_SOURCE === 'solana')
     ? new ContractReportSink({
         log,
-        contract: networkContract,
-        walletAddress: config.OBSERVER_WALLET,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        contract: networkContract as any,
+        walletAddress: observerAddress,
+        networkSource: config.NETWORK_SOURCE,
       })
     : undefined;
 

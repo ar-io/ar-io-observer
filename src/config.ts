@@ -312,3 +312,63 @@ export const REFERENCE_GATEWAY_CONSENSUS_MAX_ATTEMPTS = +env.varOrDefault(
   'REFERENCE_GATEWAY_CONSENSUS_MAX_ATTEMPTS',
   '2', // Up to 2 rounds of fetching replacement gateways
 );
+
+//
+// Solana
+//
+
+export const NETWORK_SOURCE = env.varOrDefault('NETWORK_SOURCE', 'solana') as
+  | 'ao'
+  | 'solana';
+export const SOLANA_RPC_URL = env.varOrDefault(
+  'SOLANA_RPC_URL',
+  'https://api.mainnet-beta.solana.com',
+);
+export const SOLANA_KEYPAIR_PATH = env.varOrUndefined('SOLANA_KEYPAIR_PATH');
+// Optional program-id overrides for devnet / localnet. Undefined → SDK
+// falls back to bundled mainnet IDs. Devnet values in
+// devnet-config.json (ar-io/solana-ar-io monorepo).
+export const ARIO_CORE_PROGRAM_ID = env.varOrUndefined('ARIO_CORE_PROGRAM_ID');
+export const ARIO_GAR_PROGRAM_ID = env.varOrUndefined('ARIO_GAR_PROGRAM_ID');
+export const ARIO_ARNS_PROGRAM_ID = env.varOrUndefined('ARIO_ARNS_PROGRAM_ID');
+export const ARIO_ANT_PROGRAM_ID = env.varOrUndefined('ARIO_ANT_PROGRAM_ID');
+
+// Epoch cranking (opt-in — zero overhead when disabled)
+export const ENABLE_EPOCH_CRANKING =
+  env.varOrDefault('ENABLE_EPOCH_CRANKING', 'false') === 'true';
+export const CRANK_POLL_INTERVAL_MS = parseInt(
+  env.varOrDefault('CRANK_POLL_INTERVAL_MS', '15000'),
+);
+export const CRANK_BATCH_SIZE = parseInt(
+  env.varOrDefault('CRANK_BATCH_SIZE', '15'),
+);
+export const CRANK_CLOSE_EPOCHS =
+  env.varOrDefault('CRANK_CLOSE_EPOCHS', 'true') === 'true';
+export const CRANK_EPOCH_RETENTION = parseInt(
+  env.varOrDefault('CRANK_EPOCH_RETENTION', '7'),
+);
+export const CRANK_WARN_BALANCE_SOL = parseFloat(
+  env.varOrDefault('CRANK_WARN_BALANCE_SOL', '0.3'),
+);
+export const CRANK_CRITICAL_BALANCE_SOL = parseFloat(
+  env.varOrDefault('CRANK_CRITICAL_BALANCE_SOL', '0.1'),
+);
+
+// Cranker prune / cleanup pass — runs after the 6-step epoch pipeline.
+// See `docs/CRANKER_PRUNING_PLAN.md` in the ar-io/solana-ar-io monorepo.
+// Enable separately from the main pipeline so operators who only want
+// the epoch crank (no prune) can opt out.
+export const ENABLE_CLEANUP =
+  env.varOrDefault('ENABLE_CLEANUP', 'true') === 'true';
+export const CLEANUP_BATCH_SIZE = parseInt(
+  env.varOrDefault('CLEANUP_BATCH_SIZE', '15'),
+);
+export const MAX_CLEANUP_TXS_PER_CYCLE = parseInt(
+  env.varOrDefault('MAX_CLEANUP_TXS_PER_CYCLE', '50'),
+);
+export const CLEANUP_FAILURE_THRESHOLD = parseInt(
+  env.varOrDefault('CLEANUP_FAILURE_THRESHOLD', '30'),
+);
+export const CLEANUP_MIN_INTERVAL_MS = parseInt(
+  env.varOrDefault('CLEANUP_MIN_INTERVAL_MS', '300000'),
+);

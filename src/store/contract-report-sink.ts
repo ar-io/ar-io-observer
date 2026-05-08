@@ -151,19 +151,23 @@ export class ContractReportSink implements ReportSink {
   private log: winston.Logger;
   private contract: AoARIOWrite;
   private readonly walletAddress: string;
+  private readonly networkSource: 'ao' | 'solana';
 
   constructor({
     log,
     contract,
     walletAddress,
+    networkSource = 'ao',
   }: {
     log: winston.Logger;
     contract: AoARIOWrite;
     walletAddress: string;
+    networkSource?: 'ao' | 'solana';
   }) {
     this.log = log;
     this.contract = contract;
     this.walletAddress = walletAddress;
+    this.networkSource = networkSource;
   }
 
   async saveReport(reportInfo: ReportInfo): Promise<{
@@ -204,13 +208,27 @@ export class ContractReportSink implements ReportSink {
       throw new Error('Failed to check if interactions already saved');
     }
 
-    // Processes each failed gateway summary using the same observation report tx id.
-    this.log.verbose('Saving observation interactions...');
+    if (reportTxId === undefined) {
+      throw new Error('Report TX ID is undefined');
+    }
+
+    // Solana: observation PDA is per-epoch-per-observer and uses `init`, so
+    // only ONE saveObservations call is allowed. The SDK encodes all
+    // gateways into a 375-byte bitfield — no batching needed.
+    // AO: messages can be sent multiple times, so we split large summaries
+    // into batches to stay within message size limits.
+    const observationBatches =
+      this.networkSource === 'solana'
+        ? [failedGatewaySummaries]
+        : splitFailedGatewaySummaries;
+
+    this.log.verbose('Saving observation interactions...', {
+      networkSource: this.networkSource,
+      batchCount: observationBatches.length,
+      totalFailedGateways: failedGatewaySummaries.length,
+    });
     const saveObservationsTxIds: string[] = [];
-    for (const failedGatewaySummary of splitFailedGatewaySummaries) {
-      if (reportTxId === undefined) {
-        throw new Error('Report TX ID is undefined');
-      }
+    for (const failedGatewaySummary of observationBatches) {
       const { id: saveObservationsTxId } = await this.contract.saveObservations(
         {
           reportTxId: reportTxId,
