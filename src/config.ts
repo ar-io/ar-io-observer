@@ -317,9 +317,41 @@ export const REFERENCE_GATEWAY_CONSENSUS_MAX_ATTEMPTS = +env.varOrDefault(
 // Solana
 //
 
-export const NETWORK_SOURCE = env.varOrDefault('NETWORK_SOURCE', 'solana') as
-  | 'ao'
-  | 'solana';
+// Validation helpers for the cranker numeric env vars. Raw `parseInt` /
+// `parseFloat` on a misconfigured env (`NaN`, 0, negative) silently
+// breaks the pipeline at runtime — e.g. `CRANK_BATCH_SIZE=0` halts
+// tally/distribute progress, `CRANK_POLL_INTERVAL_MS=NaN` collapses
+// into hot-loop polling. Fail loudly at boot instead.
+function parsePositiveIntEnv(name: string, defaultValue: string): number {
+  const raw = env.varOrDefault(name, defaultValue);
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(
+      `Invalid configuration: ${name}='${raw}' must be a positive integer.`,
+    );
+  }
+  return value;
+}
+function parseNonNegativeFloatEnv(name: string, defaultValue: string): number {
+  const raw = env.varOrDefault(name, defaultValue);
+  const value = Number.parseFloat(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(
+      `Invalid configuration: ${name}='${raw}' must be a non-negative number.`,
+    );
+  }
+  return value;
+}
+
+// Default to 'ao' so existing AO deployments don't break on upgrade —
+// operators must explicitly opt in to the Solana path.
+const rawNetworkSource = env.varOrDefault('NETWORK_SOURCE', 'ao');
+if (rawNetworkSource !== 'ao' && rawNetworkSource !== 'solana') {
+  throw new Error(
+    `Invalid configuration: NETWORK_SOURCE='${rawNetworkSource}' must be "ao" or "solana".`,
+  );
+}
+export const NETWORK_SOURCE: 'ao' | 'solana' = rawNetworkSource;
 export const SOLANA_RPC_URL = env.varOrDefault(
   'SOLANA_RPC_URL',
   'https://api.mainnet-beta.solana.com',
@@ -336,22 +368,24 @@ export const ARIO_ANT_PROGRAM_ID = env.varOrUndefined('ARIO_ANT_PROGRAM_ID');
 // Epoch cranking (opt-in — zero overhead when disabled)
 export const ENABLE_EPOCH_CRANKING =
   env.varOrDefault('ENABLE_EPOCH_CRANKING', 'false') === 'true';
-export const CRANK_POLL_INTERVAL_MS = parseInt(
-  env.varOrDefault('CRANK_POLL_INTERVAL_MS', '15000'),
+export const CRANK_POLL_INTERVAL_MS = parsePositiveIntEnv(
+  'CRANK_POLL_INTERVAL_MS',
+  '15000',
 );
-export const CRANK_BATCH_SIZE = parseInt(
-  env.varOrDefault('CRANK_BATCH_SIZE', '15'),
-);
+export const CRANK_BATCH_SIZE = parsePositiveIntEnv('CRANK_BATCH_SIZE', '15');
 export const CRANK_CLOSE_EPOCHS =
   env.varOrDefault('CRANK_CLOSE_EPOCHS', 'true') === 'true';
-export const CRANK_EPOCH_RETENTION = parseInt(
-  env.varOrDefault('CRANK_EPOCH_RETENTION', '7'),
+export const CRANK_EPOCH_RETENTION = parsePositiveIntEnv(
+  'CRANK_EPOCH_RETENTION',
+  '7',
 );
-export const CRANK_WARN_BALANCE_SOL = parseFloat(
-  env.varOrDefault('CRANK_WARN_BALANCE_SOL', '0.3'),
+export const CRANK_WARN_BALANCE_SOL = parseNonNegativeFloatEnv(
+  'CRANK_WARN_BALANCE_SOL',
+  '0.3',
 );
-export const CRANK_CRITICAL_BALANCE_SOL = parseFloat(
-  env.varOrDefault('CRANK_CRITICAL_BALANCE_SOL', '0.1'),
+export const CRANK_CRITICAL_BALANCE_SOL = parseNonNegativeFloatEnv(
+  'CRANK_CRITICAL_BALANCE_SOL',
+  '0.1',
 );
 
 // Cranker prune / cleanup pass — runs after the 6-step epoch pipeline.
@@ -360,15 +394,19 @@ export const CRANK_CRITICAL_BALANCE_SOL = parseFloat(
 // the epoch crank (no prune) can opt out.
 export const ENABLE_CLEANUP =
   env.varOrDefault('ENABLE_CLEANUP', 'true') === 'true';
-export const CLEANUP_BATCH_SIZE = parseInt(
-  env.varOrDefault('CLEANUP_BATCH_SIZE', '15'),
+export const CLEANUP_BATCH_SIZE = parsePositiveIntEnv(
+  'CLEANUP_BATCH_SIZE',
+  '15',
 );
-export const MAX_CLEANUP_TXS_PER_CYCLE = parseInt(
-  env.varOrDefault('MAX_CLEANUP_TXS_PER_CYCLE', '50'),
+export const MAX_CLEANUP_TXS_PER_CYCLE = parsePositiveIntEnv(
+  'MAX_CLEANUP_TXS_PER_CYCLE',
+  '50',
 );
-export const CLEANUP_FAILURE_THRESHOLD = parseInt(
-  env.varOrDefault('CLEANUP_FAILURE_THRESHOLD', '30'),
+export const CLEANUP_FAILURE_THRESHOLD = parsePositiveIntEnv(
+  'CLEANUP_FAILURE_THRESHOLD',
+  '30',
 );
-export const CLEANUP_MIN_INTERVAL_MS = parseInt(
-  env.varOrDefault('CLEANUP_MIN_INTERVAL_MS', '300000'),
+export const CLEANUP_MIN_INTERVAL_MS = parsePositiveIntEnv(
+  'CLEANUP_MIN_INTERVAL_MS',
+  '300000',
 );
