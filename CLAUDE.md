@@ -70,11 +70,32 @@ The system uses a pluggable architecture with interfaces defined in `src/types.t
 
 Configuration is handled in `src/config.ts` using environment variables with CLI argument overrides. Key settings:
 
-- `OBSERVER_WALLET`: Wallet address for report submission
+- `OBSERVER_WALLET`: Legacy AO-mode wallet label for report submission. In
+  Solana mode this only serves as a display label — actual identities come
+  from `SOLANA_KEYPAIR_PATH` / `OBSERVER_KEYPAIR_PATH` / etc.
 - `REFERENCE_GATEWAY_HOST`: Trusted gateway for expected resolution results
 - `REPORT_DATA_SINK`: Target for report uploads ('turbo' or 'arweave')
 - Gateway and name assessment concurrency limits
 - Epoch timing and report submission windows
+
+### Solana wallet identities (NETWORK_SOURCE=solana)
+
+Three roles, each independently configurable. Full resolution rules in
+`src/wallet-config.ts` (covered by `wallet-config.test.ts`). Required:
+`SOLANA_KEYPAIR_PATH` (operator + cranker signer). Optional fallbacks:
+
+- `OBSERVER_KEYPAIR_PATH` — separate `save_observations` signer; must match
+  on-chain `Gateway.observer_address` when set.
+- `ARWEAVE_UPLOAD_KEY_FILE` / `ARWEAVE_UPLOAD_JWK` — Arweave JWK for report
+  uploads. Takes precedence over Solana upload paths.
+- `SOLANA_UPLOAD_KEYPAIR_PATH` — separate Solana key for Solana-signed
+  ANS-104 bundle uploads. Falls back to observer ?? operator.
+
+Supported configurations (see `wallet-config.test.ts` for assertions):
+1. all-Solana single key
+2. Solana ops + Arweave JWK upload
+3. three Solana keys (op / observer / upload)
+4. two Solana keys + Arweave JWK upload
 
 ## Compression Settings
 
