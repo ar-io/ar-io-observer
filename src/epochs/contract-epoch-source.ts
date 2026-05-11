@@ -29,8 +29,27 @@ import {
 import { EpochTimestampSource as IEpochTimestampSource } from '../types.js';
 
 export class ContractEpochSource implements IEpochTimestampSource {
-  private static readonly CURRENT_EPOCH_MAX_RETRIES = 3;
-  private static readonly CURRENT_EPOCH_RETRY_DELAY_MS = 5 * 60 * 1000;
+  // On a live cranker-driven cluster, transient "epoch N not found"
+  // errors are EXPECTED in two cases:
+  //   1. We just closed epoch N-1; current_epoch_index advanced to N
+  //      but Epoch[N] PDA hasn't been created yet (race between
+  //      close_epoch and create_epoch txs landing).
+  //   2. Fast-epoch devnets where the lookahead reader can poll while
+  //      the cranker is mid-cycle.
+  // Both resolve within seconds-to-minutes. The legacy 3-retry, 5min-
+  // delay policy escalated these to fatal errors after ~15min, killing
+  // the service. We now use much shorter delays + a much larger ceiling
+  // (~30min worst case) so transient states never tip the process.
+  private static readonly CURRENT_EPOCH_MAX_RETRIES = 60;
+  private static readonly CURRENT_EPOCH_RETRY_DELAY_MS = 30 * 1000;
+  /** Regex matching transient "next epoch not yet created" errors that
+   *  resolve on their own. We log these at info level (vs warn) so they
+   *  don't blow up an operator's alerting. */
+  private static readonly TRANSIENT_ERROR_PATTERNS = [
+    /Epoch \d+ not found/i,
+    /EpochSettings not found/i,
+    /Account does not exist/i,
+  ];
 
   private contract: AoARIORead;
   private blockSource: BlockSource;
@@ -59,21 +78,31 @@ export class ContractEpochSource implements IEpochTimestampSource {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  private isTransientEpochError(message: string): boolean {
+    return ContractEpochSource.TRANSIENT_ERROR_PATTERNS.some((p) =>
+      p.test(message),
+    );
+  }
+
   private async getCurrentEpochWithRetry(attempt = 1): Promise<any> {
     try {
       return await this.contract.getCurrentEpoch();
     } catch (error: any) {
+      const transient = this.isTransientEpochError(error.message ?? '');
       if (attempt >= ContractEpochSource.CURRENT_EPOCH_MAX_RETRIES) {
         throw error;
       }
-
-      this.log.warn('Failed to get current epoch. Retrying...', {
+      // Transient errors get info-level logging (expected on live
+      // clusters during epoch boundaries). Non-transient errors keep
+      // the warn-level escalation so real failures are visible.
+      const logFn = transient ? this.log.info : this.log.warn;
+      logFn.call(this.log, 'Failed to get current epoch. Retrying...', {
         attempt: attempt,
         maxRetries: ContractEpochSource.CURRENT_EPOCH_MAX_RETRIES,
         retryDelayMs: ContractEpochSource.CURRENT_EPOCH_RETRY_DELAY_MS,
+        transient,
         error: error.message,
       });
-
       await this.delay(ContractEpochSource.CURRENT_EPOCH_RETRY_DELAY_MS);
       return this.getCurrentEpochWithRetry(attempt + 1);
     }

@@ -130,12 +130,31 @@ export class ContinuousObserver {
         config?.observationsPerGateway ?? DEFAULT_OBSERVATIONS_PER_GATEWAY,
       majorityThreshold:
         config?.majorityThreshold ?? DEFAULT_MAJORITY_THRESHOLD,
+      // Optional scheduler tunings — preserved as-is (no defaults) so
+      // the scheduler's own DEFAULT_* constants kick in when callers
+      // don't override. Forwarded into the scheduler config below.
+      stabilityBufferMs: config?.stabilityBufferMs,
+      submissionBufferMs: config?.submissionBufferMs,
+      windowFraction: config?.windowFraction,
     };
 
     this.scheduler = new ContinuousObservationScheduler({
       entropySource: this.entropySource,
       config: {
         observationsPerGateway: this.config.observationsPerGateway,
+        // Pass-through scheduler tunings (default to undefined → the
+        // scheduler picks its production defaults). Lets callers
+        // override for fast-epoch devnets where the production
+        // 36min/72min buffers don't fit a 60min epoch.
+        ...(this.config.stabilityBufferMs !== undefined
+          ? { stabilityBufferMs: this.config.stabilityBufferMs }
+          : {}),
+        ...(this.config.submissionBufferMs !== undefined
+          ? { submissionBufferMs: this.config.submissionBufferMs }
+          : {}),
+        ...(this.config.windowFraction !== undefined
+          ? { windowFraction: this.config.windowFraction }
+          : {}),
       },
       log: this.log,
     });

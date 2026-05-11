@@ -881,6 +881,9 @@ export function createContinuousObserver(): ContinuousObserver {
       gatewayAssessmentConcurrency: config.GATEWAY_ASSESSMENT_CONCURRENCY,
       observationsPerGateway: config.OBSERVATIONS_PER_GATEWAY,
       majorityThreshold: config.MAJORITY_VOTE_THRESHOLD,
+      stabilityBufferMs: config.OBSERVATION_STABILITY_BUFFER_MS,
+      submissionBufferMs: config.OBSERVATION_SUBMISSION_BUFFER_MS,
+      windowFraction: config.OBSERVATION_WINDOW_FRACTION,
     },
     log,
   });

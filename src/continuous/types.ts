@@ -116,4 +116,10 @@ export interface ContinuousObserverConfig {
   gatewayAssessmentConcurrency: number; // default: 3 (down from 10)
   observationsPerGateway: number; // default: 3
   majorityThreshold: number; // default: 2 (2 of 3 must pass)
+  // Pass-through tunings for the underlying scheduler. Production
+  // defaults assume 24h epochs; override for fast-epoch devnets
+  // (e.g. 1h epochs need ~5min buffers instead of 36/72 min).
+  stabilityBufferMs?: number;
+  submissionBufferMs?: number;
+  windowFraction?: number;
 }
