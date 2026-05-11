@@ -81,7 +81,52 @@ import { FsObservationStateStore } from './continuous/observation-state-store.js
 const REPORT_CACHE_TTL_SECONDS = 60 * 60 * 2.5; // 2.5 hours
 
 log.verbose(`Using wallet ${config.OBSERVER_WALLET}`);
+
+// Report-upload identity resolution (solana mode only). Operator and
+// observer signers are constructed inside the NETWORK_SOURCE branch
+// below. Here we just resolve the Arweave JWK if one was explicitly
+// configured for uploads — leaving the legacy AO path untouched.
 export const walletJwk: JWKInterface | undefined = (() => {
+  if (config.NETWORK_SOURCE === 'solana') {
+    // Priority 1: explicit Arweave key file.
+    if (config.ARWEAVE_UPLOAD_KEY_FILE !== undefined) {
+      try {
+        const jwk = JSON.parse(
+          fs.readFileSync(config.ARWEAVE_UPLOAD_KEY_FILE, 'utf-8'),
+        );
+        log.info(
+          'Report uploads will use Arweave JWK from ARWEAVE_UPLOAD_KEY_FILE',
+          { path: config.ARWEAVE_UPLOAD_KEY_FILE },
+        );
+        return jwk;
+      } catch (error: any) {
+        log.error('Unable to load ARWEAVE_UPLOAD_KEY_FILE:', {
+          path: config.ARWEAVE_UPLOAD_KEY_FILE,
+          message: error.message,
+        });
+      }
+    }
+    // Priority 2: inline JWK env.
+    if (config.ARWEAVE_UPLOAD_JWK !== undefined) {
+      try {
+        const jwk = JSON.parse(config.ARWEAVE_UPLOAD_JWK);
+        log.info(
+          'Report uploads will use Arweave JWK from ARWEAVE_UPLOAD_JWK env',
+        );
+        return jwk;
+      } catch (error: any) {
+        log.error('Unable to parse ARWEAVE_UPLOAD_JWK env:', {
+          message: error.message,
+        });
+      }
+    }
+    // No Arweave key configured. Uploads will either fall back to a
+    // Solana-signed bundle (if SOLANA_UPLOAD_KEYPAIR_PATH or one of the
+    // fallback signers is set) or be disabled entirely. Both paths are
+    // resolved inside the solana branch below.
+    return undefined;
+  }
+
   if (config.JWK !== undefined) {
     try {
       const jwk = JSON.parse(config.JWK);
@@ -136,12 +181,53 @@ if (config.NETWORK_SOURCE === 'solana') {
   // Derive WS URL from HTTP URL (same pattern as the SDK CLI).
   const wsUrl = config.SOLANA_RPC_URL.replace(/^http/, 'ws');
   const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
-  const keypairData = JSON.parse(
-    fs.readFileSync(config.SOLANA_KEYPAIR_PATH, 'utf-8'),
+  // -------- Identity loading (decoupled by role) --------
+  // Each Solana role can be its own keypair. Falls back as documented in
+  // config.ts. Resolution diagram:
+  //   operator (= cranker)        = SOLANA_KEYPAIR_PATH                          (required)
+  //   observer (save_observations)= OBSERVER_KEYPAIR_PATH    ?? SOLANA_KEYPAIR_PATH
+  //   uploader  (report uploads)  = SOLANA_UPLOAD_KEYPAIR_PATH
+  //                                 ?? OBSERVER_KEYPAIR_PATH
+  //                                 ?? SOLANA_KEYPAIR_PATH                       (Solana-signed bundle path)
+  //   — OR, if ARWEAVE_UPLOAD_{KEY_FILE,JWK} was resolved into `walletJwk`
+  //   above, uploads go through the Arweave signer instead.
+  const loadSolanaKeypair = async (
+    path: string,
+    role: string,
+  ): Promise<KeyPairSigner> => {
+    const data = JSON.parse(fs.readFileSync(path, 'utf-8'));
+    const signer = await createKeyPairSignerFromBytes(Uint8Array.from(data));
+    log.info(`Loaded ${role} Solana keypair`, {
+      path,
+      pubkey: signer.address,
+    });
+    return signer;
+  };
+  const solanaSigner: KeyPairSigner = await loadSolanaKeypair(
+    config.SOLANA_KEYPAIR_PATH,
+    'operator/cranker',
   );
-  const solanaSigner: KeyPairSigner = await createKeyPairSignerFromBytes(
-    Uint8Array.from(keypairData),
-  );
+  const observerSigner: KeyPairSigner =
+    config.OBSERVER_KEYPAIR_PATH !== undefined
+      ? await loadSolanaKeypair(config.OBSERVER_KEYPAIR_PATH, 'observer')
+      : (log.info(
+          'Observer signer not explicitly set — reusing operator/cranker keypair for save_observations.',
+          { pubkey: solanaSigner.address },
+        ),
+        solanaSigner);
+  const uploadSolanaSigner: KeyPairSigner | undefined =
+    walletJwk !== undefined
+      ? undefined // Arweave upload wins; no need for a Solana upload signer.
+      : config.SOLANA_UPLOAD_KEYPAIR_PATH !== undefined
+        ? await loadSolanaKeypair(
+            config.SOLANA_UPLOAD_KEYPAIR_PATH,
+            'upload (explicit)',
+          )
+        : (log.info(
+            'No upload wallet explicitly configured — reusing observer keypair for any Solana-signed bundle uploads.',
+            { pubkey: observerSigner.address },
+          ),
+          observerSigner);
   networkContract = new SolanaARIOWriteable({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rpc: solanaRpc as any,
@@ -161,11 +247,25 @@ if (config.NETWORK_SOURCE === 'solana') {
       ? { antProgramId: config.ARIO_ANT_PROGRAM_ID as any }
       : {}),
   }) as unknown as AoARIOWrite;
-  // On Solana, observer address is the pubkey derived from the keypair.
-  observerAddress = solanaSigner.address as string;
-  log.verbose('Using Solana RPC for contract information', {
+  // On Solana, the on-chain observer identity is the observer keypair's
+  // pubkey (which equals the operator's when no separate observer key is
+  // provided). This is what must match `Gateway.observer_address` for
+  // `save_observations` to land.
+  observerAddress = observerSigner.address as string;
+  log.info('Solana wallet identities resolved', {
+    operator: solanaSigner.address,
+    observer: observerSigner.address,
+    uploadMode:
+      walletJwk !== undefined
+        ? 'arweave-jwk'
+        : uploadSolanaSigner !== undefined
+          ? 'solana-bundle'
+          : 'disabled',
+    uploadPubkey:
+      walletJwk === undefined && uploadSolanaSigner !== undefined
+        ? uploadSolanaSigner.address
+        : undefined,
     rpcUrl: config.SOLANA_RPC_URL,
-    observerAddress,
   });
 
   // Epoch cranking — opt-in via ENABLE_EPOCH_CRANKING=true. Zero overhead
@@ -178,7 +278,9 @@ if (config.NETWORK_SOURCE === 'solana') {
       deserializeEpochSettingsFull,
     } = await import('@ar.io/sdk/solana');
 
-    const [nameRegistryPda] = await getArnsRegistryPDA();
+    const [nameRegistryPda] = await getArnsRegistryPDA(
+      config.ARIO_ARNS_PROGRAM_ID as any,
+    );
     const cranker = new EpochCranker({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       contract: networkContract as unknown as any,
@@ -199,7 +301,9 @@ if (config.NETWORK_SOURCE === 'solana') {
       log,
       nameRegistryAccount: nameRegistryPda,
       getEpochSettings: async () => {
-        const [pda] = await getEpochSettingsPDA();
+        const [pda] = await getEpochSettingsPDA(
+          config.ARIO_GAR_PROGRAM_ID as any,
+        );
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const account = await fetchEncodedAccount(solanaRpc as any, pda, {
           commitment: 'confirmed',

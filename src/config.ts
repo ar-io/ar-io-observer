@@ -356,7 +356,38 @@ export const SOLANA_RPC_URL = env.varOrDefault(
   'SOLANA_RPC_URL',
   'https://api.mainnet-beta.solana.com',
 );
+// Operator/cranker keypair. Required in solana mode. Signs join_network,
+// update_gateway_settings, and every permissionless cranker ix
+// (create_epoch, tally_weights, prescribe_epoch, distribute_epoch,
+// close_epoch). Also serves as fallback observer/upload signer when no
+// separate keys are provided.
 export const SOLANA_KEYPAIR_PATH = env.varOrUndefined('SOLANA_KEYPAIR_PATH');
+
+// Observer keypair — signs `save_observations` ix. Optional. When set,
+// must match the on-chain `Gateway.observer_address` (set at join_network
+// via --observer-address, or later via update_observer_address). Falls
+// back to SOLANA_KEYPAIR_PATH when unset.
+export const OBSERVER_KEYPAIR_PATH = env.varOrUndefined(
+  'OBSERVER_KEYPAIR_PATH',
+);
+
+// Report-upload identity. Three modes, resolved in priority order:
+//   1. ARWEAVE_UPLOAD_KEY_FILE (path) → load Arweave JWK from disk.
+//   2. ARWEAVE_UPLOAD_JWK (inline JSON env) → load Arweave JWK from env.
+//   3. SOLANA_UPLOAD_KEYPAIR_PATH (path) → ANS-104 bundle signed by a
+//      Solana key (Turbo accepts Solana-signed bundles via arbundles).
+//      Falls back to OBSERVER_KEYPAIR_PATH then SOLANA_KEYPAIR_PATH if
+//      not explicitly set.
+// When all three are unset (and we're not in legacy AO mode), report
+// uploads are disabled.
+export const ARWEAVE_UPLOAD_KEY_FILE = env.varOrUndefined(
+  'ARWEAVE_UPLOAD_KEY_FILE',
+);
+export const ARWEAVE_UPLOAD_JWK = env.varOrUndefined('ARWEAVE_UPLOAD_JWK');
+export const SOLANA_UPLOAD_KEYPAIR_PATH = env.varOrUndefined(
+  'SOLANA_UPLOAD_KEYPAIR_PATH',
+);
+
 // Optional program-id overrides for devnet / localnet. Undefined → SDK
 // falls back to bundled mainnet IDs. Devnet values in
 // devnet-config.json (ar-io/solana-ar-io monorepo).
