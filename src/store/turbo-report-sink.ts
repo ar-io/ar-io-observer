@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import { TurboAuthenticatedClient } from '@ardrive/turbo-sdk/node';
-import { ArweaveSigner, createData } from '@dha-team/arbundles/node';
+import { Signer, createData } from '@dha-team/arbundles/node';
 import Arweave from 'arweave';
 import { promisify } from 'node:util';
 import zlib from 'node:zlib';
@@ -27,10 +27,7 @@ import { ObserverReport, ReportInfo, ReportSink } from '../types.js';
 
 const gzip = promisify(zlib.gzip);
 
-async function createReportDataItem(
-  signer: ArweaveSigner,
-  report: ObserverReport,
-) {
+async function createReportDataItem(signer: Signer, report: ObserverReport) {
   const reportBuffer = Buffer.from(JSON.stringify(report), 'utf-8');
   const gzipReportBuffer = await gzip(reportBuffer, { level: 9 });
   const signedDataItem = createData(gzipReportBuffer, signer, {
@@ -73,7 +70,12 @@ export class TurboReportSink implements ReportSink {
   private arweave: Arweave;
   private readonly turboClient: TurboAuthenticatedClient;
   private readonly walletAddress: string;
-  private readonly signer: ArweaveSigner;
+  // Generalized to the arbundles `Signer` base class so the sink works with
+  // any chain Turbo accepts (ArweaveSigner / SolanaSigner / EthereumSigner).
+  // The concrete construction lives in system.ts based on the resolved
+  // UploadIdentity. The walletAddress label is whatever owner/identity the
+  // signer represents (Arweave base64url address, Solana pubkey, ETH address).
+  private readonly signer: Signer;
 
   constructor({
     log,
@@ -86,7 +88,7 @@ export class TurboReportSink implements ReportSink {
     arweave: Arweave;
     turboClient: TurboAuthenticatedClient;
     walletAddress: string;
-    signer: ArweaveSigner;
+    signer: Signer;
   }) {
     this.log = log.child({ class: this.constructor.name });
     this.arweave = arweave;

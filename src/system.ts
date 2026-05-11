@@ -37,7 +37,14 @@ import {
   TurboFactory,
   defaultTurboConfiguration,
 } from '@ardrive/turbo-sdk/node';
-import { ArweaveSigner, JWKInterface } from '@dha-team/arbundles/node';
+import {
+  ArweaveSigner,
+  EthereumSigner,
+  JWKInterface,
+  Signer,
+  SolanaSigner,
+} from '@dha-team/arbundles/node';
+import bs58 from 'bs58';
 import { connect } from '@permaweb/aoconnect';
 import Arweave from 'arweave';
 import { default as NodeCache } from 'node-cache';
@@ -52,6 +59,7 @@ import * as config from './config.js';
 import {
   resolveArweaveUploadJwk,
   resolveSolanaWallets,
+  resolveUploadIdentity,
 } from './wallet-config.js';
 import { CachedEntropySource } from './entropy/cached-entropy-source.js';
 import { ChainEntropySource } from './entropy/chain-entropy-source.js';
@@ -149,8 +157,19 @@ const chainSource = new ChainSource({
   arweaveBaseUrl: config.ARWEAVE_URL,
 });
 
-const signer =
+// The arbundles `Signer` used to sign observation-report data items
+// before Turbo upload. In AO mode this is the ArweaveSigner built from
+// the legacy single JWK. In Solana mode it's resolved from the
+// UploadIdentity below (any of Arweave / Solana / Ethereum). May be
+// undefined if no upload identity is configured — TurboReportSink is
+// skipped in that case.
+let bundleSigner: Signer | undefined =
   walletJwk !== undefined ? new ArweaveSigner(walletJwk) : undefined;
+
+// Address label surfaced on TurboReportSink + /info — set to whichever
+// identity is actually signing bundles. Default matches AO behavior; the
+// Solana branch overwrites with the upload pubkey/address.
+let bundleSignerLabel: string = config.OBSERVER_WALLET;
 
 let networkContract: AoARIOWrite | ReturnType<typeof ARIO.init>;
 let observerAddress: string = config.OBSERVER_WALLET;
@@ -217,19 +236,67 @@ if (config.NETWORK_SOURCE === 'solana') {
   // provided). This is what must match `Gateway.observer_address` for
   // `save_observations` to land.
   observerAddress = observerSigner.address as string;
+
+  // Resolve the bundle-upload identity (Arweave / Solana / Ethereum) and
+  // construct the corresponding arbundles signer. resolveUploadIdentity
+  // owns the precedence + conflict-detection logic; we just turn the
+  // discriminated union into a concrete signer here.
+  const fallbackSolanaPath =
+    config.OBSERVER_KEYPAIR_PATH ?? config.SOLANA_KEYPAIR_PATH;
+  const uploadIdentity = resolveUploadIdentity(
+    config,
+    {
+      readFile: (p: string) => fs.readFileSync(p, 'utf-8'),
+      arweaveJwk: {
+        fromFile: (p) => {
+          try {
+            return JSON.parse(fs.readFileSync(p, 'utf-8'));
+          } catch {
+            return undefined;
+          }
+        },
+        fromEnv: (raw) => {
+          try {
+            return JSON.parse(raw);
+          } catch {
+            return undefined;
+          }
+        },
+      },
+    },
+    log,
+    fallbackSolanaPath,
+  );
+  switch (uploadIdentity.mode) {
+    case 'arweave':
+      bundleSigner = new ArweaveSigner(uploadIdentity.jwk);
+      bundleSignerLabel = await arweave.wallets.jwkToAddress(uploadIdentity.jwk);
+      break;
+    case 'solana':
+      // arbundles' SolanaSigner takes the secret key as base58.
+      bundleSigner = new SolanaSigner(bs58.encode(uploadIdentity.secretKey));
+      // The arbundles SolanaSigner publicKey is the on-chain pubkey bytes.
+      bundleSignerLabel = bs58.encode((bundleSigner as any).publicKey);
+      break;
+    case 'ethereum':
+      bundleSigner = new EthereumSigner(
+        '0x' + Buffer.from(uploadIdentity.privateKey).toString('hex'),
+      );
+      bundleSignerLabel =
+        '0x' +
+        Buffer.from((bundleSigner as any).publicKey).toString('hex').slice(-40);
+      break;
+    case 'disabled':
+      bundleSigner = undefined;
+      break;
+  }
+
   log.info('Solana wallet identities resolved', {
     operator: solanaSigner.address,
     observer: observerSigner.address,
-    uploadMode:
-      walletJwk !== undefined
-        ? 'arweave-jwk'
-        : uploadSolanaSigner !== undefined
-          ? 'solana-bundle'
-          : 'disabled',
-    uploadPubkey:
-      walletJwk === undefined && uploadSolanaSigner !== undefined
-        ? uploadSolanaSigner.address
-        : undefined,
+    uploadMode: uploadIdentity.mode,
+    uploadIdentityLabel:
+      uploadIdentity.mode !== 'disabled' ? bundleSignerLabel : undefined,
     rpcUrl: config.SOLANA_RPC_URL,
   });
 
@@ -480,19 +547,26 @@ export const arweave = new Arweave({
   protocol: arweaveURL.protocol.replace(':', ''),
 });
 
+// `walletAddress` historically held the gateway operator's Arweave
+// address (derived from walletJwk). Under Solana mode it tracks the
+// identity that's actually signing report bundles — which may be an
+// Arweave address, Solana pubkey, or Ethereum address depending on
+// UploadIdentity. AO-mode callers keep the legacy Arweave-address value.
 export const walletAddress =
   walletJwk !== undefined
     ? await arweave.wallets.jwkToAddress(walletJwk)
-    : 'INVALID';
+    : config.NETWORK_SOURCE === 'solana' && bundleSigner !== undefined
+      ? bundleSignerLabel
+      : 'INVALID';
 
 const turboReportSink =
-  turboClient && signer
+  turboClient && bundleSigner
     ? new TurboReportSink({
         log,
         arweave,
         turboClient: turboClient,
-        walletAddress: config.OBSERVER_WALLET,
-        signer,
+        walletAddress: bundleSignerLabel,
+        signer: bundleSigner,
       })
     : undefined;
 

@@ -80,22 +80,40 @@ Configuration is handled in `src/config.ts` using environment variables with CLI
 
 ### Solana wallet identities (NETWORK_SOURCE=solana)
 
-Three roles, each independently configurable. Full resolution rules in
-`src/wallet-config.ts` (covered by `wallet-config.test.ts`). Required:
-`SOLANA_KEYPAIR_PATH` (operator + cranker signer). Optional fallbacks:
+**Four protocol-level roles**, each independently configurable. The two
+on-chain roles (operator, observer) must be Solana keypairs; the
+off-chain **upload** role accepts any of three chains that Turbo
+supports (Arweave / Ethereum / Solana). Full resolution rules in
+`src/wallet-config.ts` (covered by `wallet-config.test.ts`).
 
+Required: `SOLANA_KEYPAIR_PATH` (operator + cranker signer).
+
+Optional:
 - `OBSERVER_KEYPAIR_PATH` — separate `save_observations` signer; must match
   on-chain `Gateway.observer_address` when set.
-- `ARWEAVE_UPLOAD_KEY_FILE` / `ARWEAVE_UPLOAD_JWK` — Arweave JWK for report
-  uploads. Takes precedence over Solana upload paths.
+- `ARWEAVE_UPLOAD_KEY_FILE` / `ARWEAVE_UPLOAD_JWK` — Arweave JWK for
+  report uploads. **Top precedence.**
+- `ETHEREUM_UPLOAD_PRIVATE_KEY_FILE` / `ETHEREUM_UPLOAD_PRIVATE_KEY` —
+  32-byte hex Ethereum key for report uploads. Mid precedence.
 - `SOLANA_UPLOAD_KEYPAIR_PATH` — separate Solana key for Solana-signed
-  ANS-104 bundle uploads. Falls back to observer ?? operator.
+  ANS-104 bundle uploads. Lowest explicit priority; falls back to
+  observer ?? operator if all upload envs are unset.
 
-Supported configurations (see `wallet-config.test.ts` for assertions):
+Each chain produces a different `arbundles.Signer` (`ArweaveSigner`,
+`EthereumSigner`, `SolanaSigner`); `TurboReportSink` is signer-agnostic.
+
+**Conflict policy:** setting envs from more than one upload chain at
+once (e.g. `ARWEAVE_UPLOAD_*` plus `ETHEREUM_UPLOAD_*`) is a hard error
+at startup — pick exactly one upload chain. Sniff validators
+produce friendly errors when material is dropped into the wrong slot
+(e.g. an Arweave JWK at `SOLANA_UPLOAD_KEYPAIR_PATH`).
+
+Supported configurations (each tested in `wallet-config.test.ts`):
 1. all-Solana single key
 2. Solana ops + Arweave JWK upload
 3. three Solana keys (op / observer / upload)
 4. two Solana keys + Arweave JWK upload
+5. two Solana keys + Ethereum upload
 
 ## Compression Settings
 

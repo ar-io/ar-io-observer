@@ -388,6 +388,17 @@ export const SOLANA_UPLOAD_KEYPAIR_PATH = env.varOrUndefined(
   'SOLANA_UPLOAD_KEYPAIR_PATH',
 );
 
+// Ethereum upload identity. Hex-encoded 32-byte private key, either as a
+// file path or inline env. Takes precedence over the Solana fallback but
+// not over Arweave (see wallet-config.ts resolveUploadIdentity for the
+// full precedence + conflict rules).
+export const ETHEREUM_UPLOAD_PRIVATE_KEY_FILE = env.varOrUndefined(
+  'ETHEREUM_UPLOAD_PRIVATE_KEY_FILE',
+);
+export const ETHEREUM_UPLOAD_PRIVATE_KEY = env.varOrUndefined(
+  'ETHEREUM_UPLOAD_PRIVATE_KEY',
+);
+
 // Optional program-id overrides for devnet / localnet. Undefined → SDK
 // falls back to bundled mainnet IDs. Devnet values in
 // devnet-config.json (ar-io/solana-ar-io monorepo).

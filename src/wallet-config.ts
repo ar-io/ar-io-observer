@@ -42,6 +42,8 @@ export interface WalletEnv {
   ARWEAVE_UPLOAD_KEY_FILE: string | undefined;
   ARWEAVE_UPLOAD_JWK: string | undefined;
   SOLANA_UPLOAD_KEYPAIR_PATH: string | undefined;
+  ETHEREUM_UPLOAD_PRIVATE_KEY_FILE: string | undefined;
+  ETHEREUM_UPLOAD_PRIVATE_KEY: string | undefined;
 }
 
 /**
@@ -170,4 +172,268 @@ export async function resolveSolanaWallets(
   }
 
   return { operator, observer, upload };
+}
+
+// =========================================================================
+// Multi-chain upload identity (Solana mode)
+// =========================================================================
+//
+// Beyond the resolveSolanaWallets() output above (which keeps the legacy
+// shape consumed by existing call sites), an operator may want to sign
+// observation-report bundles for Turbo upload with any of:
+//
+//   - Arweave JWK            → `ArweaveSigner`  (legacy)
+//   - Solana keypair         → `SolanaSigner`   (NEW — natural for Solana operators)
+//   - Ethereum private key   → `EthereumSigner` (NEW — Turbo also accepts these)
+//
+// `resolveUploadIdentity` picks one based on documented precedence and
+// throws on ambiguous configuration. Sniff validators give friendly
+// errors when a JWK is dropped into the Solana keypair slot, etc.
+
+/** Raw material for an arbundles Signer. The system module turns this
+ *  into the concrete arbundles class instance — keeping this module free
+ *  of arbundles runtime dependencies (tests stay pure). */
+export type UploadIdentity =
+  | { mode: 'arweave'; source: 'file' | 'env'; jwk: JWKInterface }
+  | {
+      mode: 'solana';
+      source: 'file';
+      path: string;
+      secretKey: Uint8Array;
+    }
+  | {
+      mode: 'ethereum';
+      source: 'file' | 'env';
+      privateKey: Uint8Array;
+    }
+  | { mode: 'disabled' };
+
+export interface UploadLoaders {
+  /** Read raw bytes from disk; throw on missing/unreadable file. */
+  readFile: (path: string) => string;
+  /** Optional pre-parsed JWK loader (mostly for symmetry with arweave loader). */
+  arweaveJwk: ArweaveJwkLoader;
+}
+
+/** Hex-string sniff: 32-byte Ethereum private key. */
+function parseEthereumPrivateKey(raw: string, origin: string): Uint8Array {
+  const cleaned = raw.trim().replace(/^0x/i, '');
+  if (cleaned.length !== 64) {
+    throw new Error(
+      `Ethereum private key must be 32 bytes hex (64 chars after stripping "0x"); ${origin} had ${cleaned.length} chars. ` +
+        (cleaned.length === 0
+          ? 'Empty value — set ETHEREUM_UPLOAD_PRIVATE_KEY or ETHEREUM_UPLOAD_PRIVATE_KEY_FILE.'
+          : ''),
+    );
+  }
+  if (!/^[0-9a-fA-F]+$/.test(cleaned)) {
+    throw new Error(
+      `Ethereum private key from ${origin} contains non-hex characters. Expected only [0-9a-fA-F].`,
+    );
+  }
+  const out = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) {
+    out[i] = parseInt(cleaned.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}
+
+/** Parse a Solana keypair file content and validate shape. Recognizes
+ *  common mis-types and produces actionable errors. */
+function parseSolanaKeypair(raw: string, path: string): Uint8Array {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err: any) {
+    // Maybe a hex Ethereum key got dropped in here?
+    const trimmed = raw.trim();
+    if (/^(0x)?[0-9a-fA-F]{64}$/.test(trimmed)) {
+      throw new Error(
+        `Expected a Solana keypair (64-byte JSON array) at ${path}, found a 32-byte hex string. ` +
+          'If this is an Ethereum private key, set ETHEREUM_UPLOAD_PRIVATE_KEY_FILE instead.',
+      );
+    }
+    throw new Error(
+      `Failed to parse Solana keypair at ${path}: ${err.message}`,
+    );
+  }
+  if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    const keys = Object.keys(parsed as object).slice(0, 5);
+    if ((parsed as any).kty === 'RSA' && typeof (parsed as any).n === 'string') {
+      throw new Error(
+        `Expected a Solana keypair (64-byte JSON array) at ${path}, found an Arweave RSA JWK ` +
+          `(keys: [${keys.join(', ')}]). Did you mean to set ARWEAVE_UPLOAD_KEY_FILE instead?`,
+      );
+    }
+    throw new Error(
+      `Expected a Solana keypair (64-byte JSON array) at ${path}, found an object with keys [${keys.join(', ')}].`,
+    );
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(
+      `Expected a Solana keypair (64-byte JSON array) at ${path}, found a ${typeof parsed}.`,
+    );
+  }
+  if (parsed.length !== 64) {
+    throw new Error(
+      `Solana keypair at ${path} is ${parsed.length} bytes, expected 64.`,
+    );
+  }
+  if (parsed.some((b) => typeof b !== 'number' || b < 0 || b > 255)) {
+    throw new Error(
+      `Solana keypair at ${path} contains non-byte entries (each must be 0–255).`,
+    );
+  }
+  return Uint8Array.from(parsed as number[]);
+}
+
+/** Parse + validate an Arweave JWK. */
+function parseArweaveJwk(raw: string, origin: string): JWKInterface {
+  let parsed: any;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err: any) {
+    throw new Error(`Failed to parse Arweave JWK from ${origin}: ${err.message}`);
+  }
+  if (Array.isArray(parsed)) {
+    throw new Error(
+      `Expected an Arweave RSA JWK at ${origin}, found a JSON array (length ${parsed.length}). ` +
+        'If this is a Solana keypair, set SOLANA_UPLOAD_KEYPAIR_PATH instead.',
+    );
+  }
+  if (parsed === null || typeof parsed !== 'object') {
+    throw new Error(
+      `Expected an Arweave RSA JWK (object) at ${origin}, found a ${typeof parsed}.`,
+    );
+  }
+  if (parsed.kty !== 'RSA') {
+    throw new Error(
+      `Arweave JWK at ${origin} has kty="${parsed.kty}", expected "RSA".`,
+    );
+  }
+  if (typeof parsed.n !== 'string' || parsed.n.length === 0) {
+    throw new Error(
+      `Arweave JWK at ${origin} is missing the "n" (modulus) field.`,
+    );
+  }
+  return parsed as JWKInterface;
+}
+
+/**
+ * Resolve the upload identity (Solana mode only — AO mode keeps its own
+ * single-JWK path). Documented precedence:
+ *
+ *   1. Arweave: ARWEAVE_UPLOAD_KEY_FILE > ARWEAVE_UPLOAD_JWK
+ *   2. Ethereum: ETHEREUM_UPLOAD_PRIVATE_KEY_FILE > ETHEREUM_UPLOAD_PRIVATE_KEY
+ *   3. Solana (explicit): SOLANA_UPLOAD_KEYPAIR_PATH
+ *   4. Solana (implicit fallback): OBSERVER_KEYPAIR_PATH ?? SOLANA_KEYPAIR_PATH
+ *
+ * **Conflict policy:** if envs from MORE THAN ONE chain group are set,
+ * throw immediately with the full list. Operators must pick exactly one
+ * upload chain (or none).
+ */
+export function resolveUploadIdentity(
+  env: WalletEnv,
+  loaders: UploadLoaders,
+  log: Pick<Logger, 'info'>,
+  fallbackSolanaPath?: string, // observer or operator path, when no explicit upload key
+): UploadIdentity {
+  if (env.NETWORK_SOURCE !== 'solana') {
+    // AO mode keeps the legacy JWK-only behavior outside this resolver.
+    return { mode: 'disabled' };
+  }
+
+  const arweaveEnvs = [
+    env.ARWEAVE_UPLOAD_KEY_FILE && 'ARWEAVE_UPLOAD_KEY_FILE',
+    env.ARWEAVE_UPLOAD_JWK && 'ARWEAVE_UPLOAD_JWK',
+  ].filter(Boolean) as string[];
+  const ethereumEnvs = [
+    env.ETHEREUM_UPLOAD_PRIVATE_KEY_FILE && 'ETHEREUM_UPLOAD_PRIVATE_KEY_FILE',
+    env.ETHEREUM_UPLOAD_PRIVATE_KEY && 'ETHEREUM_UPLOAD_PRIVATE_KEY',
+  ].filter(Boolean) as string[];
+  const solanaEnvs = [
+    env.SOLANA_UPLOAD_KEYPAIR_PATH && 'SOLANA_UPLOAD_KEYPAIR_PATH',
+  ].filter(Boolean) as string[];
+
+  const groups = [
+    arweaveEnvs.length > 0 && 'arweave',
+    ethereumEnvs.length > 0 && 'ethereum',
+    solanaEnvs.length > 0 && 'solana',
+  ].filter(Boolean) as string[];
+
+  if (groups.length > 1) {
+    const allEnvs = [...arweaveEnvs, ...ethereumEnvs, ...solanaEnvs];
+    throw new Error(
+      `Upload-wallet config is ambiguous: envs from ${groups.length} chains are set (${groups.join(', ')}). ` +
+        `Pick exactly one chain. Conflicting envs: ${allEnvs.join(', ')}.`,
+    );
+  }
+
+  // Arweave path
+  if (arweaveEnvs.length > 0) {
+    if (env.ARWEAVE_UPLOAD_KEY_FILE !== undefined) {
+      const raw = loaders.readFile(env.ARWEAVE_UPLOAD_KEY_FILE);
+      const jwk = parseArweaveJwk(raw, `ARWEAVE_UPLOAD_KEY_FILE (${env.ARWEAVE_UPLOAD_KEY_FILE})`);
+      log.info('Upload identity: Arweave JWK (from file)', {
+        path: env.ARWEAVE_UPLOAD_KEY_FILE,
+      });
+      return { mode: 'arweave', source: 'file', jwk };
+    }
+    const jwk = parseArweaveJwk(env.ARWEAVE_UPLOAD_JWK!, 'ARWEAVE_UPLOAD_JWK env');
+    log.info('Upload identity: Arweave JWK (from env)');
+    return { mode: 'arweave', source: 'env', jwk };
+  }
+
+  // Ethereum path
+  if (ethereumEnvs.length > 0) {
+    let raw: string;
+    let source: 'file' | 'env';
+    if (env.ETHEREUM_UPLOAD_PRIVATE_KEY_FILE !== undefined) {
+      raw = loaders.readFile(env.ETHEREUM_UPLOAD_PRIVATE_KEY_FILE);
+      source = 'file';
+    } else {
+      raw = env.ETHEREUM_UPLOAD_PRIVATE_KEY!;
+      source = 'env';
+    }
+    const privateKey = parseEthereumPrivateKey(
+      raw,
+      source === 'file'
+        ? `ETHEREUM_UPLOAD_PRIVATE_KEY_FILE (${env.ETHEREUM_UPLOAD_PRIVATE_KEY_FILE})`
+        : 'ETHEREUM_UPLOAD_PRIVATE_KEY env',
+    );
+    log.info(`Upload identity: Ethereum private key (from ${source})`);
+    return { mode: 'ethereum', source, privateKey };
+  }
+
+  // Solana explicit
+  if (env.SOLANA_UPLOAD_KEYPAIR_PATH !== undefined) {
+    const raw = loaders.readFile(env.SOLANA_UPLOAD_KEYPAIR_PATH);
+    const secretKey = parseSolanaKeypair(raw, env.SOLANA_UPLOAD_KEYPAIR_PATH);
+    log.info('Upload identity: Solana keypair (explicit upload key)', {
+      path: env.SOLANA_UPLOAD_KEYPAIR_PATH,
+    });
+    return {
+      mode: 'solana',
+      source: 'file',
+      path: env.SOLANA_UPLOAD_KEYPAIR_PATH,
+      secretKey,
+    };
+  }
+
+  // Solana implicit fallback
+  if (fallbackSolanaPath !== undefined) {
+    const raw = loaders.readFile(fallbackSolanaPath);
+    const secretKey = parseSolanaKeypair(raw, fallbackSolanaPath);
+    log.info('Upload identity: Solana keypair (fallback to observer/operator key)', {
+      path: fallbackSolanaPath,
+    });
+    return {
+      mode: 'solana',
+      source: 'file',
+      path: fallbackSolanaPath,
+      secretKey,
+    };
+  }
+
+  return { mode: 'disabled' };
 }
