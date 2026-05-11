@@ -80,6 +80,7 @@ import { FallbackReferenceGateway } from './reference/fallback-reference-gateway
 import { CachedNetworkGatewaySource } from './reference/network-gateway-source.js';
 import { ArweaveReportSink } from './store/arweave-report-sink.js';
 import { ContractReportSink } from './store/contract-report-sink.js';
+import { SolanaContractReportSink } from './store/solana-contract-report-sink.js';
 import { FsReportStore } from './store/fs-report-store.js';
 import { LogReportSink } from './store/log-report-sink.js';
 import {
@@ -172,6 +173,14 @@ let bundleSigner: Signer | undefined =
 let bundleSignerLabel: string = config.OBSERVER_WALLET;
 
 let networkContract: AoARIOWrite | ReturnType<typeof ARIO.init>;
+
+// Solana-mode observer-side writeable (signed by the observer keypair,
+// not the operator/cranker). Constructed only in the solana branch
+// below; consumed by SolanaContractReportSink for `save_observations`.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let solanaObserverContract: any = undefined;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let solanaObserverAddress: any = undefined;
 let observerAddress: string = config.OBSERVER_WALLET;
 
 if (config.NETWORK_SOURCE === 'solana') {
@@ -231,6 +240,35 @@ if (config.NETWORK_SOURCE === 'solana') {
       ? { antProgramId: config.ARIO_ANT_PROGRAM_ID as any }
       : {}),
   }) as unknown as AoARIOWrite;
+
+  // Second SolanaARIOWriteable instance signed by the OBSERVER keypair
+  // (distinct from the cranker's `networkContract` which is signed by
+  // operator/cranker). Used exclusively by SolanaContractReportSink for
+  // `save_observations`. When operator == observer (config 1/2), the
+  // two instances share the same signer — still distinct objects so
+  // the cranker's send pipeline doesn't accidentally consume them
+  // interchangeably.
+  solanaObserverContract = new SolanaARIOWriteable({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rpc: solanaRpc as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rpcSubscriptions: solanaRpcSubscriptions as any,
+    signer: observerSigner,
+    ...(config.ARIO_CORE_PROGRAM_ID
+      ? { coreProgramId: config.ARIO_CORE_PROGRAM_ID as any }
+      : {}),
+    ...(config.ARIO_GAR_PROGRAM_ID
+      ? { garProgramId: config.ARIO_GAR_PROGRAM_ID as any }
+      : {}),
+    ...(config.ARIO_ARNS_PROGRAM_ID
+      ? { arnsProgramId: config.ARIO_ARNS_PROGRAM_ID as any }
+      : {}),
+    ...(config.ARIO_ANT_PROGRAM_ID
+      ? { antProgramId: config.ARIO_ANT_PROGRAM_ID as any }
+      : {}),
+  });
+  solanaObserverAddress = observerSigner.address;
+
   // On Solana, the on-chain observer identity is the observer keypair's
   // pubkey (which equals the operator's when no separate observer key is
   // provided). This is what must match `Gateway.observer_address` for
@@ -633,18 +671,39 @@ if (config.REPORT_DATA_SINK === 'turbo') {
 // AoARIOWrite via the SDK), not an ARIOWriteable instance. Loosen the guard
 // so we still spin up the sink for the Solana path; the saveObservations
 // batching strategy is selected via the `networkSource` constructor arg.
-export const contractReportSink =
+// Contract-submission sink picks a chain-specific implementation:
+//
+//   AO mode   → ContractReportSink (legacy; sends `save-observations`
+//               AO message signed by the AO process wallet).
+//   Solana    → SolanaContractReportSink (new; calls `save_observations`
+//               ix signed by the OBSERVER keypair — not operator).
+//
+// In Solana mode we construct a SECOND SolanaARIOWriteable instance
+// explicitly signed by `observerSigner`. The cranker's `networkContract`
+// is signed by `solanaSigner` (operator/cranker), which is the wrong
+// identity for `save_observations` when operator ≠ observer.
+//
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _contractReportSink: any;
+if (config.NETWORK_SOURCE === 'solana' && solanaObserverContract !== undefined) {
+  _contractReportSink = new SolanaContractReportSink({
+    log,
+    contract: solanaObserverContract,
+    readable: solanaObserverContract, // Writeable extends Readable
+    observerAddress: solanaObserverAddress!,
+  });
+} else if (
   networkContract !== undefined &&
-  (networkContract instanceof ARIOWriteable ||
-    config.NETWORK_SOURCE === 'solana')
-    ? new ContractReportSink({
-        log,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        contract: networkContract as any,
-        walletAddress: observerAddress,
-        networkSource: config.NETWORK_SOURCE,
-      })
-    : undefined;
+  networkContract instanceof ARIOWriteable
+) {
+  _contractReportSink = new ContractReportSink({
+    log,
+    contract: networkContract,
+    walletAddress: observerAddress,
+    networkSource: 'ao',
+  });
+}
+export const contractReportSink = _contractReportSink;
 
 if (!config.SUBMIT_CONTRACT_INTERACTIONS) {
   log.verbose(
@@ -656,7 +715,10 @@ if (!config.SUBMIT_CONTRACT_INTERACTIONS) {
   );
 } else {
   stores.push({
-    name: 'ContractReportSink',
+    name:
+      config.NETWORK_SOURCE === 'solana'
+        ? 'SolanaContractReportSink'
+        : 'ContractReportSink',
     sink: contractReportSink,
   });
 }

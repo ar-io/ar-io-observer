@@ -115,6 +115,37 @@ Supported configurations (each tested in `wallet-config.test.ts`):
 4. two Solana keys + Arweave JWK upload
 5. two Solana keys + Ethereum upload
 
+### Observation submission (`save_observations` on Solana)
+
+When `SUBMIT_CONTRACT_INTERACTIONS=true` in Solana mode,
+`SolanaContractReportSink` (`src/store/solana-contract-report-sink.ts`)
+submits observation reports on-chain via `ario_gar::save_observations`.
+
+Flow:
+- A SECOND `SolanaARIOWriteable` instance is constructed in `system.ts`,
+  signed by the **observer** keypair (NOT the operator/cranker). The
+  cranker's `networkContract` keeps the operator signer — distinct
+  identities for distinct ix surfaces.
+- Each `saveReport(reportInfo)` call: read Epoch state once →
+  pre-flight gate → submit if all gates pass.
+- Pre-flight gates (no wasted SOL fees on bouncing simulations):
+  - **Not prescribed**: observer pubkey not in `epoch.prescribed_observers`
+  - **Already observed**: `has_observed` bit set at our slot
+  - **Window closed**: `now >= epoch.end_timestamp`
+- The on-chain `Observation.report_tx_id` field stores the **raw 32-byte
+  hash** (base64url-decoded from the 43-char Arweave TX ID) — lossless
+  and round-trippable, so consumers can recover the full TXID for
+  permaweb audits.
+- `getFailedGatewaySummaryFromReport` (shared with the AO sink) extracts
+  the failed-gateway pubkey list; the SDK turns it into a 375-byte
+  bitmap matching the registry order.
+- After the parent epoch is fully distributed, the cranker's
+  `close_observation` loop reclaims the Observation PDA's rent.
+
+Unit tests: `src/store/solana-contract-report-sink.test.ts` covers the
+happy path + all three skip gates + missing-reportTxId guard + error
+propagation (9 tests).
+
 ## Compression Settings
 
 Both `ArweaveReportSink` and `TurboReportSink` use gzip compression with level 9 (maximum compression) to minimize upload size when submitting reports to Arweave L1 and Turbo.
