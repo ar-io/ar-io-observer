@@ -28,15 +28,17 @@
     "@types/json-schema" "^7.0.15"
     js-yaml "^4.1.0"
 
-"@ar.io/sdk@4.0.0-solana.4":
-  version "4.0.0-solana.4"
-  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-4.0.0-solana.4.tgz#0b0bfc4dc7ff15c2aaab842d42fd9eb916af3d3e"
-  integrity sha512-75fp8NIDTH3UVoASq09pWgi87w5pKhZEe/ndwEmPG6fN6Nvsg0OoEDvna3i5cW+DbxjJIj+3tYN7wl6LQufcDQ==
+"@ar.io/sdk@4.0.0-solana.7":
+  version "4.0.0-solana.7"
+  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-4.0.0-solana.7.tgz#06e3b815c46fda69c01f30b372531bdf6e4efc2f"
+  integrity sha512-JJzFBu3wWsWixir+SgqZGfewZx6aAEtzl0iwOtLlGDok8v1lkVP/ADU4E3TkNOoNST2gIgXIfrbDqhA215U98g==
   dependencies:
+    "@ar.io/solana-contracts" "0.1.0-devnet.0"
     "@ardrive/turbo-sdk" "^1.19.0"
     "@dha-team/arbundles" "^1.0.1"
     "@permaweb/aoconnect" "0.0.68"
     "@solana-program/compute-budget" "^0.15.0"
+    "@solana-program/token" "^0.13.0"
     "@solana/kit" "^6.8.0"
     arweave "1.15.5"
     axios "^1.13.2"
@@ -44,6 +46,11 @@
     commander "^12.1.0"
     eventemitter3 "^5.0.1"
     prompts "^2.4.2"
+
+"@ar.io/solana-contracts@0.1.0-devnet.0":
+  version "0.1.0-devnet.0"
+  resolved "https://registry.yarnpkg.com/@ar.io/solana-contracts/-/solana-contracts-0.1.0-devnet.0.tgz#b03d1fd243b80665bd289232b335a25a22e3795a"
+  integrity sha512-MzdoB2lBHWNqGRi5Ki7a8legTv8YuoymwuahPSQr6lk75UMr7dMz5VWF2ypXLv2GJZODz69ChNSd/eTP7X4n8g==
 
 "@ardrive/ardrive-promise-cache@^1.1.4":
   version "1.4.0"
@@ -2597,15 +2604,6 @@
   resolved "https://registry.yarnpkg.com/@paulmillr/qr/-/qr-0.2.1.tgz#76ade7080be4ac4824f638146fd8b6db1805eeca"
   integrity sha512-IHnV6A+zxU7XwmKFinmYjUcwlyK9+xkG3/s9KcQhI9BjQKycrJ1JRO+FbNYPwZiPKW3je/DR0k7w8/gLa5eaxQ==
 
-"@permaweb/ao-scheduler-utils@~0.0.16":
-  version "0.0.25"
-  resolved "https://registry.yarnpkg.com/@permaweb/ao-scheduler-utils/-/ao-scheduler-utils-0.0.25.tgz#50c96a411d59f58010ace322d6abd3cd5e11e4cd"
-  integrity sha512-b0UYSTgnLMIYLScrfNBgcqK7ZMmd78L3J0Jz4RIsIq2P5PtkdRqQ7fYqLlltg7bD1f3dvl4TkO1925ED4ei7LA==
-  dependencies:
-    lru-cache "^10.2.2"
-    ramda "^0.30.0"
-    zod "^3.23.5"
-
 "@permaweb/ao-scheduler-utils@~0.0.20":
   version "0.0.29"
   resolved "https://registry.yarnpkg.com/@permaweb/ao-scheduler-utils/-/ao-scheduler-utils-0.0.29.tgz#9dcfffd5a63a606d70156a1699a3f87840ba64f2"
@@ -2653,20 +2651,6 @@
     ramda "^0.30.1"
     warp-arbundles "^1.0.4"
     zod "^3.24.1"
-
-"@permaweb/aoconnect@^0.0.56":
-  version "0.0.56"
-  resolved "https://registry.yarnpkg.com/@permaweb/aoconnect/-/aoconnect-0.0.56.tgz#28dcf1a094a2b1c1cbaa246d63eeb08a5a0c7269"
-  integrity sha512-Eu4AC1KeX2EOIS9ihWkwPJs7rK+/+XV43QwOJ9DCQAu6EhjanlT3UfV2wSpGiFK/dT/B1YsQyTcxNrmQaXn81g==
-  dependencies:
-    "@permaweb/ao-scheduler-utils" "~0.0.16"
-    buffer "^6.0.3"
-    debug "^4.3.4"
-    hyper-async "^1.1.2"
-    mnemonist "^0.39.8"
-    ramda "^0.29.1"
-    warp-arbundles "^1.0.4"
-    zod "^3.22.4"
 
 "@permaweb/protocol-tag-utils@~0.0.2":
   version "0.0.2"
@@ -3034,10 +3018,22 @@
   resolved "https://registry.yarnpkg.com/@solana-program/system/-/system-0.10.0.tgz#f68ffb0a3e1c1d5e68ecfe111fbbe729f95a582a"
   integrity sha512-Go+LOEZmqmNlfr+Gjy5ZWAdY5HbYzk2RBewD9QinEU/bBSzpFfzqDRT55JjFRBGJUvMgf3C2vfXEGT4i8DSI4g==
 
+"@solana-program/system@^0.12.0":
+  version "0.12.0"
+  resolved "https://registry.yarnpkg.com/@solana-program/system/-/system-0.12.0.tgz#a69ebdd9918d5a0d06246555965a59a829991ad9"
+  integrity sha512-ZnAAWeGVMWNtJhw3GdifI2HnhZ0A0H0qs8tBkcFvxp/8wIavvO+GOM4Jd0N22u2+Lni2zcwvcrxrsxj6Mjphng==
+
 "@solana-program/token-2022@^0.6.1":
   version "0.6.1"
   resolved "https://registry.yarnpkg.com/@solana-program/token-2022/-/token-2022-0.6.1.tgz#dcc44d56228e34c3b90099d9d3cab97d84c12367"
   integrity sha512-Ex02cruDMGfBMvZZCrggVR45vdQQSI/unHVpt/7HPt/IwFYB4eTlXtO8otYZyqV/ce5GqZ8S6uwyRf0zy6fdbA==
+
+"@solana-program/token@^0.13.0":
+  version "0.13.0"
+  resolved "https://registry.yarnpkg.com/@solana-program/token/-/token-0.13.0.tgz#6ef44f5fdc9cc4f087fcda3a001da8fe033ab678"
+  integrity sha512-/Apjrd5lwOJGrPB0J5Rv7EBeclvyEBQPAGA85Scm7wBH+GpkbdLDM9uK3TNg8jjFKyWQYai/JtPHbrx7VgFLSg==
+  dependencies:
+    "@solana-program/system" "^0.12.0"
 
 "@solana-program/token@^0.9.0":
   version "0.9.0"
@@ -9351,11 +9347,6 @@ rambda@^7.4.0:
   resolved "https://registry.yarnpkg.com/rambda/-/rambda-7.5.0.tgz#1865044c59bc0b16f63026c6e5a97e4b1bbe98fe"
   integrity sha512-y/M9weqWAH4iopRd7EHDEQQvpFPHj1AA3oHozE9tfITHUtTR7Z9PSlIRRG2l1GuW7sefC1cXFfIcF+cgnShdBA==
 
-ramda@^0.29.1:
-  version "0.29.1"
-  resolved "https://registry.yarnpkg.com/ramda/-/ramda-0.29.1.tgz#408a6165b9555b7ba2fc62555804b6c5a2eca196"
-  integrity sha512-OfxIeWzd4xdUNxlWhgFazxsA/nl3mS4/jGZI5n00uWOoSSFRhC1b6gl6xvmzUamgmqELraWp0J/qqVlXYPDPyA==
-
 ramda@^0.30.0, ramda@^0.30.1:
   version "0.30.1"
   resolved "https://registry.yarnpkg.com/ramda/-/ramda-0.30.1.tgz#7108ac95673062b060025052cd5143ae8fc605bf"
@@ -10959,7 +10950,7 @@ zod@3.22.4:
   resolved "https://registry.yarnpkg.com/zod/-/zod-3.22.4.tgz#f31c3a9386f61b1f228af56faa9255e845cf3fff"
   integrity sha512-iC+8Io04lddc+mVqQ9AZ7OQ2MrUKGN+oIQyq1vemgt46jwCwLfhq7/pwnBnNXXXZb8VTVLKwp9EDkx+ryxIWmg==
 
-zod@^3.22.4, zod@^3.23.5, zod@^3.23.8:
+zod@^3.23.5, zod@^3.23.8:
   version "3.24.2"
   resolved "https://registry.yarnpkg.com/zod/-/zod-3.24.2.tgz#8efa74126287c675e92f46871cfc8d15c34372b3"
   integrity sha512-lY7CDW43ECgW9u1TcT3IoXHflywfVqDYze4waEz812jR/bZ8FHDsl7pFQoSZTz5N+2NqRXs8GBwnAwo3ZNxqhQ==
