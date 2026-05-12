@@ -158,6 +158,22 @@ describe('cranker error classification', () => {
       }
     });
 
+    it('treats HTTP 429 rate-limit responses as "not_ready"', () => {
+      // What QuickNode / Helius / Triton return when bursting at epoch
+      // boundaries (cleanup + tally + distribute simultaneously).
+      expect(
+        classifyError(new Error('HTTP error (429): Too Many Requests')),
+      ).to.equal('not_ready');
+      expect(classifyError(new Error('Too Many Requests'))).to.equal('not_ready');
+      expect(classifyError(new Error('rate limit exceeded'))).to.equal('not_ready');
+      // Also walks the cause chain — RPC error nested in SolanaError
+      const inner = new Error('HTTP error (429): Too Many Requests');
+      const outer = Object.assign(new Error('Transaction send failed'), {
+        cause: inner,
+      });
+      expect(classifyError(outer)).to.equal('not_ready');
+    });
+
     it('treats RPC-level "already processed" as "already_done"', () => {
       expect(classifyError(new Error('Transaction already been processed'))).to.equal('already_done');
       expect(classifyError(new Error('AlreadyProcessed'))).to.equal('already_done');

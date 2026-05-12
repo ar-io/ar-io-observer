@@ -146,7 +146,18 @@ export function classifyError(error: unknown): ErrorCategory {
     msg.includes('fetch failed') ||
     msg.includes('Connection terminated') ||
     msg.includes('ECONNRESET') ||
-    msg.includes('ETIMEDOUT')
+    msg.includes('ETIMEDOUT') ||
+    // RPC provider rate-limit responses. QuickNode / Helius / Triton
+    // return HTTP 429 with a `Too Many Requests` body when the
+    // per-second or per-month quota is hit. Cranker + observer cycles
+    // burst at epoch boundaries (cleanup + tally + distribute fire
+    // together) and routinely trip free-tier limits. Categorising as
+    // transient avoids `error:` spam; the cleanup loop will retry on
+    // the next cycle.
+    msg.includes('HTTP error (429)') ||
+    msg.includes('Too Many Requests') ||
+    msg.includes('rate limit') ||
+    msg.includes('rate-limited')
   ) {
     return 'not_ready';
   }
