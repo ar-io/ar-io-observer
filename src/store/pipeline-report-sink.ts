@@ -19,7 +19,7 @@ import * as winston from 'winston';
 
 import { ReportInfo, ReportSink } from '../types.js';
 
-const MAX_GATEWAY_FAILURE_THRESHOLD = 0.8;
+const DEFAULT_MAX_GATEWAY_FAILURE_THRESHOLD = 0.8;
 
 export interface ReportSinkEntry {
   name: string;
@@ -30,16 +30,29 @@ export class PipelineReportSink implements ReportSink {
   // Dependencies
   private log: winston.Logger;
   private sinks: ReportSinkEntry[];
+  private maxGatewayFailureThreshold: number;
 
   constructor({
     log,
     sinks,
+    maxGatewayFailureThreshold = DEFAULT_MAX_GATEWAY_FAILURE_THRESHOLD,
   }: {
     log: winston.Logger;
     sinks: ReportSinkEntry[];
+    /**
+     * Fraction in `[0, 1]`. If the share of gateways reported as failed
+     * exceeds this value, the pipeline drops the report instead of
+     * forwarding to downstream sinks. Defaults to 0.8 (production safe).
+     * On environments where a high real failure rate is expected
+     * (e.g. devnet with stub gateways), raise to 1.0 to disable the
+     * gate — the `>` comparison means a threshold of 1.0 can never
+     * trip.
+     */
+    maxGatewayFailureThreshold?: number;
   }) {
     this.log = log.child({ class: this.constructor.name });
     this.sinks = sinks;
+    this.maxGatewayFailureThreshold = maxGatewayFailureThreshold;
   }
 
   async saveReport(reportInfo: ReportInfo): Promise<ReportInfo> {
@@ -50,21 +63,26 @@ export class PipelineReportSink implements ReportSink {
       epochStartHeight: report.epochStartHeight,
     });
 
-    // Check if more than 80% of gateways failed
+    // Safety gate: a misconfigured observer (DNS, firewall, ISP issues)
+    // can report 100% failures and falsely penalize honest gateways. If
+    // the failure share exceeds the configured threshold, drop the
+    // report. Operators on networks where high real failure is expected
+    // (e.g. devnet with stubs) can set the threshold to 1.0 to disable.
     const totalGateways = Object.keys(report.gatewayAssessments).length;
     const failedGateways = Object.values(report.gatewayAssessments).filter(
       (assessment) => assessment.pass === false,
     ).length;
-    const failurePercentage = failedGateways / totalGateways;
+    const failurePercentage =
+      totalGateways === 0 ? 0 : failedGateways / totalGateways;
 
-    if (failurePercentage > MAX_GATEWAY_FAILURE_THRESHOLD) {
+    if (failurePercentage > this.maxGatewayFailureThreshold) {
       log.error(
-        `More than ${(MAX_GATEWAY_FAILURE_THRESHOLD * 100).toFixed(0)}% of gateways failed - not reporting failures. Please check your observer configuration for potential issues.`,
+        `More than ${(this.maxGatewayFailureThreshold * 100).toFixed(0)}% of gateways failed - not reporting failures. Please check your observer configuration for potential issues.`,
         {
           totalGateways,
           failedGateways,
           failurePercentage: (failurePercentage * 100).toFixed(2) + '%',
-          threshold: (MAX_GATEWAY_FAILURE_THRESHOLD * 100).toFixed(0) + '%',
+          threshold: (this.maxGatewayFailureThreshold * 100).toFixed(0) + '%',
         },
       );
       return reportInfo;

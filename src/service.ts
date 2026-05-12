@@ -23,11 +23,45 @@ import { createContinuousObserver } from './system.js';
 if (config.RUN_OBSERVER) {
   const continuousObserver = createContinuousObserver();
 
-  // Start the continuous observer (runs indefinitely)
-  continuousObserver.start().catch((error) => {
-    log.error('Continuous observer failed', { error: error.message });
-    process.exit(1);
-  });
+  // Start the continuous observer (its own internal try/catch keeps
+  // per-cycle errors from propagating). If `start()` itself ever
+  // rejects, that's from a one-shot initialization step like
+  // `initializeOrRestore()` — most commonly a transient epoch read
+  // during a fast-epoch boundary. We auto-restart with bounded
+  // exponential backoff so an operator doesn't need to babysit
+  // every transient.
+  const MAX_RESTART_ATTEMPTS = 12;
+  const BACKOFF_BASE_MS = 5_000;
+  const startSupervisor = async (attempt: number): Promise<void> => {
+    try {
+      await continuousObserver.start();
+      // start() resolves only when stop() was called — clean exit.
+      log.info('Continuous observer exited cleanly');
+    } catch (error: any) {
+      log.error(
+        'Continuous observer start() rejected — attempting auto-restart',
+        {
+          attempt,
+          maxAttempts: MAX_RESTART_ATTEMPTS,
+          error: error.message,
+          stack: error.stack,
+        },
+      );
+      if (attempt >= MAX_RESTART_ATTEMPTS) {
+        log.error(
+          'Continuous observer exhausted restart budget — exiting (operator must investigate)',
+        );
+        process.exit(1);
+      }
+      const backoffMs = Math.min(
+        BACKOFF_BASE_MS * Math.pow(2, attempt - 1),
+        5 * 60 * 1000, // cap at 5min
+      );
+      await new Promise((r) => setTimeout(r, backoffMs));
+      return startSupervisor(attempt + 1);
+    }
+  };
+  void startSupervisor(1);
 
   // Graceful shutdown
   process.on('SIGTERM', () => {

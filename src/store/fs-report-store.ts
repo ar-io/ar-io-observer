@@ -47,7 +47,13 @@ export class FsReportStore implements ReportSink, ReportStore {
       epochStartHeight: report.epochStartHeight,
     });
 
-    const savedReport = await this.getReport(report.epochStartHeight);
+    // Key by `epochIndex`, not `epochStartHeight`. Under AO both were
+    // unique-per-epoch; under Solana `epochStartHeight` is a 0 sentinel
+    // for every epoch (Solana epochs are clock-aligned, not Arweave-
+    // block-aligned), so keying by height silently caches a stale
+    // report and returns it for every subsequent epoch — downstream
+    // sinks then upload + submit the wrong report.
+    const savedReport = await this.getReport(report.epochIndex);
     if (savedReport !== null) {
       log.verbose('Using previously saved report');
       report = savedReport;
@@ -57,15 +63,12 @@ export class FsReportStore implements ReportSink, ReportStore {
       };
     }
 
-    const reportFile = `${this.baseDir}/${report.epochStartHeight}.json`;
+    const reportFile = this.reportFilePath(report.epochIndex);
     log.verbose('Saving report...', {
       reportFile,
     });
     if (!fs.existsSync(reportFile)) {
-      await fs.promises.writeFile(
-        `./data/reports/${report.epochStartHeight}.json`,
-        JSON.stringify(report),
-      );
+      await fs.promises.writeFile(reportFile, JSON.stringify(report));
     }
     log.verbose('Report saved', {
       reportFile,
@@ -74,8 +77,17 @@ export class FsReportStore implements ReportSink, ReportStore {
     return reportInfo;
   }
 
-  async getReport(epochStartHeight: number): Promise<ObserverReport | null> {
-    const reportFile = `./data/reports/${epochStartHeight}.json`;
+  /** Path on disk for the given epoch's persisted report. */
+  private reportFilePath(epochIndex: number): string {
+    // `epoch-` prefix disambiguates from any pre-existing
+    // `<epochStartHeight>.json` files written under the old keying
+    // scheme — those become orphans and are ignored by `getReport` /
+    // `latestReport`.
+    return `${this.baseDir}/epoch-${epochIndex}.json`;
+  }
+
+  async getReport(epochIndex: number): Promise<ObserverReport | null> {
+    const reportFile = this.reportFilePath(epochIndex);
     if (!fs.existsSync(reportFile)) {
       return null;
     }
@@ -84,13 +96,14 @@ export class FsReportStore implements ReportSink, ReportStore {
   }
 
   async latestReport(): Promise<ObserverReport | null> {
-    const reportFiles = await fs.promises.readdir('./data/reports');
-    if (reportFiles.length === 0) {
+    const reportFiles = await fs.promises.readdir(this.baseDir);
+    const epochFiles = reportFiles
+      .map((f) => /^epoch-(\d+)\.json$/.exec(f))
+      .filter((m): m is RegExpExecArray => m !== null)
+      .map((m) => parseInt(m[1]));
+    if (epochFiles.length === 0) {
       return null;
     }
-    const latestReportHeight = Math.max(
-      ...reportFiles.map((f) => parseInt(f.replace('.json', ''))),
-    );
-    return this.getReport(latestReportHeight);
+    return this.getReport(Math.max(...epochFiles));
   }
 }

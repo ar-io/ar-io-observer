@@ -17,39 +17,47 @@
  */
 import './tracing.js';
 
+import { SolanaARIOWriteable } from '@ar.io/sdk/solana';
 import {
-  AOProcess,
-  ARIO,
-  ARIOWriteable,
-  AoWeightedObserver,
-} from '@ar.io/sdk/node';
+  type KeyPairSigner,
+  createKeyPairSignerFromBytes,
+  createSolanaRpc,
+  createSolanaRpcSubscriptions,
+  fetchEncodedAccount,
+} from '@solana/kit';
 import {
   TurboAuthenticatedClient,
   TurboFactory,
   defaultTurboConfiguration,
 } from '@ardrive/turbo-sdk/node';
-import { ArweaveSigner, JWKInterface } from '@dha-team/arbundles/node';
-import { connect } from '@permaweb/aoconnect';
+import {
+  ArweaveSigner,
+  EthereumSigner,
+  HexSolanaSigner,
+  JWKInterface,
+  Signer,
+} from '@dha-team/arbundles/node';
+import bs58 from 'bs58';
 import Arweave from 'arweave';
 import { default as NodeCache } from 'node-cache';
 import * as fs from 'node:fs';
 
-import {
-  AVERAGE_BLOCK_TIME_MS,
-  ChainSource,
-  MAX_FORK_DEPTH,
-} from './arweave.js';
+import { ChainSource } from './arweave.js';
 import * as config from './config.js';
+import {
+  resolveArweaveUploadJwk,
+  resolveSolanaWallets,
+  resolveUploadIdentity,
+} from './wallet-config.js';
 import { CachedEntropySource } from './entropy/cached-entropy-source.js';
-import { ChainEntropySource } from './entropy/chain-entropy-source.js';
+import { SolanaEpochEntropySource } from './entropy/solana-epoch-entropy-source.js';
 import { CompositeEntropySource } from './entropy/composite-entropy-source.js';
 import { RandomEntropySource } from './entropy/random-entropy-source.js';
-import { ContractEpochSource } from './epochs/contract-epoch-source.js';
-import { ContractHostsSource } from './hosts/contract-hosts-source.js';
+import { SolanaEpochSource } from './epochs/solana-epoch-source.js';
+import { SolanaHostsSource } from './hosts/solana-hosts-source.js';
 import { StaticHostsSource } from './hosts/static-hosts-source.js';
 import log from './log.js';
-import * as metrics from './metrics.js';
-import { ContractNamesSource } from './names/contract-names-source.js';
+import { SolanaNamesSource } from './names/solana-names-source.js';
 import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
 import { StaticArnsNameList } from './names/static-arns-name-list.js';
 import { Observer } from './observer.js';
@@ -58,7 +66,7 @@ import { CompositeReferenceGateway } from './reference/composite-reference-gatew
 import { FallbackReferenceGateway } from './reference/fallback-reference-gateway.js';
 import { CachedNetworkGatewaySource } from './reference/network-gateway-source.js';
 import { ArweaveReportSink } from './store/arweave-report-sink.js';
-import { ContractReportSink } from './store/contract-report-sink.js';
+import { SolanaContractReportSink } from './store/solana-contract-report-sink.js';
 import { FsReportStore } from './store/fs-report-store.js';
 import { LogReportSink } from './store/log-report-sink.js';
 import {
@@ -72,64 +80,298 @@ import { FsObservationStateStore } from './continuous/observation-state-store.js
 const REPORT_CACHE_TTL_SECONDS = 60 * 60 * 2.5; // 2.5 hours
 
 log.verbose(`Using wallet ${config.OBSERVER_WALLET}`);
-export const walletJwk: JWKInterface | undefined = (() => {
-  if (config.JWK !== undefined) {
-    try {
-      const jwk = JSON.parse(config.JWK);
-      log.verbose('Key loaded from environment');
-      return jwk;
-    } catch (error: any) {
-      log.error('Unable to load key from environment:', {
-        message: error.message,
-      });
-    }
-  }
 
-  try {
-    log.verbose('Loading key file...', {
-      keyFile: config.KEY_FILE,
-    });
-    const jwk = JSON.parse(fs.readFileSync(config.KEY_FILE).toString());
-    log.verbose('Key file loaded', {
-      keyFile: config.KEY_FILE,
-    });
-    return jwk;
-  } catch (error: any) {
-    log.error('Unable to load key file:', {
-      message: error.message,
-    });
-  }
-
-  log.warn('Reports will not be published to Arweave');
-  return undefined;
-})();
+// Optional Arweave JWK used to sign report-bundle uploads to Turbo. Only
+// loaded when the operator has explicitly opted for an Arweave upload
+// identity — the operator/observer protocol identities are Solana
+// keypairs (resolved further down).
+export const walletJwk: JWKInterface | undefined = resolveArweaveUploadJwk(
+  config,
+  {
+    fromFile: (path) => {
+      try {
+        return JSON.parse(fs.readFileSync(path, 'utf-8'));
+      } catch {
+        return undefined;
+      }
+    },
+    fromEnv: (raw) => {
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return undefined;
+      }
+    },
+  },
+  log,
+);
 
 const chainSource = new ChainSource({
   arweaveBaseUrl: config.ARWEAVE_URL,
 });
 
-const signer =
-  walletJwk !== undefined ? new ArweaveSigner(walletJwk) : undefined;
-
-const networkContract = ARIO.init({
-  ...(signer !== undefined ? { signer } : {}),
-  process: new AOProcess({
-    processId: config.IO_PROCESS_ID,
-    ao: connect({
-      MU_URL: config.AO_MU_URL,
-      CU_URL: config.NETWORK_AO_CU_URL,
-      GRAPHQL_URL: config.AO_GRAPHQL_URL,
-      GATEWAY_URL: config.AO_GATEWAY_URL,
-    }),
-  }),
+const arweaveURL = new URL(config.ARWEAVE_URL);
+export const arweave = new Arweave({
+  host: arweaveURL.host,
+  port: 443,
+  protocol: arweaveURL.protocol.replace(':', ''),
 });
 
-log.verbose(
-  `Using process ${config.IO_PROCESS_ID} to fetch contract information`,
-  {
-    processId: config.IO_PROCESS_ID,
-  },
-);
+// The arbundles `Signer` used to sign observation-report data items
+// before Turbo upload. Resolved from `UploadIdentity` below (any of
+// Arweave / Solana / Ethereum). May be undefined if no upload identity
+// is configured — TurboReportSink is skipped in that case.
+let bundleSigner: Signer | undefined =
+  walletJwk !== undefined ? new ArweaveSigner(walletJwk) : undefined;
+
+// Address label surfaced on TurboReportSink + /info — set to whichever
+// identity is actually signing bundles. Default matches the legacy
+// behavior; the upload-identity switch below overwrites it.
+let bundleSignerLabel: string = config.OBSERVER_WALLET;
+
+// Which chain the upload signer belongs to. Drives Turbo's `token:`
+// param so the upload service derives the correct owner address. Set
+// alongside `bundleSigner` in the upload-identity switch. `undefined`
+// when no upload identity is configured.
+let bundleSignerChain: 'arweave' | 'solana' | 'ethereum' | undefined =
+  walletJwk !== undefined ? 'arweave' : undefined;
+
+// Cranker/operator-signed network contract. All on-chain reads (epoch,
+// gateways, ArNS records) flow through this. `save_observations` uses a
+// distinct observer-signed instance built below.
+let networkContract: SolanaARIOWriteable;
+
+// Observer-signed writeable used exclusively by SolanaContractReportSink
+// for `save_observations`. Distinct from the cranker contract so the
+// send pipeline doesn't mix signers when operator ≠ observer.
+let solanaObserverContract: SolanaARIOWriteable;
+let solanaObserverAddress: string;
+let observerAddress: string = config.OBSERVER_WALLET;
+
+if (!config.SOLANA_RPC_URL) {
+  throw new Error('SOLANA_RPC_URL is required');
+}
+if (!config.SOLANA_KEYPAIR_PATH) {
+  throw new Error('SOLANA_KEYPAIR_PATH is required');
+}
+const solanaRpc = createSolanaRpc(config.SOLANA_RPC_URL);
+// Derive WS URL from HTTP URL (same pattern as the SDK CLI).
+const wsUrl = config.SOLANA_RPC_URL.replace(/^http/, 'ws');
+const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
+{
+  // -------- Identity loading (decoupled by role) --------
+  // Resolution rules + 4 supported configurations live in `wallet-config.ts`
+  // and are covered by `wallet-config.test.ts`. We just supply the
+  // production loader (real file I/O + kit signer factory) here.
+  const loadKeypair = async (path: string, role: string) => {
+    const data = JSON.parse(fs.readFileSync(path, 'utf-8'));
+    const signer = await createKeyPairSignerFromBytes(Uint8Array.from(data));
+    log.info(`Loaded ${role} Solana keypair`, {
+      path,
+      pubkey: signer.address,
+    });
+    return signer;
+  };
+  const wallets = await resolveSolanaWallets(
+    config,
+    walletJwk,
+    loadKeypair,
+    log,
+  );
+  const solanaSigner = wallets.operator as KeyPairSigner;
+  const observerSigner = wallets.observer as KeyPairSigner;
+  networkContract = new SolanaARIOWriteable({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rpc: solanaRpc as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rpcSubscriptions: solanaRpcSubscriptions as any,
+    signer: solanaSigner,
+    ...(config.ARIO_CORE_PROGRAM_ID
+      ? { coreProgramId: config.ARIO_CORE_PROGRAM_ID as any }
+      : {}),
+    ...(config.ARIO_GAR_PROGRAM_ID
+      ? { garProgramId: config.ARIO_GAR_PROGRAM_ID as any }
+      : {}),
+    ...(config.ARIO_ARNS_PROGRAM_ID
+      ? { arnsProgramId: config.ARIO_ARNS_PROGRAM_ID as any }
+      : {}),
+    ...(config.ARIO_ANT_PROGRAM_ID
+      ? { antProgramId: config.ARIO_ANT_PROGRAM_ID as any }
+      : {}),
+  });
+
+  // Second SolanaARIOWriteable instance signed by the OBSERVER keypair
+  // (distinct from the cranker's `networkContract` which is signed by
+  // operator/cranker). Used exclusively by SolanaContractReportSink for
+  // `save_observations`. When operator == observer (config 1/2), the
+  // two instances share the same signer — still distinct objects so
+  // the cranker's send pipeline doesn't accidentally consume them
+  // interchangeably.
+  solanaObserverContract = new SolanaARIOWriteable({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rpc: solanaRpc as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rpcSubscriptions: solanaRpcSubscriptions as any,
+    signer: observerSigner,
+    ...(config.ARIO_CORE_PROGRAM_ID
+      ? { coreProgramId: config.ARIO_CORE_PROGRAM_ID as any }
+      : {}),
+    ...(config.ARIO_GAR_PROGRAM_ID
+      ? { garProgramId: config.ARIO_GAR_PROGRAM_ID as any }
+      : {}),
+    ...(config.ARIO_ARNS_PROGRAM_ID
+      ? { arnsProgramId: config.ARIO_ARNS_PROGRAM_ID as any }
+      : {}),
+    ...(config.ARIO_ANT_PROGRAM_ID
+      ? { antProgramId: config.ARIO_ANT_PROGRAM_ID as any }
+      : {}),
+  });
+  solanaObserverAddress = observerSigner.address as string;
+
+  // The on-chain observer identity is the observer keypair's pubkey
+  // (which equals the operator's when no separate observer key is
+  // provided). This is what must match `Gateway.observer_address` for
+  // `save_observations` to land.
+  observerAddress = observerSigner.address as string;
+
+  // Resolve the bundle-upload identity (Arweave / Solana / Ethereum) and
+  // construct the corresponding arbundles signer. resolveUploadIdentity
+  // owns the precedence + conflict-detection logic; we just turn the
+  // discriminated union into a concrete signer here.
+  const fallbackSolanaPath =
+    config.OBSERVER_KEYPAIR_PATH ?? config.SOLANA_KEYPAIR_PATH;
+  const uploadIdentity = resolveUploadIdentity(
+    config,
+    {
+      readFile: (p: string) => fs.readFileSync(p, 'utf-8'),
+      arweaveJwk: {
+        fromFile: (p) => {
+          try {
+            return JSON.parse(fs.readFileSync(p, 'utf-8'));
+          } catch {
+            return undefined;
+          }
+        },
+        fromEnv: (raw) => {
+          try {
+            return JSON.parse(raw);
+          } catch {
+            return undefined;
+          }
+        },
+      },
+    },
+    log,
+    fallbackSolanaPath,
+  );
+  switch (uploadIdentity.mode) {
+    case 'arweave':
+      bundleSigner = new ArweaveSigner(uploadIdentity.jwk);
+      bundleSignerLabel = await arweave.wallets.jwkToAddress(uploadIdentity.jwk);
+      bundleSignerChain = 'arweave';
+      break;
+    case 'solana':
+      // `HexSolanaSigner` is what Turbo's `TurboSigner` union accepts
+      // for Solana-signed ANS-104 bundles. It extends arbundles'
+      // SolanaSigner (so `createData()` still works) — only the
+      // signing-message encoding differs. The constructor still takes
+      // the secret key as base58.
+      bundleSigner = new HexSolanaSigner(bs58.encode(uploadIdentity.secretKey));
+      bundleSignerLabel = bs58.encode((bundleSigner as any).publicKey);
+      bundleSignerChain = 'solana';
+      break;
+    case 'ethereum':
+      bundleSigner = new EthereumSigner(
+        '0x' + Buffer.from(uploadIdentity.privateKey).toString('hex'),
+      );
+      bundleSignerLabel =
+        '0x' +
+        Buffer.from((bundleSigner as any).publicKey).toString('hex').slice(-40);
+      bundleSignerChain = 'ethereum';
+      break;
+    case 'disabled':
+      bundleSigner = undefined;
+      break;
+  }
+
+  log.info('Solana wallet identities resolved', {
+    operator: solanaSigner.address,
+    observer: observerSigner.address,
+    uploadMode: uploadIdentity.mode,
+    uploadIdentityLabel:
+      uploadIdentity.mode !== 'disabled' ? bundleSignerLabel : undefined,
+    rpcUrl: config.SOLANA_RPC_URL,
+  });
+
+  // Epoch cranking — opt-in via ENABLE_EPOCH_CRANKING=true. Zero overhead
+  // when disabled (dynamic import).
+  if (config.ENABLE_EPOCH_CRANKING) {
+    if (!config.ARIO_ARNS_PROGRAM_ID) {
+      throw new Error(
+        'ARIO_ARNS_PROGRAM_ID is required when ENABLE_EPOCH_CRANKING=true (needed to derive the NameRegistry PDA for prescribe_epoch).',
+      );
+    }
+    if (!config.ARIO_GAR_PROGRAM_ID) {
+      throw new Error(
+        'ARIO_GAR_PROGRAM_ID is required when ENABLE_EPOCH_CRANKING=true (needed to read EpochSettings).',
+      );
+    }
+    const { EpochCranker } = await import('./epoch/epoch-cranker.js');
+    const {
+      getEpochSettingsPDA,
+      getArnsRegistryPDA,
+      deserializeEpochSettingsFull,
+    } = await import('@ar.io/sdk/solana');
+
+    const [nameRegistryPda] = await getArnsRegistryPDA(
+      config.ARIO_ARNS_PROGRAM_ID as any,
+    );
+    const cranker = new EpochCranker({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      contract: networkContract as unknown as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      rpc: solanaRpc as any,
+      signer: solanaSigner,
+      pollIntervalMs: config.CRANK_POLL_INTERVAL_MS,
+      batchSize: config.CRANK_BATCH_SIZE,
+      closeEpochs: config.CRANK_CLOSE_EPOCHS,
+      epochRetention: config.CRANK_EPOCH_RETENTION,
+      warnBalanceSol: config.CRANK_WARN_BALANCE_SOL,
+      criticalBalanceSol: config.CRANK_CRITICAL_BALANCE_SOL,
+      enableCleanup: config.ENABLE_CLEANUP,
+      cleanupBatchSize: config.CLEANUP_BATCH_SIZE,
+      maxCleanupTxsPerCycle: config.MAX_CLEANUP_TXS_PER_CYCLE,
+      cleanupFailureThreshold: config.CLEANUP_FAILURE_THRESHOLD,
+      cleanupMinIntervalMs: config.CLEANUP_MIN_INTERVAL_MS,
+      log,
+      nameRegistryAccount: nameRegistryPda,
+      getEpochSettings: async () => {
+        const [pda] = await getEpochSettingsPDA(
+          config.ARIO_GAR_PROGRAM_ID as any,
+        );
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const account = await fetchEncodedAccount(solanaRpc as any, pda, {
+          commitment: 'confirmed',
+        });
+        if (!account.exists) throw new Error('EpochSettings not found');
+        const data = deserializeEpochSettingsFull(Buffer.from(account.data));
+        return {
+          currentEpochIndex: data.currentEpochIndex as number,
+          genesisTimestamp: data.genesisTimestamp as number,
+          epochDuration: data.epochDuration as number,
+          enabled: (data.enabled as boolean) ?? true,
+        };
+      },
+    });
+    cranker.start();
+    log.verbose('Epoch cranking enabled', {
+      pollIntervalMs: config.CRANK_POLL_INTERVAL_MS,
+      batchSize: config.CRANK_BATCH_SIZE,
+      epochRetention: config.CRANK_EPOCH_RETENTION,
+      enableCleanup: config.ENABLE_CLEANUP,
+    });
+  }
+}
 
 const observedGatewayHostList =
   config.OBSERVED_GATEWAY_HOSTS.length > 0
@@ -139,22 +381,53 @@ const observedGatewayHostList =
           wallet: '<unknown>',
         })),
       })
-    : new ContractHostsSource({
-        contract: networkContract,
+    : new SolanaHostsSource({
+        readable: networkContract,
+        log,
       });
 
-export const epochSource = new ContractEpochSource({
-  contract: networkContract,
-  blockSource: chainSource,
-  heightSource: chainSource,
+if (!config.ARIO_GAR_PROGRAM_ID) {
+  throw new Error(
+    'ARIO_GAR_PROGRAM_ID is required (used to derive the EpochSettings PDA).',
+  );
+}
+export const epochSource = new SolanaEpochSource({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rpc: solanaRpc as any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  garProgramAddress: config.ARIO_GAR_PROGRAM_ID as any,
+  log,
 });
 
-const namesSource = new ContractNamesSource({
-  contract: networkContract,
+const namesSource = new SolanaNamesSource({
+  readable: networkContract,
+  log,
 });
 
-const chainEntropySource = new ChainEntropySource({
-  arweaveBaseUrl: config.ARWEAVE_URL,
+// Shared deterministic entropy for prescribed observers. Replaces the
+// AO-era `ChainEntropySource` (which hashes Arweave block headers at
+// `epochStartHeight - 50`) — Solana epochs aren't Arweave-block-aligned
+// and `SolanaEpochSource.getEpochStartHeight()` returns a 0 sentinel, so
+// the chain source would fetch `block/height/-50` and the gateway 400s.
+// See `solana-epoch-entropy-source.ts` for the derivation rationale.
+//
+// We pass in the raw RPC + GAR program address instead of the SDK
+// readable so the source does a single `getAccountInfo` per epoch
+// rather than `readable.getEpoch()`'s ~30 RPC fan-out (per-observer
+// gateway lookup + per-name record PDA fetch). Free-tier RPC won't
+// sustain the fan-out alongside the cranker's parallel traffic.
+if (!config.ARIO_GAR_PROGRAM_ID) {
+  throw new Error(
+    'ARIO_GAR_PROGRAM_ID is required (used to derive the Epoch PDA for shared entropy).',
+  );
+}
+const sharedEpochEntropySource = new SolanaEpochEntropySource({
+  epochSource,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rpc: solanaRpc as any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  garProgramAddress: config.ARIO_GAR_PROGRAM_ID as any,
+  log,
 });
 
 const randomEntropySource = new RandomEntropySource();
@@ -165,7 +438,7 @@ const cachedEntropySource = new CachedEntropySource({
 });
 
 const compositeEntropySource = new CompositeEntropySource({
-  sources: [cachedEntropySource, chainEntropySource],
+  sources: [cachedEntropySource, sharedEpochEntropySource],
 });
 
 const nameListSource =
@@ -204,7 +477,12 @@ const networkGatewaySource =
   config.REFERENCE_GATEWAY_NETWORK_FALLBACK ||
   config.REFERENCE_GATEWAY_NETWORK_ONLY
     ? new CachedNetworkGatewaySource({
-        contract: networkContract,
+        // Solana readable is structurally compatible with the AoARIORead
+        // surface used here (getGateways, etc.) — the only nominal
+        // mismatch is the AO-only `process: AOProcess` field which this
+        // class never reads.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        contract: networkContract as any,
         config: {
           minPassRate: config.REFERENCE_GATEWAY_MIN_PASS_RATE,
           minConsecutivePasses: config.REFERENCE_GATEWAY_MIN_CONSECUTIVE_PASSES,
@@ -241,7 +519,7 @@ const referenceGateway = new CompositeReferenceGateway({
 });
 
 export const observer = new Observer({
-  observerAddress: config.OBSERVER_WALLET,
+  observerAddress,
   referenceGateway,
   arweaveUrl: config.ARWEAVE_URL,
   epochSource,
@@ -251,7 +529,7 @@ export const observer = new Observer({
   gatewayAssessmentConcurrency: config.GATEWAY_ASSESSMENT_CONCURRENCY,
   nameAssessmentConcurrency: config.NAME_ASSESSMENT_CONCURRENCY,
   nodeReleaseVersion: config.AR_IO_NODE_RELEASE,
-  entropySource: chainEntropySource,
+  entropySource: sharedEpochEntropySource,
   heightSource: chainSource,
 });
 
@@ -265,52 +543,58 @@ const fsReportStore = new FsReportStore({
 });
 
 export const turboClient: TurboAuthenticatedClient | undefined = (() => {
-  if (walletJwk !== undefined) {
-    return TurboFactory.authenticated({
-      privateKey: walletJwk,
-      ...defaultTurboConfiguration,
-      ...(config.TURBO_UPLOAD_SERVICE_URL !== undefined
-        ? {
-            uploadServiceConfig: {
-              url: config.TURBO_UPLOAD_SERVICE_URL,
-              token: 'arweave',
-            },
-          }
-        : {}),
-      ...(config.TURBO_PAYMENT_SERVICE_URL !== undefined
-        ? {
-            uploadServiceConfig: {
-              url: config.TURBO_PAYMENT_SERVICE_URL,
-              token: 'arweave',
-            },
-          }
-        : {}),
-    });
-  } else {
+  if (bundleSigner === undefined || bundleSignerChain === undefined) {
     return undefined;
   }
+  // Turbo accepts either an Arweave JWK via `privateKey` or any of its
+  // supported `TurboSigner` instances (ArweaveSigner / HexSolanaSigner /
+  // EthereumSigner) via `signer`. `token` tells Turbo which chain to
+  // derive the data item's owner address from — must match the signer.
+  const authConfig =
+    bundleSignerChain === 'arweave' && walletJwk !== undefined
+      ? { privateKey: walletJwk, token: 'arweave' as const }
+      : { signer: bundleSigner as any, token: bundleSignerChain };
+
+  return TurboFactory.authenticated({
+    ...authConfig,
+    ...defaultTurboConfiguration,
+    ...(config.TURBO_UPLOAD_SERVICE_URL !== undefined
+      ? {
+          uploadServiceConfig: {
+            url: config.TURBO_UPLOAD_SERVICE_URL,
+            token: bundleSignerChain,
+          },
+        }
+      : {}),
+    ...(config.TURBO_PAYMENT_SERVICE_URL !== undefined
+      ? {
+          paymentServiceConfig: {
+            url: config.TURBO_PAYMENT_SERVICE_URL,
+            token: bundleSignerChain,
+          },
+        }
+      : {}),
+  });
 })();
 
-const arweaveURL = new URL(config.ARWEAVE_URL);
-export const arweave = new Arweave({
-  host: arweaveURL.host,
-  port: 443,
-  protocol: arweaveURL.protocol.replace(':', ''),
-});
-
+// Tracks the identity actually signing report bundles for the operator
+// `/info` endpoint — Arweave address, Solana pubkey, or Ethereum address
+// depending on UploadIdentity. `INVALID` when no upload identity is
+// configured (uploads disabled).
 export const walletAddress =
   walletJwk !== undefined
     ? await arweave.wallets.jwkToAddress(walletJwk)
-    : 'INVALID';
+    : bundleSigner !== undefined
+      ? bundleSignerLabel
+      : 'INVALID';
 
 const turboReportSink =
-  turboClient && signer
+  turboClient && bundleSigner
     ? new TurboReportSink({
         log,
         arweave,
         turboClient: turboClient,
-        walletAddress: config.OBSERVER_WALLET,
-        signer,
+        signer: bundleSigner,
       })
     : undefined;
 
@@ -373,26 +657,24 @@ if (config.REPORT_DATA_SINK === 'turbo') {
   });
 }
 
-export const contractReportSink =
-  networkContract !== undefined && networkContract instanceof ARIOWriteable
-    ? new ContractReportSink({
-        log,
-        contract: networkContract,
-        walletAddress: config.OBSERVER_WALLET,
-      })
-    : undefined;
+// Contract-submission sink: SolanaContractReportSink calls
+// `save_observations` signed by the OBSERVER keypair (which may differ
+// from the operator/cranker that signs `networkContract`).
+export const contractReportSink = new SolanaContractReportSink({
+  log,
+  contract: solanaObserverContract,
+  readable: solanaObserverContract, // Writeable extends Readable
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  observerAddress: solanaObserverAddress as any,
+});
 
 if (!config.SUBMIT_CONTRACT_INTERACTIONS) {
   log.verbose(
     'SUBMIT_CONTRACT_INTERACTIONS is false - contract interactions will not be saved',
   );
-} else if (contractReportSink === undefined) {
-  log.verbose(
-    'Wallet not configured - contract interactions will not be saved',
-  );
 } else {
   stores.push({
-    name: 'ContractReportSink',
+    name: 'SolanaContractReportSink',
     sink: contractReportSink,
   });
 }
@@ -400,133 +682,8 @@ if (!config.SUBMIT_CONTRACT_INTERACTIONS) {
 export const reportSink = new PipelineReportSink({
   log,
   sinks: stores,
+  maxGatewayFailureThreshold: config.OBSERVER_MAX_GATEWAY_FAILURE_THRESHOLD,
 });
-
-// Wait for chain stability before saving reports
-// const START_HEIGHT_START_OFFSET = MAX_FORK_DEPTH;
-const START_HEIGHT_START_OFFSET_MS = MAX_FORK_DEPTH * AVERAGE_BLOCK_TIME_MS;
-
-// Ensure there is enough time to save the report at the end of the epoch. We
-// use 2 * MAX_FORK_DEPTH because it allows MAX_FORK_DEPTH blocks (somewhat
-// arbitrary but pleasingly symmetric) before we stop attempting to save
-// altogether for consistency reasons at the end of the epoch.
-// const START_HEIGHT_END_OFFSET = 2 * MAX_FORK_DEPTH;
-const START_HEIGHT_END_OFFSET_MS = 2 * MAX_FORK_DEPTH * AVERAGE_BLOCK_TIME_MS;
-
-export async function updateAndSaveCurrentReport() {
-  try {
-    // check that epochs have started
-    const { epochZeroStartTimestamp } = await epochSource.getEpochSettings();
-    if (Date.now() < epochZeroStartTimestamp) {
-      log.verbose('First epoch has not started yet. Not generating report.');
-      return;
-    }
-    log.verbose('Generating report...');
-    const reportStartTime = Date.now();
-
-    let report;
-    try {
-      // Track report generation timing
-      const endTimer = metrics.reportGenerationHistogram.startTimer();
-      report = await observer.generateReport();
-      endTimer();
-
-      const reportDuration = Date.now() - reportStartTime;
-      log.verbose(`Report generated in ${reportDuration}ms`);
-      reportCache.set('current', report);
-      log.verbose('Report cached');
-    } catch (error: any) {
-      // Track failed report generation
-      metrics.reportsGeneratedCounter.inc({ status: 'failure' });
-      log.error('Failed to generate report:', {
-        message: error.message,
-        stack: error.stack,
-      });
-      throw error; // Re-throw to maintain existing error handling
-    }
-
-    log.verbose('Getting observers from contract state...');
-    // Get selected observers for the current epoch from the contract
-    const observers: string[] = await networkContract
-      .getPrescribedObservers({ epochIndex: report.epochIndex })
-      .then((observers: AoWeightedObserver[]) => {
-        log.verbose(
-          `Retrieved ${observers.length} observers from contract state`,
-        );
-        return observers.map(
-          (observer: AoWeightedObserver) => observer.observerAddress,
-        );
-      })
-      .catch((error: any) => {
-        log.error('Unable to get observers from contract state:', {
-          message: error.message,
-          stack: error.stack,
-        });
-        return [];
-      });
-
-    if (observers.length === 0) {
-      log.warn('Not saving report - no observers retrieved from the contract');
-      return;
-    }
-
-    const entropyHeight = report.epochStartHeight;
-    const epochBlockLengthMs =
-      report.epochEndTimestamp - report.epochStartTimestamp;
-    // Save the report after a random block between 50 blocks after the start
-    // of the epoch and 100 blocks before the end of the epoch
-    const entropy = await compositeEntropySource.getEntropy({
-      height: entropyHeight,
-    });
-    const saveAfterTimestamp =
-      report.epochStartTimestamp +
-      START_HEIGHT_START_OFFSET_MS +
-      (entropy.readUInt32BE(0) %
-        (epochBlockLengthMs -
-          START_HEIGHT_START_OFFSET_MS -
-          START_HEIGHT_END_OFFSET_MS));
-
-    const currentHeight = await chainSource.getHeight();
-    const block = await chainSource.getBlockByHeight(currentHeight);
-    const currentBlockTimestamp = block.timestamp * 1000;
-
-    if (config.ALWAYS_SAVE_REPORTS) {
-      log.verbose(
-        'Always save reports enabled - saving report regardless of conditions',
-      );
-      reportSink.saveReport({ report });
-    } else if (!observers.includes(config.OBSERVER_WALLET)) {
-      log.verbose('Not saving report - not selected as an observer');
-    } else if (
-      currentBlockTimestamp >
-      report.epochEndTimestamp - config.REPORT_SAVE_EPOCH_END_OFFSET_MS
-    ) {
-      // The contract protects against saving reports too close to the end of
-      // the epoch, but allow for configurable buffer to account for any
-      // potential issues with the contract state.
-      log.verbose('Not saving report - too close to end of epoch', {
-        currentHeight,
-        currentBlockTimestamp,
-        epochEndTimestamp: report.epochEndTimestamp,
-        reportSaveOffsetMs: config.REPORT_SAVE_EPOCH_END_OFFSET_MS,
-      });
-    } else if (currentBlockTimestamp < saveAfterTimestamp) {
-      log.verbose('Not saving report - save timestamp not reached', {
-        currentHeight,
-        saveAfterTimestamp,
-        currentBlockTimestamp,
-        epochIndex: report.epochIndex,
-      });
-    } else {
-      reportSink.saveReport({ report });
-    }
-  } catch (error: any) {
-    log.error('Error generating report', {
-      message: error.message,
-      stack: error.stack,
-    });
-  }
-}
 
 // Continuous observation state store
 export const observationStateStore = new FsObservationStateStore({
@@ -539,7 +696,7 @@ export const observationStateStore = new FsObservationStateStore({
  */
 export function createContinuousObserver(): ContinuousObserver {
   return new ContinuousObserver({
-    observerAddress: config.OBSERVER_WALLET,
+    observerAddress,
     referenceGateway,
     epochSource,
     hostsSource: observedGatewayHostList,
@@ -555,6 +712,9 @@ export function createContinuousObserver(): ContinuousObserver {
       gatewayAssessmentConcurrency: config.GATEWAY_ASSESSMENT_CONCURRENCY,
       observationsPerGateway: config.OBSERVATIONS_PER_GATEWAY,
       majorityThreshold: config.MAJORITY_VOTE_THRESHOLD,
+      stabilityBufferMs: config.OBSERVATION_STABILITY_BUFFER_MS,
+      submissionBufferMs: config.OBSERVATION_SUBMISSION_BUFFER_MS,
+      windowFraction: config.OBSERVATION_WINDOW_FRACTION,
     },
     log,
   });

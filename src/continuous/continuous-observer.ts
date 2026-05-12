@@ -130,12 +130,31 @@ export class ContinuousObserver {
         config?.observationsPerGateway ?? DEFAULT_OBSERVATIONS_PER_GATEWAY,
       majorityThreshold:
         config?.majorityThreshold ?? DEFAULT_MAJORITY_THRESHOLD,
+      // Optional scheduler tunings — preserved as-is (no defaults) so
+      // the scheduler's own DEFAULT_* constants kick in when callers
+      // don't override. Forwarded into the scheduler config below.
+      stabilityBufferMs: config?.stabilityBufferMs,
+      submissionBufferMs: config?.submissionBufferMs,
+      windowFraction: config?.windowFraction,
     };
 
     this.scheduler = new ContinuousObservationScheduler({
       entropySource: this.entropySource,
       config: {
         observationsPerGateway: this.config.observationsPerGateway,
+        // Pass-through scheduler tunings (default to undefined → the
+        // scheduler picks its production defaults). Lets callers
+        // override for fast-epoch devnets where the production
+        // 36min/72min buffers don't fit a 60min epoch.
+        ...(this.config.stabilityBufferMs !== undefined
+          ? { stabilityBufferMs: this.config.stabilityBufferMs }
+          : {}),
+        ...(this.config.submissionBufferMs !== undefined
+          ? { submissionBufferMs: this.config.submissionBufferMs }
+          : {}),
+        ...(this.config.windowFraction !== undefined
+          ? { windowFraction: this.config.windowFraction }
+          : {}),
       },
       log: this.log,
     });
@@ -315,10 +334,17 @@ export class ContinuousObserver {
       throw new Error('State not initialized');
     }
 
-    // Fetch names
+    // Fetch names. `prescribedNamesSource` is keyed on `epochIndex`
+    // (the SDK's prescribed-name lookup is epoch-relative, not block-
+    // height-relative). The legacy AO `ContractNamesSource` had the
+    // same signature; the previous call site passed `epochStartHeight`
+    // by mistake, which silently resolved to `undefined` and crashed
+    // inside the SDK only AFTER the prior chain-entropy 400 was fixed.
+    // `chosenNamesSource` (RandomArnsNamesSource) is keyed on `height`
+    // for the entropy hop only — kept as-is.
     const [prescribed, chosen] = await Promise.all([
       this.prescribedNamesSource.getNames({
-        epochStartHeight: this.state.epochStartHeight,
+        epochIndex: this.state.epochIndex,
       }),
       this.chosenNamesSource.getNames({
         height: this.state.epochStartHeight,
@@ -562,9 +588,25 @@ export class ContinuousObserver {
     const report = this.aggregateObservations();
 
     try {
-      await this.reportSink.saveReport({ report });
-      this.log.info('Report submitted successfully', {
+      const result = await this.reportSink.saveReport({ report });
+      // `reportTxId` is populated by `TurboReportSink` on successful
+      // Arweave upload. If the pipeline early-returned (e.g. the
+      // failure-threshold gate in `PipelineReportSink`), no downstream
+      // sink ran and `reportTxId` stays undefined. Don't claim success
+      // and don't flip `reportSubmitted` — let the next cycle re-try
+      // until either the report goes through or the submission deadline
+      // closes naturally.
+      if (result.reportTxId === undefined) {
+        this.log.warn(
+          'Report dropped by pipeline (no downstream sink reached); will retry next cycle',
+          { epochIndex: report.epochIndex },
+        );
+        return false;
+      }
+      this.log.info('Report submitted', {
         epochIndex: report.epochIndex,
+        reportTxId: result.reportTxId,
+        interactionTxIds: result.interactionTxIds,
       });
       return true;
     } catch (error: any) {

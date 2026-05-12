@@ -336,7 +336,7 @@ describe('ContinuousObserver Integration', function () {
           .onFirstCall()
           .rejects(new Error('sink unavailable'))
           .onSecondCall()
-          .resolves({ report: {} as any }),
+          .resolves({ report: {} as any, reportTxId: 'mock-arweave-tx-id' }),
       };
       const stateStore = {
         load: sinon.stub().resolves(null),
@@ -481,7 +481,7 @@ describe('ContinuousObserver Integration', function () {
         clear: sinon.stub().resolves(),
       };
       const reportSink = {
-        saveReport: sinon.stub().resolves({ report: {} as any }),
+        saveReport: sinon.stub().resolves({ report: {} as any, reportTxId: 'mock-arweave-tx-id' }),
       };
       const observer = createObserverForCatchUp({
         stateStore,
@@ -559,7 +559,7 @@ describe('ContinuousObserver Integration', function () {
         clear: sinon.stub().resolves(),
       };
       const reportSink = {
-        saveReport: sinon.stub().resolves({ report: {} as any }),
+        saveReport: sinon.stub().resolves({ report: {} as any, reportTxId: 'mock-arweave-tx-id' }),
       };
       const observer = createObserverForCatchUp({
         stateStore,
@@ -665,7 +665,7 @@ describe('ContinuousObserver Integration', function () {
         clear: sinon.stub().resolves(),
       };
       const reportSink = {
-        saveReport: sinon.stub().resolves({ report: {} as any }),
+        saveReport: sinon.stub().resolves({ report: {} as any, reportTxId: 'mock-arweave-tx-id' }),
       };
       const observer = createObserverForCatchUp({
         stateStore,
@@ -729,7 +729,7 @@ describe('ContinuousObserver Integration', function () {
         clear: sinon.stub().resolves(),
       };
       const reportSink = {
-        saveReport: sinon.stub().resolves({ report: {} as any }),
+        saveReport: sinon.stub().resolves({ report: {} as any, reportTxId: 'mock-arweave-tx-id' }),
       };
       const observer = createObserverForCatchUp({
         stateStore,
@@ -830,7 +830,7 @@ describe('ContinuousObserver Integration', function () {
         clear: sinon.stub().resolves(),
       };
       const reportSink = {
-        saveReport: sinon.stub().resolves({ report: {} as any }),
+        saveReport: sinon.stub().resolves({ report: {} as any, reportTxId: 'mock-arweave-tx-id' }),
       };
       const observer = createObserverForCatchUp({
         stateStore,

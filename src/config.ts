@@ -40,11 +40,6 @@ export const args = await yargs(hideBin(process.argv))
     type: 'boolean',
     description: 'Whether or not to save the report',
   })
-  .option('cu-url', {
-    type: 'string',
-    description:
-      'AO compute unit URL (overrides AO_CU_URL / NETWORK_AO_CU_URL env for this process)',
-  })
   .parse();
 
 dotenv.config();
@@ -59,14 +54,7 @@ export const ARWEAVE_URL = env.varOrDefault(
   'https://turbo-gateway.com',
 );
 
-export const IO_PROCESS_ID = env.varOrDefault(
-  'IO_PROCESS_ID',
-  'qNvAoz0TgcH7DMg8BCVn8jF32QH5L6T29VjHxhHqqGE',
-);
-
 export const OBSERVER_WALLET = env.varOrDefault('OBSERVER_WALLET', '<example>');
-
-export const WALLETS_PATH = env.varOrDefault('WALLETS_PATH', './wallets');
 
 export const TURBO_UPLOAD_SERVICE_URL = env.varOrUndefined(
   'TURBO_UPLOAD_SERVICE_URL',
@@ -130,10 +118,6 @@ export const NAME_ASSESSMENT_CONCURRENCY = +env.varOrDefault(
   '5',
 );
 
-// Wallet used to upload reports and interact with the contract
-export const KEY_FILE = path.join(WALLETS_PATH, OBSERVER_WALLET + '.json');
-export const JWK = env.varOrUndefined('OBSERVER_JWK');
-
 export const SUBMIT_CONTRACT_INTERACTIONS =
   env.varOrDefault('SUBMIT_CONTRACT_INTERACTIONS', 'false') === 'true';
 
@@ -145,28 +129,6 @@ export const REPORT_GENERATION_INTERVAL_MS = +env.varOrDefault(
 export const AR_IO_NODE_RELEASE = env.varOrDefault('AR_IO_NODE_RELEASE', 'dev');
 
 // AO
-
-/**
- * Removes trailing slashes from URLs
- * @param url The URL to sanitize
- * @returns The sanitized URL without trailing slashes or undefined if input was undefined
- */
-function sanitizeUrl(url: string | undefined): string | undefined {
-  if (url === undefined) {
-    return undefined;
-  }
-  return url.replace(/\/+$/, '');
-}
-
-export const AO_MU_URL = sanitizeUrl(env.varOrUndefined('AO_MU_URL'));
-
-const cliCuUrl = sanitizeUrl(args.cuUrl);
-export const AO_CU_URL =
-  cliCuUrl ?? sanitizeUrl(env.varOrUndefined('AO_CU_URL'));
-export const NETWORK_AO_CU_URL =
-  cliCuUrl ?? sanitizeUrl(env.varOrUndefined('NETWORK_AO_CU_URL')) ?? AO_CU_URL;
-export const AO_GRAPHQL_URL = env.varOrUndefined('AO_GRAPHQL_URL');
-export const AO_GATEWAY_URL = env.varOrUndefined('AO_GATEWAY_URL');
 
 // Whether to enable the LogReportSink that logs assessment details at info level
 export const ENABLE_LOG_REPORT_SINK =
@@ -311,4 +273,166 @@ export const REFERENCE_GATEWAY_NETWORK_CACHE_TTL_SECONDS = +env.varOrDefault(
 export const REFERENCE_GATEWAY_CONSENSUS_MAX_ATTEMPTS = +env.varOrDefault(
   'REFERENCE_GATEWAY_CONSENSUS_MAX_ATTEMPTS',
   '2', // Up to 2 rounds of fetching replacement gateways
+);
+
+//
+// Solana
+//
+
+// Validation helpers for the cranker numeric env vars. Raw `parseInt` /
+// `parseFloat` on a misconfigured env (`NaN`, 0, negative) silently
+// breaks the pipeline at runtime — e.g. `CRANK_BATCH_SIZE=0` halts
+// tally/distribute progress, `CRANK_POLL_INTERVAL_MS=NaN` collapses
+// into hot-loop polling. Fail loudly at boot instead.
+function parsePositiveIntEnv(name: string, defaultValue: string): number {
+  const raw = env.varOrDefault(name, defaultValue);
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(
+      `Invalid configuration: ${name}='${raw}' must be a positive integer.`,
+    );
+  }
+  return value;
+}
+function parseNonNegativeFloatEnv(name: string, defaultValue: string): number {
+  const raw = env.varOrDefault(name, defaultValue);
+  const value = Number.parseFloat(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(
+      `Invalid configuration: ${name}='${raw}' must be a non-negative number.`,
+    );
+  }
+  return value;
+}
+
+/** Parse a `[0, 1]` float (inclusive). Used for percentage-style thresholds. */
+function parseFractionEnv(name: string, defaultValue: string): number {
+  const raw = env.varOrDefault(name, defaultValue);
+  const value = Number.parseFloat(raw);
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(
+      `Invalid configuration: ${name}='${raw}' must be a number in [0, 1].`,
+    );
+  }
+  return value;
+}
+
+/**
+ * Maximum fraction of gateways that may be reported as failed before
+ * `PipelineReportSink` refuses to forward the report. Protects against
+ * a misconfigured observer (broken DNS, firewall blocking, etc.) from
+ * blasting the network with false negatives — if everything looks
+ * broken, assume the observer is the problem and refuse to ship.
+ *
+ * Production default `0.8` is correct on a healthy network. On devnet
+ * (where most gateways are intentional stubs that don't serve HTTP),
+ * 100% failure is the honest answer and the gate falsely suppresses
+ * legitimate reports — set to `1.0` there so only the literal "every
+ * gateway failed including ourselves" case is filtered (which can't
+ * happen with `>` semantics, so 1.0 effectively disables the gate).
+ */
+export const OBSERVER_MAX_GATEWAY_FAILURE_THRESHOLD = parseFractionEnv(
+  'OBSERVER_MAX_GATEWAY_FAILURE_THRESHOLD',
+  '0.8',
+);
+
+export const SOLANA_RPC_URL = env.varOrDefault(
+  'SOLANA_RPC_URL',
+  'https://api.mainnet-beta.solana.com',
+);
+// Operator/cranker keypair. Required. Signs join_network,
+// update_gateway_settings, and every permissionless cranker ix
+// (create_epoch, tally_weights, prescribe_epoch, distribute_epoch,
+// close_epoch). Also serves as fallback observer/upload signer when no
+// separate keys are provided.
+export const SOLANA_KEYPAIR_PATH = env.varOrUndefined('SOLANA_KEYPAIR_PATH');
+
+// Observer keypair — signs `save_observations` ix. Optional. When set,
+// must match the on-chain `Gateway.observer_address` (set at join_network
+// via --observer-address, or later via update_observer_address). Falls
+// back to SOLANA_KEYPAIR_PATH when unset.
+export const OBSERVER_KEYPAIR_PATH = env.varOrUndefined(
+  'OBSERVER_KEYPAIR_PATH',
+);
+
+// Report-upload identity. Three modes, resolved in priority order:
+//   1. ARWEAVE_UPLOAD_KEY_FILE (path) → load Arweave JWK from disk.
+//   2. ARWEAVE_UPLOAD_JWK (inline JSON env) → load Arweave JWK from env.
+//   3. SOLANA_UPLOAD_KEYPAIR_PATH (path) → ANS-104 bundle signed by a
+//      Solana key (Turbo accepts Solana-signed bundles via arbundles).
+//      Falls back to OBSERVER_KEYPAIR_PATH then SOLANA_KEYPAIR_PATH if
+//      not explicitly set.
+// When all three are unset (and we're not in legacy AO mode), report
+// uploads are disabled.
+export const ARWEAVE_UPLOAD_KEY_FILE = env.varOrUndefined(
+  'ARWEAVE_UPLOAD_KEY_FILE',
+);
+export const ARWEAVE_UPLOAD_JWK = env.varOrUndefined('ARWEAVE_UPLOAD_JWK');
+export const SOLANA_UPLOAD_KEYPAIR_PATH = env.varOrUndefined(
+  'SOLANA_UPLOAD_KEYPAIR_PATH',
+);
+
+// Ethereum upload identity. Hex-encoded 32-byte private key, either as a
+// file path or inline env. Takes precedence over the Solana fallback but
+// not over Arweave (see wallet-config.ts resolveUploadIdentity for the
+// full precedence + conflict rules).
+export const ETHEREUM_UPLOAD_PRIVATE_KEY_FILE = env.varOrUndefined(
+  'ETHEREUM_UPLOAD_PRIVATE_KEY_FILE',
+);
+export const ETHEREUM_UPLOAD_PRIVATE_KEY = env.varOrUndefined(
+  'ETHEREUM_UPLOAD_PRIVATE_KEY',
+);
+
+// Optional program-id overrides for devnet / localnet. Undefined → SDK
+// falls back to bundled mainnet IDs. Devnet values in
+// devnet-config.json (ar-io/solana-ar-io monorepo).
+export const ARIO_CORE_PROGRAM_ID = env.varOrUndefined('ARIO_CORE_PROGRAM_ID');
+export const ARIO_GAR_PROGRAM_ID = env.varOrUndefined('ARIO_GAR_PROGRAM_ID');
+export const ARIO_ARNS_PROGRAM_ID = env.varOrUndefined('ARIO_ARNS_PROGRAM_ID');
+export const ARIO_ANT_PROGRAM_ID = env.varOrUndefined('ARIO_ANT_PROGRAM_ID');
+
+// Epoch cranking (opt-in — zero overhead when disabled)
+export const ENABLE_EPOCH_CRANKING =
+  env.varOrDefault('ENABLE_EPOCH_CRANKING', 'false') === 'true';
+export const CRANK_POLL_INTERVAL_MS = parsePositiveIntEnv(
+  'CRANK_POLL_INTERVAL_MS',
+  '15000',
+);
+export const CRANK_BATCH_SIZE = parsePositiveIntEnv('CRANK_BATCH_SIZE', '15');
+export const CRANK_CLOSE_EPOCHS =
+  env.varOrDefault('CRANK_CLOSE_EPOCHS', 'true') === 'true';
+export const CRANK_EPOCH_RETENTION = parsePositiveIntEnv(
+  'CRANK_EPOCH_RETENTION',
+  '7',
+);
+export const CRANK_WARN_BALANCE_SOL = parseNonNegativeFloatEnv(
+  'CRANK_WARN_BALANCE_SOL',
+  '0.3',
+);
+export const CRANK_CRITICAL_BALANCE_SOL = parseNonNegativeFloatEnv(
+  'CRANK_CRITICAL_BALANCE_SOL',
+  '0.1',
+);
+
+// Cranker prune / cleanup pass — runs after the 6-step epoch pipeline.
+// See `docs/CRANKER_PRUNING_PLAN.md` in the ar-io/solana-ar-io monorepo.
+// Enable separately from the main pipeline so operators who only want
+// the epoch crank (no prune) can opt out.
+export const ENABLE_CLEANUP =
+  env.varOrDefault('ENABLE_CLEANUP', 'true') === 'true';
+export const CLEANUP_BATCH_SIZE = parsePositiveIntEnv(
+  'CLEANUP_BATCH_SIZE',
+  '15',
+);
+export const MAX_CLEANUP_TXS_PER_CYCLE = parsePositiveIntEnv(
+  'MAX_CLEANUP_TXS_PER_CYCLE',
+  '50',
+);
+export const CLEANUP_FAILURE_THRESHOLD = parsePositiveIntEnv(
+  'CLEANUP_FAILURE_THRESHOLD',
+  '30',
+);
+export const CLEANUP_MIN_INTERVAL_MS = parsePositiveIntEnv(
+  'CLEANUP_MIN_INTERVAL_MS',
+  '300000',
 );

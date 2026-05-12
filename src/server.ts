@@ -82,7 +82,6 @@ app.get('/ar-io/observer/healthcheck', async (_req, res) => {
 app.get('/ar-io/observer/info', (_req, res) => {
   res.status(200).send({
     wallet: walletAddress,
-    processId: config.IO_PROCESS_ID,
     reportSink: config.REPORT_DATA_SINK,
   });
 });

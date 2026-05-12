@@ -227,7 +227,12 @@ export interface ReportSink {
 
 export interface ReportStore {
   saveReport(reportInfo: ReportInfo): Promise<ReportInfo>;
-  getReport(epochStartHeight: number): Promise<ObserverReport | null>;
+  /**
+   * Fetch a persisted report by its unique epoch index. Keying by
+   * epochIndex (not epochStartHeight) keeps the store correct on
+   * Solana, where `epochStartHeight` is a 0 sentinel for every epoch.
+   */
+  getReport(epochIndex: number): Promise<ObserverReport | null>;
   latestReport(): Promise<ObserverReport | null>;
 }
 
