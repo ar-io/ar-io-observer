@@ -5,10 +5,9 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 /**
- * Submit observation reports on-chain via `ario_gar::save_observations`
- * when NETWORK_SOURCE=solana. Mirrors the AO `ContractReportSink` in
- * pipeline shape (consumes the upstream `reportTxId` from a TurboReportSink,
- * returns `interactionTxIds`), but the on-chain protocol is different:
+ * Submit observation reports on-chain via `ario_gar::save_observations`.
+ * Consumes the upstream `reportTxId` from a TurboReportSink and returns
+ * `interactionTxIds`. Protocol details:
  *
  *   - The Observation PDA is `init`-constrained, so only ONE saveObservations
  *     call per (epochIndex, observer) is allowed. The SDK encodes every
@@ -29,7 +28,7 @@ import type { SolanaARIOReadable, SolanaARIOWriteable } from '@ar.io/sdk/solana'
 import type winston from 'winston';
 
 import type { ObserverReport, ReportInfo, ReportSink } from '../types.js';
-import { getFailedGatewaySummaryFromReport } from './contract-report-sink.js';
+import { getFailedGatewaySummaryFromReport } from './failed-gateway-summary.js';
 
 export interface SolanaContractReportSinkConfig {
   log: winston.Logger;
@@ -69,10 +68,13 @@ export class SolanaContractReportSink implements ReportSink {
     const { report, reportTxId } = reportInfo;
     const { epochIndex } = report;
 
-    if (reportTxId === undefined || reportTxId === '') {
+    if (reportTxId === undefined || reportTxId.trim() === '') {
       // Without a permaweb-archive txid the on-chain record loses its
       // audit pointer. Refuse to submit — the operator should investigate
       // why the upstream TurboReportSink didn't produce a txid.
+      // Treat whitespace-only as missing: such a value can't decode to a
+      // valid 32-byte hash, and a downstream encoder would either throw
+      // or silently store a meaningless txid.
       this.log.warn(
         'Skipping save_observations: reportTxId from upstream sink is missing. ' +
           'Verify TurboReportSink ran and produced an upload.',

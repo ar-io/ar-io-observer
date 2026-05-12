@@ -40,11 +40,6 @@ export const args = await yargs(hideBin(process.argv))
     type: 'boolean',
     description: 'Whether or not to save the report',
   })
-  .option('cu-url', {
-    type: 'string',
-    description:
-      'AO compute unit URL (overrides AO_CU_URL / NETWORK_AO_CU_URL env for this process)',
-  })
   .parse();
 
 dotenv.config();
@@ -59,14 +54,7 @@ export const ARWEAVE_URL = env.varOrDefault(
   'https://turbo-gateway.com',
 );
 
-export const IO_PROCESS_ID = env.varOrDefault(
-  'IO_PROCESS_ID',
-  'qNvAoz0TgcH7DMg8BCVn8jF32QH5L6T29VjHxhHqqGE',
-);
-
 export const OBSERVER_WALLET = env.varOrDefault('OBSERVER_WALLET', '<example>');
-
-export const WALLETS_PATH = env.varOrDefault('WALLETS_PATH', './wallets');
 
 export const TURBO_UPLOAD_SERVICE_URL = env.varOrUndefined(
   'TURBO_UPLOAD_SERVICE_URL',
@@ -130,10 +118,6 @@ export const NAME_ASSESSMENT_CONCURRENCY = +env.varOrDefault(
   '5',
 );
 
-// Wallet used to upload reports and interact with the contract
-export const KEY_FILE = path.join(WALLETS_PATH, OBSERVER_WALLET + '.json');
-export const JWK = env.varOrUndefined('OBSERVER_JWK');
-
 export const SUBMIT_CONTRACT_INTERACTIONS =
   env.varOrDefault('SUBMIT_CONTRACT_INTERACTIONS', 'false') === 'true';
 
@@ -145,28 +129,6 @@ export const REPORT_GENERATION_INTERVAL_MS = +env.varOrDefault(
 export const AR_IO_NODE_RELEASE = env.varOrDefault('AR_IO_NODE_RELEASE', 'dev');
 
 // AO
-
-/**
- * Removes trailing slashes from URLs
- * @param url The URL to sanitize
- * @returns The sanitized URL without trailing slashes or undefined if input was undefined
- */
-function sanitizeUrl(url: string | undefined): string | undefined {
-  if (url === undefined) {
-    return undefined;
-  }
-  return url.replace(/\/+$/, '');
-}
-
-export const AO_MU_URL = sanitizeUrl(env.varOrUndefined('AO_MU_URL'));
-
-const cliCuUrl = sanitizeUrl(args.cuUrl);
-export const AO_CU_URL =
-  cliCuUrl ?? sanitizeUrl(env.varOrUndefined('AO_CU_URL'));
-export const NETWORK_AO_CU_URL =
-  cliCuUrl ?? sanitizeUrl(env.varOrUndefined('NETWORK_AO_CU_URL')) ?? AO_CU_URL;
-export const AO_GRAPHQL_URL = env.varOrUndefined('AO_GRAPHQL_URL');
-export const AO_GATEWAY_URL = env.varOrUndefined('AO_GATEWAY_URL');
 
 // Whether to enable the LogReportSink that logs assessment details at info level
 export const ENABLE_LOG_REPORT_SINK =
@@ -343,20 +305,11 @@ function parseNonNegativeFloatEnv(name: string, defaultValue: string): number {
   return value;
 }
 
-// Default to 'ao' so existing AO deployments don't break on upgrade —
-// operators must explicitly opt in to the Solana path.
-const rawNetworkSource = env.varOrDefault('NETWORK_SOURCE', 'ao');
-if (rawNetworkSource !== 'ao' && rawNetworkSource !== 'solana') {
-  throw new Error(
-    `Invalid configuration: NETWORK_SOURCE='${rawNetworkSource}' must be "ao" or "solana".`,
-  );
-}
-export const NETWORK_SOURCE: 'ao' | 'solana' = rawNetworkSource;
 export const SOLANA_RPC_URL = env.varOrDefault(
   'SOLANA_RPC_URL',
   'https://api.mainnet-beta.solana.com',
 );
-// Operator/cranker keypair. Required in solana mode. Signs join_network,
+// Operator/cranker keypair. Required. Signs join_network,
 // update_gateway_settings, and every permissionless cranker ix
 // (create_epoch, tally_weights, prescribe_epoch, distribute_epoch,
 // close_epoch). Also serves as fallback observer/upload signer when no

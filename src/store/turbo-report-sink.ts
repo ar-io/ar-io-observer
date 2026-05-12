@@ -18,6 +18,7 @@
 import { TurboAuthenticatedClient } from '@ardrive/turbo-sdk/node';
 import { Signer, createData } from '@dha-team/arbundles/node';
 import Arweave from 'arweave';
+import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import zlib from 'node:zlib';
 import * as winston from 'winston';
@@ -63,37 +64,57 @@ async function createReportDataItem(signer: Signer, report: ObserverReport) {
   return signedDataItem;
 }
 
+/**
+ * Compute the Arweave-normalized owner address for any arbundles signer.
+ *
+ * Arweave GraphQL's `owners` filter expects 43-char base64url addresses
+ * (`base64url(SHA-256(publicKey))`), regardless of chain. For
+ * `ArweaveSigner` this is the canonical Arweave address (SHA-256 of the
+ * RSA modulus). For `SolanaSigner` / `EthereumSigner` Turbo's ANS-104
+ * pipeline derives the same shape from the raw 32-byte / 65-byte
+ * pubkey, so the data item's stored owner matches `SHA-256(pubkey)`
+ * base64url. Computing it here lets dedupe queries hit regardless of
+ * which upload chain the operator chose, without us needing to add a
+ * sidecar tag.
+ *
+ * Exported for unit testing.
+ */
+export function signerOwnerAddress(signer: Signer): string {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pubkey = (signer as any).publicKey as Buffer;
+  return crypto
+    .createHash('sha256')
+    .update(pubkey)
+    .digest()
+    .toString('base64url');
+}
+
 // TODO implement full ReportStore interface
 export class TurboReportSink implements ReportSink {
   // Dependencies
   private log: winston.Logger;
   private arweave: Arweave;
   private readonly turboClient: TurboAuthenticatedClient;
-  private readonly walletAddress: string;
   // Generalized to the arbundles `Signer` base class so the sink works with
   // any chain Turbo accepts (ArweaveSigner / SolanaSigner / EthereumSigner).
   // The concrete construction lives in system.ts based on the resolved
-  // UploadIdentity. The walletAddress label is whatever owner/identity the
-  // signer represents (Arweave base64url address, Solana pubkey, ETH address).
+  // UploadIdentity.
   private readonly signer: Signer;
 
   constructor({
     log,
     arweave,
     turboClient,
-    walletAddress,
     signer,
   }: {
     log: winston.Logger;
     arweave: Arweave;
     turboClient: TurboAuthenticatedClient;
-    walletAddress: string;
     signer: Signer;
   }) {
     this.log = log.child({ class: this.constructor.name });
     this.arweave = arweave;
     this.turboClient = turboClient;
-    this.walletAddress = walletAddress;
     this.signer = signer;
   }
 
@@ -164,13 +185,19 @@ export class TurboReportSink implements ReportSink {
     const epochStartHeight = report.epochStartHeight;
     const epochIndex = report.epochIndex;
 
-    // Find the first report TX ID for the given epoch start height and format version
+    // Find the first report TX ID for this signer + epoch. The owner
+    // filter is derived from the signer (SHA-256 of pubkey, base64url)
+    // so the same query works for ArweaveSigner / SolanaSigner /
+    // EthereumSigner. The human-readable label (`walletAddress`) varies
+    // by chain (Arweave addr / Solana base58 pubkey / 0x-hex) and would
+    // not match here for the non-Arweave chains.
+    const ownerAddress = signerOwnerAddress(this.signer);
     const queryObject = {
       query: `{
         transactions(
           sort: HEIGHT_ASC,
           first:1,
-          owners: [ "${this.walletAddress}" ],
+          owners: [ "${ownerAddress}" ],
           tags: [
             { name: "App-Name", values: ["AR-IO Observer"] },
             { name: "Content-Type", values: [ "application/json" ] },
@@ -179,7 +206,7 @@ export class TurboReportSink implements ReportSink {
             { name: "AR-IO-Epoch-Start-Timestamp", values: [ "${epochStartTimestamp}" ]},
             { name: "AR-IO-Observer-Report-Version", values: [ "${REPORT_FORMAT_VERSION}" ] }
           ]
-        ) 
+        )
         {
           edges {
             node {

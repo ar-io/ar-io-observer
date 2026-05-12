@@ -338,7 +338,6 @@ describe('wallet-config', () => {
   describe('resolveUploadIdentity', () => {
     /** Minimal WalletEnv with everything off. Spread overrides per test. */
     const baseEnv: WalletEnv = {
-      NETWORK_SOURCE: 'solana',
       SOLANA_KEYPAIR_PATH: undefined,
       OBSERVER_KEYPAIR_PATH: undefined,
       ARWEAVE_UPLOAD_KEY_FILE: undefined,
@@ -376,15 +375,6 @@ describe('wallet-config', () => {
     });
     /** Helper: a valid hex Ethereum private key. */
     const validEthHex = '0x' + 'a1'.repeat(32);
-
-    it('returns disabled when NETWORK_SOURCE=ao', () => {
-      const id = resolveUploadIdentity(
-        { ...baseEnv, NETWORK_SOURCE: 'ao' },
-        makeLoaders({}),
-        makeLog(),
-      );
-      expect(id.mode).to.equal('disabled');
-    });
 
     it('returns disabled when no envs are set and no fallback path is given', () => {
       const id = resolveUploadIdentity(baseEnv, makeLoaders({}), makeLog());

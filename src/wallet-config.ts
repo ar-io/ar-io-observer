@@ -36,7 +36,6 @@ import type { Logger } from 'winston';
 import type { JWKInterface } from '@dha-team/arbundles/node';
 
 export interface WalletEnv {
-  NETWORK_SOURCE: 'ao' | 'solana';
   SOLANA_KEYPAIR_PATH: string | undefined;
   OBSERVER_KEYPAIR_PATH: string | undefined;
   ARWEAVE_UPLOAD_KEY_FILE: string | undefined;
@@ -132,9 +131,7 @@ export async function resolveSolanaWallets(
   log: Pick<Logger, 'info'>,
 ): Promise<ResolvedSolanaWallets> {
   if (env.SOLANA_KEYPAIR_PATH === undefined) {
-    throw new Error(
-      'SOLANA_KEYPAIR_PATH is required when NETWORK_SOURCE=solana',
-    );
+    throw new Error('SOLANA_KEYPAIR_PATH is required');
   }
 
   const operator = await loadKeypair(
@@ -338,11 +335,6 @@ export function resolveUploadIdentity(
   log: Pick<Logger, 'info'>,
   fallbackSolanaPath?: string, // observer or operator path, when no explicit upload key
 ): UploadIdentity {
-  if (env.NETWORK_SOURCE !== 'solana') {
-    // AO mode keeps the legacy JWK-only behavior outside this resolver.
-    return { mode: 'disabled' };
-  }
-
   const arweaveEnvs = [
     env.ARWEAVE_UPLOAD_KEY_FILE && 'ARWEAVE_UPLOAD_KEY_FILE',
     env.ARWEAVE_UPLOAD_JWK && 'ARWEAVE_UPLOAD_JWK',
