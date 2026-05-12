@@ -33,9 +33,9 @@ import {
 import {
   ArweaveSigner,
   EthereumSigner,
+  HexSolanaSigner,
   JWKInterface,
   Signer,
-  SolanaSigner,
 } from '@dha-team/arbundles/node';
 import bs58 from 'bs58';
 import Arweave from 'arweave';
@@ -50,7 +50,7 @@ import {
   resolveUploadIdentity,
 } from './wallet-config.js';
 import { CachedEntropySource } from './entropy/cached-entropy-source.js';
-import { ChainEntropySource } from './entropy/chain-entropy-source.js';
+import { SolanaEpochEntropySource } from './entropy/solana-epoch-entropy-source.js';
 import { CompositeEntropySource } from './entropy/composite-entropy-source.js';
 import { RandomEntropySource } from './entropy/random-entropy-source.js';
 import { SolanaEpochSource } from './epochs/solana-epoch-source.js';
@@ -118,18 +118,23 @@ export const arweave = new Arweave({
 });
 
 // The arbundles `Signer` used to sign observation-report data items
-// before Turbo upload. In AO mode this is the ArweaveSigner built from
-// the legacy single JWK. In Solana mode it's resolved from the
-// UploadIdentity below (any of Arweave / Solana / Ethereum). May be
-// undefined if no upload identity is configured — TurboReportSink is
-// skipped in that case.
+// before Turbo upload. Resolved from `UploadIdentity` below (any of
+// Arweave / Solana / Ethereum). May be undefined if no upload identity
+// is configured — TurboReportSink is skipped in that case.
 let bundleSigner: Signer | undefined =
   walletJwk !== undefined ? new ArweaveSigner(walletJwk) : undefined;
 
 // Address label surfaced on TurboReportSink + /info — set to whichever
-// identity is actually signing bundles. Default matches AO behavior; the
-// Solana branch overwrites with the upload pubkey/address.
+// identity is actually signing bundles. Default matches the legacy
+// behavior; the upload-identity switch below overwrites it.
 let bundleSignerLabel: string = config.OBSERVER_WALLET;
+
+// Which chain the upload signer belongs to. Drives Turbo's `token:`
+// param so the upload service derives the correct owner address. Set
+// alongside `bundleSigner` in the upload-identity switch. `undefined`
+// when no upload identity is configured.
+let bundleSignerChain: 'arweave' | 'solana' | 'ethereum' | undefined =
+  walletJwk !== undefined ? 'arweave' : undefined;
 
 // Cranker/operator-signed network contract. All on-chain reads (epoch,
 // gateways, ArNS records) flow through this. `save_observations` uses a
@@ -149,11 +154,11 @@ if (!config.SOLANA_RPC_URL) {
 if (!config.SOLANA_KEYPAIR_PATH) {
   throw new Error('SOLANA_KEYPAIR_PATH is required');
 }
+const solanaRpc = createSolanaRpc(config.SOLANA_RPC_URL);
+// Derive WS URL from HTTP URL (same pattern as the SDK CLI).
+const wsUrl = config.SOLANA_RPC_URL.replace(/^http/, 'ws');
+const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
 {
-  const solanaRpc = createSolanaRpc(config.SOLANA_RPC_URL);
-  // Derive WS URL from HTTP URL (same pattern as the SDK CLI).
-  const wsUrl = config.SOLANA_RPC_URL.replace(/^http/, 'ws');
-  const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
   // -------- Identity loading (decoupled by role) --------
   // Resolution rules + 4 supported configurations live in `wallet-config.ts`
   // and are covered by `wallet-config.test.ts`. We just supply the
@@ -263,12 +268,17 @@ if (!config.SOLANA_KEYPAIR_PATH) {
     case 'arweave':
       bundleSigner = new ArweaveSigner(uploadIdentity.jwk);
       bundleSignerLabel = await arweave.wallets.jwkToAddress(uploadIdentity.jwk);
+      bundleSignerChain = 'arweave';
       break;
     case 'solana':
-      // arbundles' SolanaSigner takes the secret key as base58.
-      bundleSigner = new SolanaSigner(bs58.encode(uploadIdentity.secretKey));
-      // The arbundles SolanaSigner publicKey is the on-chain pubkey bytes.
+      // `HexSolanaSigner` is what Turbo's `TurboSigner` union accepts
+      // for Solana-signed ANS-104 bundles. It extends arbundles'
+      // SolanaSigner (so `createData()` still works) — only the
+      // signing-message encoding differs. The constructor still takes
+      // the secret key as base58.
+      bundleSigner = new HexSolanaSigner(bs58.encode(uploadIdentity.secretKey));
       bundleSignerLabel = bs58.encode((bundleSigner as any).publicKey);
+      bundleSignerChain = 'solana';
       break;
     case 'ethereum':
       bundleSigner = new EthereumSigner(
@@ -277,6 +287,7 @@ if (!config.SOLANA_KEYPAIR_PATH) {
       bundleSignerLabel =
         '0x' +
         Buffer.from((bundleSigner as any).publicKey).toString('hex').slice(-40);
+      bundleSignerChain = 'ethereum';
       break;
     case 'disabled':
       bundleSigner = undefined;
@@ -375,8 +386,16 @@ const observedGatewayHostList =
         log,
       });
 
+if (!config.ARIO_GAR_PROGRAM_ID) {
+  throw new Error(
+    'ARIO_GAR_PROGRAM_ID is required (used to derive the EpochSettings PDA).',
+  );
+}
 export const epochSource = new SolanaEpochSource({
-  readable: networkContract,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rpc: solanaRpc as any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  garProgramAddress: config.ARIO_GAR_PROGRAM_ID as any,
   log,
 });
 
@@ -385,8 +404,30 @@ const namesSource = new SolanaNamesSource({
   log,
 });
 
-const chainEntropySource = new ChainEntropySource({
-  arweaveBaseUrl: config.ARWEAVE_URL,
+// Shared deterministic entropy for prescribed observers. Replaces the
+// AO-era `ChainEntropySource` (which hashes Arweave block headers at
+// `epochStartHeight - 50`) — Solana epochs aren't Arweave-block-aligned
+// and `SolanaEpochSource.getEpochStartHeight()` returns a 0 sentinel, so
+// the chain source would fetch `block/height/-50` and the gateway 400s.
+// See `solana-epoch-entropy-source.ts` for the derivation rationale.
+//
+// We pass in the raw RPC + GAR program address instead of the SDK
+// readable so the source does a single `getAccountInfo` per epoch
+// rather than `readable.getEpoch()`'s ~30 RPC fan-out (per-observer
+// gateway lookup + per-name record PDA fetch). Free-tier RPC won't
+// sustain the fan-out alongside the cranker's parallel traffic.
+if (!config.ARIO_GAR_PROGRAM_ID) {
+  throw new Error(
+    'ARIO_GAR_PROGRAM_ID is required (used to derive the Epoch PDA for shared entropy).',
+  );
+}
+const sharedEpochEntropySource = new SolanaEpochEntropySource({
+  epochSource,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rpc: solanaRpc as any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  garProgramAddress: config.ARIO_GAR_PROGRAM_ID as any,
+  log,
 });
 
 const randomEntropySource = new RandomEntropySource();
@@ -397,7 +438,7 @@ const cachedEntropySource = new CachedEntropySource({
 });
 
 const compositeEntropySource = new CompositeEntropySource({
-  sources: [cachedEntropySource, chainEntropySource],
+  sources: [cachedEntropySource, sharedEpochEntropySource],
 });
 
 const nameListSource =
@@ -488,7 +529,7 @@ export const observer = new Observer({
   gatewayAssessmentConcurrency: config.GATEWAY_ASSESSMENT_CONCURRENCY,
   nameAssessmentConcurrency: config.NAME_ASSESSMENT_CONCURRENCY,
   nodeReleaseVersion: config.AR_IO_NODE_RELEASE,
-  entropySource: chainEntropySource,
+  entropySource: sharedEpochEntropySource,
   heightSource: chainSource,
 });
 
@@ -502,30 +543,38 @@ const fsReportStore = new FsReportStore({
 });
 
 export const turboClient: TurboAuthenticatedClient | undefined = (() => {
-  if (walletJwk !== undefined) {
-    return TurboFactory.authenticated({
-      privateKey: walletJwk,
-      ...defaultTurboConfiguration,
-      ...(config.TURBO_UPLOAD_SERVICE_URL !== undefined
-        ? {
-            uploadServiceConfig: {
-              url: config.TURBO_UPLOAD_SERVICE_URL,
-              token: 'arweave',
-            },
-          }
-        : {}),
-      ...(config.TURBO_PAYMENT_SERVICE_URL !== undefined
-        ? {
-            uploadServiceConfig: {
-              url: config.TURBO_PAYMENT_SERVICE_URL,
-              token: 'arweave',
-            },
-          }
-        : {}),
-    });
-  } else {
+  if (bundleSigner === undefined || bundleSignerChain === undefined) {
     return undefined;
   }
+  // Turbo accepts either an Arweave JWK via `privateKey` or any of its
+  // supported `TurboSigner` instances (ArweaveSigner / HexSolanaSigner /
+  // EthereumSigner) via `signer`. `token` tells Turbo which chain to
+  // derive the data item's owner address from — must match the signer.
+  const authConfig =
+    bundleSignerChain === 'arweave' && walletJwk !== undefined
+      ? { privateKey: walletJwk, token: 'arweave' as const }
+      : { signer: bundleSigner as any, token: bundleSignerChain };
+
+  return TurboFactory.authenticated({
+    ...authConfig,
+    ...defaultTurboConfiguration,
+    ...(config.TURBO_UPLOAD_SERVICE_URL !== undefined
+      ? {
+          uploadServiceConfig: {
+            url: config.TURBO_UPLOAD_SERVICE_URL,
+            token: bundleSignerChain,
+          },
+        }
+      : {}),
+    ...(config.TURBO_PAYMENT_SERVICE_URL !== undefined
+      ? {
+          paymentServiceConfig: {
+            url: config.TURBO_PAYMENT_SERVICE_URL,
+            token: bundleSignerChain,
+          },
+        }
+      : {}),
+  });
 })();
 
 // Tracks the identity actually signing report bundles for the operator

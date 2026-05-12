@@ -7,30 +7,33 @@
 /**
  * Solana-native epoch timing source.
  *
- * Replaces the legacy `ContractEpochSource` which depended on:
- *   1. AO `getCurrentEpoch()` (which returned wall-clock-indexed epoch
- *      params and required an HTTP roundtrip to an AO Compute Unit), and
- *   2. Arweave block height + timestamp (for AO-era epoch boundary math
- *      that aligned to Arweave blocks).
+ * Replaces the legacy `ContractEpochSource` which depended on AO HTTP
+ * roundtrips and Arweave block boundary math. On Solana, the entire
+ * epoch schedule is derivable from a single on-chain `EpochSettings`
+ * account (`genesis_timestamp + N * epoch_duration`), so this source
+ * does exactly ONE `getAccountInfo` per refresh — no `getEpoch()`
+ * fan-out (which would do per-prescribed-observer Gateway lookups and
+ * per-prescribed-name record fetches, ~30+ RPC calls per refresh on
+ * mainnet-shape epochs).
  *
- * On Solana, neither is needed:
- *   - Epoch boundaries are pinned by the on-chain `EpochSettings`
- *     (`genesis_timestamp + N * epoch_duration`), readable directly via
- *     `SolanaARIOReadable.getEpochSettings()`.
- *   - The currently-active Epoch's `start_timestamp` and `end_timestamp`
- *     are stored verbatim on the Epoch PDA and surfaced by
- *     `SolanaARIOReadable.getEpoch(undefined)` (which itself was fixed
- *     to return `currentEpochIndex - 1` per the cranker's "next-to-be-
- *     created" semantics for `current_epoch_index`).
- *
- * No Arweave block lookup is needed. `getEpochStartHeight()` is kept on
- * the interface for back-compat (downstream callers expect it) but
- * always returns 0 — the observer only uses startHeight for AO-era
- * cross-checks that don't apply on Solana.
+ * `getEpochStartHeight()` returns the 0 sentinel — Solana epochs are
+ * not Arweave-block-aligned. The interface keeps `epochStartHeight`
+ * for back-compat with the AO-era report shape and the offset-
+ * observation feature, which now sources height from `heightSource`
+ * (Arweave chainSource) independently.
  */
+import {
+  type Address,
+  type Rpc,
+  type SolanaRpcApi,
+  fetchEncodedAccount,
+} from '@solana/kit';
 import type winston from 'winston';
 
-import type { SolanaARIOReadable } from '@ar.io/sdk/solana';
+import {
+  deserializeEpochSettingsFull,
+  getEpochSettingsPDA,
+} from '@ar.io/sdk/solana';
 import type {
   EpochSettings,
   EpochTimestampParams,
@@ -38,7 +41,9 @@ import type {
 } from '../types.js';
 
 export interface SolanaEpochSourceConfig {
-  readable: SolanaARIOReadable;
+  rpc: Rpc<SolanaRpcApi>;
+  /** `ario-gar` program address — used to derive the EpochSettings PDA. */
+  garProgramAddress: Address;
   log: winston.Logger;
   /** How long to cache epoch params before refetching. Defaults to 30s
    *  which matches the continuous-observer cycle interval. */
@@ -46,24 +51,49 @@ export interface SolanaEpochSourceConfig {
 }
 
 export class SolanaEpochSource implements EpochTimestampSource {
-  private readonly readable: SolanaARIOReadable;
+  private readonly rpc: Rpc<SolanaRpcApi>;
+  private readonly garProgramAddress: Address;
   private readonly log: winston.Logger;
   private readonly cacheTtlMs: number;
   private cached?: { params: EpochTimestampParams; fetchedAt: number };
 
   constructor(cfg: SolanaEpochSourceConfig) {
-    this.readable = cfg.readable;
+    this.rpc = cfg.rpc;
+    this.garProgramAddress = cfg.garProgramAddress;
     this.log = cfg.log.child({ class: this.constructor.name });
     this.cacheTtlMs = cfg.cacheTtlMs ?? 30_000;
   }
 
-  async getEpochSettings(): Promise<EpochSettings> {
-    const s = await this.readable.getEpochSettings();
+  /**
+   * Fetch and decode the EpochSettings PDA in a single RPC call.
+   * Cached by the underlying RPC layer's coalescing on identical
+   * concurrent requests.
+   */
+  private async fetchSettings(): Promise<{
+    currentEpochIndex: number;
+    genesisTimestamp: number; // seconds
+    epochDuration: number; // seconds
+  }> {
+    const [pda] = await getEpochSettingsPDA(this.garProgramAddress);
+    const account = await fetchEncodedAccount(this.rpc, pda, {
+      commitment: 'confirmed',
+    });
+    if (!account.exists) {
+      throw new Error(`EpochSettings PDA not found at ${pda}`);
+    }
+    const data = deserializeEpochSettingsFull(Buffer.from(account.data));
     return {
-      // SDK returns these already in ms (durationMs / epochZeroStartTimestamp
-      // ms is established by the SDK adapter from on-chain seconds).
-      epochZeroStartTimestamp: s.epochZeroStartTimestamp,
-      durationMs: s.durationMs,
+      currentEpochIndex: data.currentEpochIndex,
+      genesisTimestamp: data.genesisTimestamp,
+      epochDuration: data.epochDuration,
+    };
+  }
+
+  async getEpochSettings(): Promise<EpochSettings> {
+    const s = await this.fetchSettings();
+    return {
+      epochZeroStartTimestamp: s.genesisTimestamp * 1000,
+      durationMs: s.epochDuration * 1000,
     };
   }
 
@@ -72,6 +102,12 @@ export class SolanaEpochSource implements EpochTimestampSource {
    * `cacheTtlMs` to avoid hammering the RPC on the observer's 30s cycle.
    * Cache invalidates the moment we cross `epochEndTimestamp` so the
    * observer never operates on a stale epoch view.
+   *
+   * The currently-active epoch index is `currentEpochIndex - 1`: the
+   * on-chain `current_epoch_index` is the NEXT epoch to be created
+   * (the cranker increments it inside `create_epoch` AFTER allocating
+   * the PDA). Same off-by-one fixed in
+   * `SolanaARIOReadable.resolveEpochIndex`.
    */
   async getEpochParams(): Promise<EpochTimestampParams> {
     const now = Date.now();
@@ -83,17 +119,17 @@ export class SolanaEpochSource implements EpochTimestampSource {
       return this.cached.params;
     }
 
-    const epoch = await this.readable.getEpoch();
-    // SDK returns timestamps in milliseconds.
+    const s = await this.fetchSettings();
+    const activeEpochIndex = Math.max(0, s.currentEpochIndex - 1);
+    const epochStartSec =
+      s.genesisTimestamp + activeEpochIndex * s.epochDuration;
+    const epochEndSec = epochStartSec + s.epochDuration;
     const params: EpochTimestampParams = {
-      epochStartTimestamp: epoch.startTimestamp,
-      epochEndTimestamp: epoch.endTimestamp,
-      // Arweave block height isn't meaningful in Solana mode — epoch
-      // boundaries are Solana-clock-aligned, not Arweave-block-aligned.
-      // Always 0 so downstream callers that ignore startHeight in
-      // Solana mode get a stable sentinel.
+      epochStartTimestamp: epochStartSec * 1000,
+      epochEndTimestamp: epochEndSec * 1000,
+      // Arweave block height isn't meaningful in Solana mode.
       epochStartHeight: 0,
-      epochIndex: epoch.epochIndex,
+      epochIndex: activeEpochIndex,
     };
 
     this.cached = { params, fetchedAt: now };

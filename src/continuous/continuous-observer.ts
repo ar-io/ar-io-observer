@@ -334,10 +334,17 @@ export class ContinuousObserver {
       throw new Error('State not initialized');
     }
 
-    // Fetch names
+    // Fetch names. `prescribedNamesSource` is keyed on `epochIndex`
+    // (the SDK's prescribed-name lookup is epoch-relative, not block-
+    // height-relative). The legacy AO `ContractNamesSource` had the
+    // same signature; the previous call site passed `epochStartHeight`
+    // by mistake, which silently resolved to `undefined` and crashed
+    // inside the SDK only AFTER the prior chain-entropy 400 was fixed.
+    // `chosenNamesSource` (RandomArnsNamesSource) is keyed on `height`
+    // for the entropy hop only — kept as-is.
     const [prescribed, chosen] = await Promise.all([
       this.prescribedNamesSource.getNames({
-        epochStartHeight: this.state.epochStartHeight,
+        epochIndex: this.state.epochIndex,
       }),
       this.chosenNamesSource.getNames({
         height: this.state.epochStartHeight,

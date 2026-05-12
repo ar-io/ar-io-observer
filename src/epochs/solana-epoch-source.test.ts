@@ -8,7 +8,6 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import * as winston from 'winston';
 
-import type { SolanaARIOReadable } from '@ar.io/sdk/solana';
 import { SolanaEpochSource } from './solana-epoch-source.js';
 
 function makeLog(): winston.Logger {
@@ -23,121 +22,136 @@ function makeLog(): winston.Logger {
   } as any;
 }
 
-function makeReadable(opts: {
-  epochSettings?: { epochZeroStartTimestamp: number; durationMs: number };
-  epoch?: { epochIndex: number; startTimestamp: number; endTimestamp: number };
-  throws?: Error;
-}): { readable: SolanaARIOReadable; getEpochStub: sinon.SinonStub } {
-  const getEpochStub = opts.throws
-    ? sinon.stub().rejects(opts.throws)
-    : sinon.stub().resolves(opts.epoch);
-  return {
-    readable: {
-      getEpochSettings: sinon.stub().resolves(opts.epochSettings),
-      getEpoch: getEpochStub,
-    } as any,
-    getEpochStub,
-  };
+/**
+ * SolanaEpochSource fetches the on-chain `EpochSettings` PDA via
+ * `fetchEncodedAccount` (from `@solana/kit`) and decodes via
+ * `deserializeEpochSettingsFull` (from `@ar.io/sdk/solana`). Both are
+ * module-level imports — stubbing them at the unit boundary requires
+ * deeper module mocking than is worth doing for the timestamp-math
+ * surface.
+ *
+ * Instead, we substitute the private `fetchSettings` method to inject
+ * known on-chain state and verify:
+ *   - timestamp math (epochIndex N → start = genesis + N*duration)
+ *   - off-by-one resolution (currentEpochIndex - 1 is the active epoch)
+ *   - cache TTL + epoch-end-aware invalidation
+ *
+ * The real PDA fetch path is exercised end-to-end by the running
+ * observer (logs `Epoch params resolved`).
+ */
+function makeSource(opts: {
+  currentEpochIndex: number;
+  genesisTimestamp: number;
+  epochDuration: number;
+  cacheTtlMs?: number;
+}): { src: SolanaEpochSource; fetchStub: sinon.SinonStub } {
+  const src = new SolanaEpochSource({
+    rpc: {} as any,
+    garProgramAddress: 'AF8QAEaR4hzsqeUDwEdeTXMYtdyFegTENBdnJro6WVLR' as any,
+    log: makeLog(),
+    cacheTtlMs: opts.cacheTtlMs,
+  });
+  const fetchStub = sinon.stub().resolves({
+    currentEpochIndex: opts.currentEpochIndex,
+    genesisTimestamp: opts.genesisTimestamp,
+    epochDuration: opts.epochDuration,
+  });
+  // Inject the stub at the private boundary.
+  (src as any).fetchSettings = fetchStub;
+  return { src, fetchStub };
 }
 
 describe('SolanaEpochSource', () => {
   describe('getEpochSettings', () => {
-    it('returns the SDK-shaped epoch settings unchanged (already in ms)', async () => {
-      const { readable } = makeReadable({
-        epochSettings: {
-          epochZeroStartTimestamp: 1_700_000_000_000,
-          durationMs: 3_600_000,
-        },
+    it('converts on-chain seconds to milliseconds', async () => {
+      const { src } = makeSource({
+        currentEpochIndex: 18,
+        genesisTimestamp: 1_700_000_000,
+        epochDuration: 3600,
       });
-      const src = new SolanaEpochSource({ readable, log: makeLog() });
       const s = await src.getEpochSettings();
-      expect(s.epochZeroStartTimestamp).to.equal(1_700_000_000_000);
+      expect(s.epochZeroStartTimestamp).to.equal(1_700_000_000 * 1000);
       expect(s.durationMs).to.equal(3_600_000);
     });
   });
 
   describe('getEpochParams', () => {
-    it('maps SDK getEpoch fields directly + sets startHeight=0', async () => {
-      const { readable } = makeReadable({
-        epoch: {
-          epochIndex: 17,
-          startTimestamp: 1_700_000_000_000,
-          endTimestamp: 1_700_003_600_000,
-        },
+    it('resolves the active epoch as currentEpochIndex - 1', async () => {
+      // current = 18 means "next to be created" — active is 17.
+      const { src } = makeSource({
+        currentEpochIndex: 18,
+        genesisTimestamp: 1_700_000_000,
+        epochDuration: 3600,
       });
-      const src = new SolanaEpochSource({ readable, log: makeLog() });
       const p = await src.getEpochParams();
       expect(p.epochIndex).to.equal(17);
-      expect(p.epochStartTimestamp).to.equal(1_700_000_000_000);
-      expect(p.epochEndTimestamp).to.equal(1_700_003_600_000);
-      expect(p.epochStartHeight).to.equal(0); // sentinel — Solana doesn't use Arweave height
+      expect(p.epochStartTimestamp).to.equal(
+        (1_700_000_000 + 17 * 3600) * 1000,
+      );
+      expect(p.epochEndTimestamp).to.equal(
+        (1_700_000_000 + 18 * 3600) * 1000,
+      );
+      expect(p.epochStartHeight).to.equal(0);
     });
 
-    it('caches params within cacheTtlMs', async () => {
-      const { readable, getEpochStub } = makeReadable({
-        epoch: {
-          epochIndex: 5,
-          startTimestamp: Date.now() - 1000,
-          endTimestamp: Date.now() + 60_000_000, // far in future
-        },
+    it('clamps active epoch to 0 when currentEpochIndex is 0 (genesis edge)', async () => {
+      const { src } = makeSource({
+        currentEpochIndex: 0,
+        genesisTimestamp: 1_700_000_000,
+        epochDuration: 3600,
       });
-      const src = new SolanaEpochSource({
-        readable,
-        log: makeLog(),
+      const p = await src.getEpochParams();
+      expect(p.epochIndex).to.equal(0);
+    });
+
+    it('caches params within cacheTtlMs (only one RPC for repeat calls)', async () => {
+      const futureGenesis = Math.floor(Date.now() / 1000) - 60;
+      const { src, fetchStub } = makeSource({
+        currentEpochIndex: 2, // active epoch 1 starts ~now, ends ~hour from now
+        genesisTimestamp: futureGenesis - 3600, // epoch 0 = past, epoch 1 = active
+        epochDuration: 3600,
         cacheTtlMs: 10_000,
       });
       await src.getEpochParams();
       await src.getEpochParams();
       await src.getEpochParams();
-      expect(getEpochStub.callCount).to.equal(1);
+      expect(fetchStub.callCount).to.equal(1);
     });
 
     it('invalidates cache immediately when epochEndTimestamp has passed', async () => {
-      // First fetch returns an epoch whose endTimestamp is already in the
-      // past. The cache check `epochEndTimestamp > now` fails, so the
-      // next call must refetch even within cacheTtlMs.
-      const { readable, getEpochStub } = makeReadable({
-        epoch: {
-          epochIndex: 1,
-          startTimestamp: Date.now() - 10_000,
-          endTimestamp: Date.now() - 1, // already ended
-        },
-      });
-      const src = new SolanaEpochSource({
-        readable,
-        log: makeLog(),
-        cacheTtlMs: 60_000, // long TTL — but cache shouldn't be used
+      const { src, fetchStub } = makeSource({
+        currentEpochIndex: 1, // active = 0
+        genesisTimestamp: Math.floor(Date.now() / 1000) - 10_000, // far past
+        epochDuration: 1, // 1-second epochs → already ended
+        cacheTtlMs: 60_000, // long ttl, cache shouldn't apply
       });
       await src.getEpochParams();
       await src.getEpochParams();
-      expect(getEpochStub.callCount).to.equal(2);
+      expect(fetchStub.callCount).to.equal(2);
     });
 
     it('refetches after cacheTtlMs expires', async () => {
-      const { readable, getEpochStub } = makeReadable({
-        epoch: {
-          epochIndex: 1,
-          startTimestamp: Date.now() - 1000,
-          endTimestamp: Date.now() + 1_000_000_000, // far future
-        },
-      });
-      const src = new SolanaEpochSource({
-        readable,
-        log: makeLog(),
-        cacheTtlMs: 1, // 1ms ttl
+      const { src, fetchStub } = makeSource({
+        currentEpochIndex: 2,
+        genesisTimestamp: Math.floor(Date.now() / 1000) - 60,
+        epochDuration: 1_000_000_000, // very far future end
+        cacheTtlMs: 1,
       });
       await src.getEpochParams();
-      // Sleep to clear cache.
       await new Promise((r) => setTimeout(r, 5));
       await src.getEpochParams();
-      expect(getEpochStub.callCount).to.equal(2);
+      expect(fetchStub.callCount).to.equal(2);
     });
 
-    it('propagates errors from the SDK readable', async () => {
-      const { readable } = makeReadable({
-        throws: new Error('Epoch 99 not found'),
+    it('propagates errors from the underlying fetch', async () => {
+      const { src } = makeSource({
+        currentEpochIndex: 1,
+        genesisTimestamp: 0,
+        epochDuration: 3600,
       });
-      const src = new SolanaEpochSource({ readable, log: makeLog() });
+      (src as any).fetchSettings = sinon
+        .stub()
+        .rejects(new Error('PDA not found'));
       let threw = false;
       try {
         await src.getEpochParams();
@@ -151,28 +165,26 @@ describe('SolanaEpochSource', () => {
 
   describe('convenience methods', () => {
     it('getEpochStartTimestamp / getEpochEndTimestamp / getEpochIndex delegate to getEpochParams', async () => {
-      const { readable } = makeReadable({
-        epoch: {
-          epochIndex: 42,
-          startTimestamp: 1_111,
-          endTimestamp: 2_222,
-        },
+      const { src } = makeSource({
+        currentEpochIndex: 18,
+        genesisTimestamp: 1_700_000_000,
+        epochDuration: 3600,
       });
-      const src = new SolanaEpochSource({ readable, log: makeLog() });
-      expect(await src.getEpochStartTimestamp()).to.equal(1_111);
-      expect(await src.getEpochEndTimestamp()).to.equal(2_222);
-      expect(await src.getEpochIndex()).to.equal(42);
+      expect(await src.getEpochStartTimestamp()).to.equal(
+        (1_700_000_000 + 17 * 3600) * 1000,
+      );
+      expect(await src.getEpochEndTimestamp()).to.equal(
+        (1_700_000_000 + 18 * 3600) * 1000,
+      );
+      expect(await src.getEpochIndex()).to.equal(17);
     });
 
     it('getEpochStartHeight always returns 0 (no Arweave dep)', async () => {
-      const { readable } = makeReadable({
-        epoch: {
-          epochIndex: 1,
-          startTimestamp: 0,
-          endTimestamp: 1_000_000_000_000_000,
-        },
+      const { src } = makeSource({
+        currentEpochIndex: 18,
+        genesisTimestamp: 1_700_000_000,
+        epochDuration: 3600,
       });
-      const src = new SolanaEpochSource({ readable, log: makeLog() });
       expect(await src.getEpochStartHeight()).to.equal(0);
     });
   });
