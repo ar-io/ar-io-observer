@@ -15,11 +15,49 @@ describe('cranker error classification', () => {
       expect(parseAnchorErrorCode(err)).to.equal(6037);
     });
 
-    it('extracts framework error code 3012 (AccountNotInitialized)', () => {
+    it('extracts framework error code 3007 (AccountOwnedByWrongProgram)', () => {
       const err = new Error(
-        'AnchorError caused by account: observation. Error Code: AccountNotInitialized. Error Number: 3012. Error Message: The program expected this account to be already initialized.',
+        'AnchorError caused by account: observation. Error Code: AccountOwnedByWrongProgram. Error Number: 3007. Error Message: The given account is owned by a different program than expected.',
       );
-      expect(parseAnchorErrorCode(err)).to.equal(3012);
+      expect(parseAnchorErrorCode(err)).to.equal(3007);
+    });
+
+    it('extracts hex `custom program error: 0xbbf` (= 3007) form from simulation failures', () => {
+      // What we actually see in `[crank:close_observation]` logs when
+      // the cranker hits a non-existent Observation PDA.
+      const err = new Error('Transaction simulation failed: custom program error: 0xbbf');
+      expect(parseAnchorErrorCode(err)).to.equal(3007);
+    });
+
+    it('walks the cause chain on a SolanaError (top-level message is generic)', () => {
+      // Reproduces the actual shape thrown by the SDK's
+      // `sendAndConfirm`: a `SolanaError` whose `message` is just
+      // "Transaction simulation failed", with the specific code packed
+      // in `cause.context.logs[]` and `cause.context.err`.
+      const inner = Object.assign(new Error('custom program error: #3007'), {
+        context: {
+          logs: [
+            'Program AF8QAEaR4hzsqeUDwEdeTXMYtdyFegTENBdnJro6WVLR invoke [1]',
+            'Program log: Instruction: CloseObservation',
+            'Program log: AnchorError caused by account: observation. Error Code: AccountOwnedByWrongProgram. Error Number: 3007. Error Message: The given account is owned by a different program than expected.',
+            'Program AF8QAEaR4hzsqeUDwEdeTXMYtdyFegTENBdnJro6WVLR failed: custom program error: 0xbbf',
+          ],
+          err: { InstructionError: [2, { Custom: 3007 }] },
+        },
+      });
+      const outer = Object.assign(new Error('Transaction simulation failed'), {
+        cause: inner,
+      });
+      expect(parseAnchorErrorCode(outer)).to.equal(3007);
+    });
+
+    it('extracts the `Custom: NNNN` form from kit-packed `context.err`', () => {
+      const err = Object.assign(new Error('Transaction simulation failed'), {
+        context: {
+          err: { InstructionError: [2, { Custom: 6037 }] },
+        },
+      });
+      expect(parseAnchorErrorCode(err)).to.equal(6037);
     });
 
     it('extracts hex `custom program error: 0xNN` form', () => {
@@ -57,15 +95,39 @@ describe('cranker error classification', () => {
       }
     });
 
-    it('categorises Anchor `AccountNotInitialized` (3012) as "already_done"', () => {
-      // The cranker walks all registry observers looking for stale
-      // Observation PDAs to close. Missing PDAs are expected — anyone
-      // who didn't observe doesn't have one. The classifier folds
-      // 3012 into already_done so the cleanup loop runs quietly.
-      const err = new Error(
-        'AnchorError ... Error Number: 3012 ... AccountNotInitialized',
-      );
-      expect(classifyError(err)).to.equal('already_done');
+    it('categorises Anchor `AccountOwnedByWrongProgram` (3007) and `AccountNotInitialized` (3012) as "already_done"', () => {
+      // Both codes mean the same thing for the cranker's close-observation
+      // cleanup loop: the candidate PDA address doesn't currently hold
+      // an Observation account, so there's nothing to close. 3007 is
+      // what we observe in practice (PDA never initialized → System
+      // Program owns the slot); 3012 is defensive coverage for
+      // zero-data accounts.
+      expect(
+        classifyError(new Error('AnchorError ... Error Number: 3007 ... AccountOwnedByWrongProgram')),
+      ).to.equal('already_done');
+      expect(
+        classifyError(new Error('AnchorError ... Error Number: 3012 ... AccountNotInitialized')),
+      ).to.equal('already_done');
+      // And the simulation-failure hex form that we actually see in
+      // close_observation logs:
+      expect(
+        classifyError(new Error('Transaction simulation failed: custom program error: 0xbbf')),
+      ).to.equal('already_done');
+      // And the realistic SolanaError cause chain produced by the SDK
+      // when close_observation hits a non-existent PDA:
+      const inner = Object.assign(new Error('custom program error: #3007'), {
+        context: {
+          logs: [
+            'Program log: AnchorError ... Error Number: 3007 ... AccountOwnedByWrongProgram',
+            'Program ... failed: custom program error: 0xbbf',
+          ],
+          err: { InstructionError: [2, { Custom: 3007 }] },
+        },
+      });
+      const outer = Object.assign(new Error('Transaction simulation failed'), {
+        cause: inner,
+      });
+      expect(classifyError(outer)).to.equal('already_done');
     });
 
     it('categorises not-yet-ready GAR errors as "not_ready"', () => {
