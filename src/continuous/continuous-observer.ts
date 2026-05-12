@@ -588,9 +588,25 @@ export class ContinuousObserver {
     const report = this.aggregateObservations();
 
     try {
-      await this.reportSink.saveReport({ report });
-      this.log.info('Report submitted successfully', {
+      const result = await this.reportSink.saveReport({ report });
+      // `reportTxId` is populated by `TurboReportSink` on successful
+      // Arweave upload. If the pipeline early-returned (e.g. the
+      // failure-threshold gate in `PipelineReportSink`), no downstream
+      // sink ran and `reportTxId` stays undefined. Don't claim success
+      // and don't flip `reportSubmitted` — let the next cycle re-try
+      // until either the report goes through or the submission deadline
+      // closes naturally.
+      if (result.reportTxId === undefined) {
+        this.log.warn(
+          'Report dropped by pipeline (no downstream sink reached); will retry next cycle',
+          { epochIndex: report.epochIndex },
+        );
+        return false;
+      }
+      this.log.info('Report submitted', {
         epochIndex: report.epochIndex,
+        reportTxId: result.reportTxId,
+        interactionTxIds: result.interactionTxIds,
       });
       return true;
     } catch (error: any) {

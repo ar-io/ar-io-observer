@@ -19,6 +19,14 @@ export type ErrorCategory = 'already_done' | 'not_ready' | 'real';
 const ALREADY_DONE_ERRORS = new Set<number>([
   // AlreadyInitialized (Anchor built-in) — epoch account already exists
   0,
+  // AccountNotInitialized (Anchor framework, code 3012). For
+  // `close_observation`, this fires when the Observation PDA doesn't
+  // exist because the prescribed observer never submitted. The
+  // cranker's cleanup loop walks every registry observer; misses are
+  // expected. Treat as `already_done` (semantically: nothing to close
+  // means already in the desired state) so the loop keeps moving
+  // without polluting logs at error level.
+  3012,
   // RewardsAlreadyDistributed (variant 37)
   6037,
   // EpochAlreadyExists (variant 41)

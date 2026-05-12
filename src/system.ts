@@ -682,6 +682,7 @@ if (!config.SUBMIT_CONTRACT_INTERACTIONS) {
 export const reportSink = new PipelineReportSink({
   log,
   sinks: stores,
+  maxGatewayFailureThreshold: config.OBSERVER_MAX_GATEWAY_FAILURE_THRESHOLD,
 });
 
 // Continuous observation state store

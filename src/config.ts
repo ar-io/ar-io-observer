@@ -305,6 +305,37 @@ function parseNonNegativeFloatEnv(name: string, defaultValue: string): number {
   return value;
 }
 
+/** Parse a `[0, 1]` float (inclusive). Used for percentage-style thresholds. */
+function parseFractionEnv(name: string, defaultValue: string): number {
+  const raw = env.varOrDefault(name, defaultValue);
+  const value = Number.parseFloat(raw);
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(
+      `Invalid configuration: ${name}='${raw}' must be a number in [0, 1].`,
+    );
+  }
+  return value;
+}
+
+/**
+ * Maximum fraction of gateways that may be reported as failed before
+ * `PipelineReportSink` refuses to forward the report. Protects against
+ * a misconfigured observer (broken DNS, firewall blocking, etc.) from
+ * blasting the network with false negatives — if everything looks
+ * broken, assume the observer is the problem and refuse to ship.
+ *
+ * Production default `0.8` is correct on a healthy network. On devnet
+ * (where most gateways are intentional stubs that don't serve HTTP),
+ * 100% failure is the honest answer and the gate falsely suppresses
+ * legitimate reports — set to `1.0` there so only the literal "every
+ * gateway failed including ourselves" case is filtered (which can't
+ * happen with `>` semantics, so 1.0 effectively disables the gate).
+ */
+export const OBSERVER_MAX_GATEWAY_FAILURE_THRESHOLD = parseFractionEnv(
+  'OBSERVER_MAX_GATEWAY_FAILURE_THRESHOLD',
+  '0.8',
+);
+
 export const SOLANA_RPC_URL = env.varOrDefault(
   'SOLANA_RPC_URL',
   'https://api.mainnet-beta.solana.com',

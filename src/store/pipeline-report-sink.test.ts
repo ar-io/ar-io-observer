@@ -244,6 +244,59 @@ describe('PipelineReportSink', function () {
       expect((logStub.error as sinon.SinonStub).calledOnce).to.be.true;
       expect(result).to.equal(reportInfo);
     });
+
+    it('honors a custom maxGatewayFailureThreshold below the default', async function () {
+      // Threshold 0.5 → 60% failure should trip; 50% should pass.
+      const sinks: ReportSinkEntry[] = [
+        { name: 'sink1', sink: mockSink1 },
+      ];
+      pipelineReportSink = new PipelineReportSink({
+        log: logStub,
+        sinks,
+        maxGatewayFailureThreshold: 0.5,
+      });
+      // 60% failure (6/10) — above threshold 0.5, should drop.
+      const report = createMockReport(10, 6);
+      const result = await pipelineReportSink.saveReport({ report });
+      expect((mockSink1.saveReport as sinon.SinonStub).called).to.be.false;
+      expect((logStub.error as sinon.SinonStub).calledOnce).to.be.true;
+      const errCall = (logStub.error as sinon.SinonStub).firstCall;
+      expect(errCall.args[0]).to.include('More than 50% of gateways failed');
+      expect(errCall.args[1]).to.deep.include({ threshold: '50%' });
+      expect(result.report).to.equal(report); // unchanged passthrough
+    });
+
+    it('disables the gate when maxGatewayFailureThreshold = 1.0 (forwards 100% failure reports)', async function () {
+      // On devnet with stub gateways, the operator sets the threshold
+      // to 1.0 so honest "everything is broken" reports still ship.
+      // With `>` semantics, 1.0 can never trip (100% > 1.0 is false).
+      const sinks: ReportSinkEntry[] = [
+        { name: 'sink1', sink: mockSink1 },
+        { name: 'sink2', sink: mockSink2 },
+      ];
+      pipelineReportSink = new PipelineReportSink({
+        log: logStub,
+        sinks,
+        maxGatewayFailureThreshold: 1.0,
+      });
+      const report = createMockReport(10, 10); // 100% failures
+      await pipelineReportSink.saveReport({ report });
+      expect((mockSink1.saveReport as sinon.SinonStub).calledOnce).to.be.true;
+      expect((mockSink2.saveReport as sinon.SinonStub).calledOnce).to.be.true;
+      expect((logStub.error as sinon.SinonStub).called).to.be.false;
+    });
+
+    it('handles an empty gateway-assessments map without crashing (no divide-by-zero)', async function () {
+      const sinks: ReportSinkEntry[] = [
+        { name: 'sink1', sink: mockSink1 },
+      ];
+      pipelineReportSink = new PipelineReportSink({ log: logStub, sinks });
+      const report = createMockReport(0, 0); // no gateways
+      await pipelineReportSink.saveReport({ report });
+      // 0/0 is treated as 0% failure — should forward, not trip.
+      expect((mockSink1.saveReport as sinon.SinonStub).calledOnce).to.be.true;
+      expect((logStub.error as sinon.SinonStub).called).to.be.false;
+    });
   });
 
   describe('saveReport - pipeline functionality', function () {
