@@ -271,7 +271,11 @@ describe('ContinuousObserver Integration', function () {
         },
         entropySource,
         stateStore,
-        reportSink,
+        // Wire the single test stub as the persistence sink. Tests
+        // that exercise the submission pipeline explicitly pass a
+        // distinct `submissionSink` (none of these do today, but the
+        // split is observable to callers).
+        persistenceSink: reportSink,
         nodeReleaseVersion: 'test-release',
         nameAssessmentConcurrency: 1,
         config: {
@@ -453,7 +457,11 @@ describe('ContinuousObserver Integration', function () {
         },
         entropySource,
         stateStore,
-        reportSink,
+        // Wire the single test stub as the persistence sink. Tests
+        // that exercise the submission pipeline explicitly pass a
+        // distinct `submissionSink` (none of these do today, but the
+        // split is observable to callers).
+        persistenceSink: reportSink,
         nodeReleaseVersion: 'test-release',
         nameAssessmentConcurrency: 1,
         config: {
@@ -1056,6 +1064,248 @@ describe('ContinuousObserver Integration', function () {
           : observations[observations.length - 1];
 
       expect(best.observedAt).to.equal(3000);
+    });
+  });
+
+  describe('Persistence + Submission Split', function () {
+    // Exercises `finalizeAndSubmitReport` directly with a hand-rolled
+    // observer so we can verify the two-phase semantics without
+    // standing up the whole scheduler.
+    function newObserver(opts: {
+      persistenceSink: { saveReport: sinon.SinonStub };
+      submissionSink?: { saveReport: sinon.SinonStub };
+      submissionGate?: sinon.SinonStub;
+    }): ContinuousObserver {
+      const observer = new ContinuousObserver({
+        observerAddress: 'observer-wallet',
+        referenceGateway: {
+          getArnsResolution: sinon.stub().rejects(new Error('unused')),
+          checkChunkAvailability: sinon.stub().rejects(new Error('unused')),
+          getChunkMetadata: sinon.stub().rejects(new Error('unused')),
+        },
+        epochSource: {
+          getEpochIndex: sinon.stub().resolves(1),
+          getEpochStartTimestamp: sinon.stub().resolves(epochStartTimestamp),
+          getEpochEndTimestamp: sinon.stub().resolves(epochEndTimestamp),
+          getEpochStartHeight: sinon.stub().resolves(epochStartHeight),
+          getEpochSettings: sinon.stub().resolves({
+            epochZeroStartTimestamp: 0,
+            durationMs: epochEndTimestamp - epochStartTimestamp,
+          }),
+        },
+        hostsSource: { getHosts: sinon.stub().resolves(gateways) },
+        prescribedNamesSource: { getNames: sinon.stub().resolves([]) },
+        chosenNamesSource: { getNames: sinon.stub().resolves([]) },
+        entropySource,
+        stateStore: {
+          load: sinon.stub().resolves(null),
+          save: sinon.stub().resolves(),
+          clear: sinon.stub().resolves(),
+        } as any,
+        persistenceSink: opts.persistenceSink,
+        submissionSink: opts.submissionSink,
+        submissionGate: opts.submissionGate as any,
+        nodeReleaseVersion: 'test-release',
+        nameAssessmentConcurrency: 1,
+        log: testLog,
+      });
+      // Minimal state so finalize doesn't trip the "not initialized" guard.
+      (observer as any).state = {
+        epochIndex: 7,
+        epochStartTimestamp,
+        epochEndTimestamp,
+        epochStartHeight,
+        windowStart: epochStartTimestamp,
+        windowEnd: epochEndTimestamp,
+        gatewayObservations: new Map(),
+        gatewayWallets: new Map(),
+        pendingObservations: [],
+        prescribedNames: [],
+        chosenNames: [],
+        reportSubmitted: false,
+        submissionDeadlineExceeded: false,
+      };
+      return observer;
+    }
+
+    function persistenceSinkStub(): { saveReport: sinon.SinonStub } {
+      return {
+        saveReport: sinon
+          .stub()
+          .callsFake(async (info: any) => ({ ...info, persistedLocally: true })),
+      };
+    }
+
+    function submissionSinkStub(reportTxId = 'arweave-mock-tx'): {
+      saveReport: sinon.SinonStub;
+    } {
+      return {
+        saveReport: sinon
+          .stub()
+          .callsFake(async (info: any) => ({ ...info, reportTxId })),
+      };
+    }
+
+    afterEach(() => sinon.restore());
+
+    it('persistence always runs; submission runs when gate proceeds', async function () {
+      const persistence = persistenceSinkStub();
+      const submission = submissionSinkStub();
+      const gate = sinon.stub().resolves({ proceed: true });
+      const observer = newObserver({
+        persistenceSink: persistence,
+        submissionSink: submission,
+        submissionGate: gate,
+      });
+
+      const submitted = await (observer as any).finalizeAndSubmitReport();
+
+      expect(submitted).to.equal(true);
+      expect(persistence.saveReport.calledOnce).to.be.true;
+      expect(gate.calledOnce).to.be.true;
+      expect(submission.saveReport.calledOnce).to.be.true;
+      // Submission must receive the persistence-augmented info object
+      // (so any sink-injected fields propagate downstream).
+      expect(submission.saveReport.firstCall.args[0]).to.have.property(
+        'persistedLocally',
+        true,
+      );
+    });
+
+    it('persistence runs but submission is SKIPPED when gate denies (not prescribed)', async function () {
+      const persistence = persistenceSinkStub();
+      const submission = submissionSinkStub();
+      const gate = sinon.stub().resolves({
+        proceed: false,
+        reason: 'observer not prescribed for this epoch',
+      });
+      const observer = newObserver({
+        persistenceSink: persistence,
+        submissionSink: submission,
+        submissionGate: gate,
+      });
+
+      const submitted = await (observer as any).finalizeAndSubmitReport();
+
+      // `true` so the caller flips reportSubmitted and won't retry —
+      // there's no on-chain pathway, retrying is pointless.
+      expect(submitted).to.equal(true);
+      expect(persistence.saveReport.calledOnce).to.be.true;
+      expect(gate.calledOnce).to.be.true;
+      expect(submission.saveReport.called).to.be.false;
+    });
+
+    it('gate threw → returns false (retry next cycle, do NOT submit)', async function () {
+      // The whole point of the split: if we can't determine
+      // prescription, don't burn credits on a Turbo upload we may not
+      // be able to back with an on-chain tx.
+      const persistence = persistenceSinkStub();
+      const submission = submissionSinkStub();
+      const gate = sinon.stub().rejects(new Error('RPC timeout'));
+      const observer = newObserver({
+        persistenceSink: persistence,
+        submissionSink: submission,
+        submissionGate: gate,
+      });
+
+      const submitted = await (observer as any).finalizeAndSubmitReport();
+
+      expect(submitted).to.equal(false);
+      expect(persistence.saveReport.calledOnce).to.be.true;
+      expect(submission.saveReport.called).to.be.false;
+    });
+
+    it('no submission pipeline wired → persistence runs, returns true (terminal)', async function () {
+      // Dev / dry-run setup with no Turbo + no contract submission.
+      const persistence = persistenceSinkStub();
+      const observer = newObserver({ persistenceSink: persistence });
+
+      const submitted = await (observer as any).finalizeAndSubmitReport();
+
+      expect(submitted).to.equal(true);
+      expect(persistence.saveReport.calledOnce).to.be.true;
+    });
+
+    it('no gate but submission wired → submission always runs (legacy behavior)', async function () {
+      // Back-compat path for setups that don't wire a Solana gate
+      // (e.g. older AO configs where the contract itself rejected
+      // non-prescribed submissions).
+      const persistence = persistenceSinkStub();
+      const submission = submissionSinkStub();
+      const observer = newObserver({
+        persistenceSink: persistence,
+        submissionSink: submission,
+      });
+
+      const submitted = await (observer as any).finalizeAndSubmitReport();
+
+      expect(submitted).to.equal(true);
+      expect(persistence.saveReport.calledOnce).to.be.true;
+      expect(submission.saveReport.calledOnce).to.be.true;
+    });
+
+    it('persistence sink threw → returns false (retry); submission must NOT run', async function () {
+      const persistence = {
+        saveReport: sinon.stub().rejects(new Error('disk full')),
+      };
+      const submission = submissionSinkStub();
+      const gate = sinon.stub().resolves({ proceed: true });
+      const observer = newObserver({
+        persistenceSink: persistence,
+        submissionSink: submission,
+        submissionGate: gate,
+      });
+
+      const submitted = await (observer as any).finalizeAndSubmitReport();
+
+      expect(submitted).to.equal(false);
+      expect(gate.called).to.be.false;
+      expect(submission.saveReport.called).to.be.false;
+    });
+
+    it('submission pipeline returned no reportTxId → returns false (retry)', async function () {
+      // E.g. PipelineReportSink's 80%-failure threshold dropped the
+      // report mid-submission, or a network blip swallowed in the
+      // Turbo sink's catch.
+      const persistence = persistenceSinkStub();
+      const submission = {
+        saveReport: sinon
+          .stub()
+          .callsFake(async (info: any) => info /* no reportTxId */),
+      };
+      const gate = sinon.stub().resolves({ proceed: true });
+      const observer = newObserver({
+        persistenceSink: persistence,
+        submissionSink: submission,
+        submissionGate: gate,
+      });
+
+      const submitted = await (observer as any).finalizeAndSubmitReport();
+
+      expect(submitted).to.equal(false);
+      expect(persistence.saveReport.calledOnce).to.be.true;
+      expect(submission.saveReport.calledOnce).to.be.true;
+    });
+
+    it('gate is called with the same report that submission sees', async function () {
+      const persistence = persistenceSinkStub();
+      const submission = submissionSinkStub();
+      const gate = sinon.stub().resolves({ proceed: true });
+      const observer = newObserver({
+        persistenceSink: persistence,
+        submissionSink: submission,
+        submissionGate: gate,
+      });
+
+      await (observer as any).finalizeAndSubmitReport();
+
+      const gateArg = gate.firstCall.args[0];
+      const submissionArg = submission.saveReport.firstCall.args[0];
+      // Both look at the same epoch + observer identity.
+      expect(gateArg.epochIndex).to.equal(submissionArg.report.epochIndex);
+      expect(gateArg.observerAddress).to.equal(
+        submissionArg.report.observerAddress,
+      );
     });
   });
 });

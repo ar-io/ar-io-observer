@@ -31,6 +31,7 @@ import {
   ObserverReport,
   ReferenceGatewaySource,
   ReportSink,
+  SubmissionGate,
 } from '../types.js';
 import { ContinuousObservationScheduler } from './continuous-observation-scheduler.js';
 import { ObservationStateStore } from './observation-state-store.js';
@@ -70,7 +71,15 @@ export class ContinuousObserver {
   private readonly chosenNamesSource: ArnsNamesSource;
   private readonly entropySource: EntropySource;
   private readonly stateStore: ObservationStateStore;
-  private readonly reportSink: ReportSink;
+  // Pipeline split: persistence ALWAYS runs (local record, restart-restore);
+  // submission runs only when `submissionGate` allows it (e.g. observer
+  // is VRF-prescribed for this epoch + hasn't already submitted). On a
+  // dev setup with no Solana wiring, both `submissionSink` and
+  // `submissionGate` can be undefined — the observer behaves like a
+  // pure persistence loop.
+  private readonly persistenceSink: ReportSink;
+  private readonly submissionSink: ReportSink | undefined;
+  private readonly submissionGate: SubmissionGate | undefined;
   private readonly config: ContinuousObserverConfig;
   private readonly log: Logger;
 
@@ -91,7 +100,9 @@ export class ContinuousObserver {
     chosenNamesSource,
     entropySource,
     stateStore,
-    reportSink,
+    persistenceSink,
+    submissionSink,
+    submissionGate,
     nodeReleaseVersion,
     nameAssessmentConcurrency,
     config,
@@ -105,7 +116,17 @@ export class ContinuousObserver {
     chosenNamesSource: ArnsNamesSource;
     entropySource: EntropySource;
     stateStore: ObservationStateStore;
-    reportSink: ReportSink;
+    /** Local-only sinks (FsReportStore, LogReportSink). Always run. */
+    persistenceSink: ReportSink;
+    /** External-submission sinks (Turbo upload + Solana on-chain).
+     *  Runs only when `submissionGate` returns `proceed: true`, or
+     *  unconditionally when no gate is provided. Omit on dev setups
+     *  that don't submit. */
+    submissionSink?: ReportSink;
+    /** Predicate that decides whether the submission pipeline should
+     *  run this cycle (typically: am I prescribed? have I already
+     *  submitted?). Omit to always submit (legacy / AO behavior). */
+    submissionGate?: SubmissionGate;
     nodeReleaseVersion: string;
     nameAssessmentConcurrency: number;
     config?: Partial<ContinuousObserverConfig>;
@@ -118,7 +139,9 @@ export class ContinuousObserver {
     this.chosenNamesSource = chosenNamesSource;
     this.entropySource = entropySource;
     this.stateStore = stateStore;
-    this.reportSink = reportSink;
+    this.persistenceSink = persistenceSink;
+    this.submissionSink = submissionSink;
+    this.submissionGate = submissionGate;
     this.log = log.child({ class: 'ContinuousObserver' });
 
     this.config = {
@@ -573,7 +596,31 @@ export class ContinuousObserver {
   }
 
   /**
-   * Finalize observations and submit the report.
+   * Finalize the report for this epoch in two phases:
+   *
+   *   1. Persistence pipeline — ALWAYS runs. FsReportStore (and
+   *      LogReportSink if enabled) record the report locally so we
+   *      can restart-restore and operators can audit assessments
+   *      whether or not we end up submitting.
+   *
+   *   2. Submission pipeline — runs ONLY if `submissionGate` proceeds
+   *      (typically: we're VRF-prescribed for this epoch and haven't
+   *      already submitted). Turbo uploads the bundle, then
+   *      SolanaContractReportSink lands `save_observations` on-chain.
+   *
+   * Return semantics — what the caller uses to flip `reportSubmitted`
+   * (so we don't re-run this for the rest of the epoch):
+   *
+   *   - true:   Submission ran and produced a `reportTxId`. Done.
+   *   - true:   Gate said `proceed: false` (e.g. not prescribed). The
+   *             epoch is terminal — nothing more to do this epoch.
+   *   - true:   No submission pipeline wired at all (persistence-only
+   *             dev setup). Persistence ran, nothing else to do.
+   *   - false:  Submission pipeline ran but no `reportTxId` came back
+   *             (a downstream gate dropped it — e.g. failure-rate
+   *             threshold). Retry next cycle.
+   *   - false:  Submission pipeline threw. Retry next cycle.
+   *   - false:  Gate threw (RPC indeterminate). Retry next cycle.
    */
   private async finalizeAndSubmitReport(): Promise<boolean> {
     if (!this.state) {
@@ -587,18 +634,64 @@ export class ContinuousObserver {
 
     const report = this.aggregateObservations();
 
+    // ----- Phase 1: persistence ALWAYS runs -----
+    let persisted;
     try {
-      const result = await this.reportSink.saveReport({ report });
-      // `reportTxId` is populated by `TurboReportSink` on successful
-      // Arweave upload. If the pipeline early-returned (e.g. the
-      // failure-threshold gate in `PipelineReportSink`), no downstream
-      // sink ran and `reportTxId` stays undefined. Don't claim success
-      // and don't flip `reportSubmitted` — let the next cycle re-try
-      // until either the report goes through or the submission deadline
-      // closes naturally.
-      if (result.reportTxId === undefined) {
+      persisted = await this.persistenceSink.saveReport({ report });
+    } catch (error: any) {
+      // A persistence failure is a real defect (disk full, permissions,
+      // etc.). Log and bail — without local state we can't safely flip
+      // `reportSubmitted`, since a restart wouldn't be able to restore.
+      this.log.error('Persistence pipeline failed; will retry next cycle', {
+        epochIndex: report.epochIndex,
+        error: error.message,
+      });
+      return false;
+    }
+
+    // ----- Phase 2 (optional): external submission, gated -----
+    if (this.submissionSink === undefined) {
+      // Persistence-only setup (e.g. dev). Phase 1 already covered.
+      this.log.info('Report persisted (no submission pipeline wired)', {
+        epochIndex: report.epochIndex,
+      });
+      return true;
+    }
+
+    if (this.submissionGate !== undefined) {
+      let decision;
+      try {
+        decision = await this.submissionGate(report);
+      } catch (error: any) {
+        // Indeterminate — don't burn credits, don't mark done; retry
+        // next cycle. If the gate keeps failing, the submission window
+        // will eventually close (the scheduler logs that as a warn).
         this.log.warn(
-          'Report dropped by pipeline (no downstream sink reached); will retry next cycle',
+          'Submission gate threw (indeterminate); will retry next cycle',
+          { epochIndex: report.epochIndex, error: error.message },
+        );
+        return false;
+      }
+      if (!decision.proceed) {
+        // Terminal for this epoch — no on-chain pathway exists.
+        // Persistence already saved the local copy.
+        this.log.info('Submission skipped — epoch is terminal for us', {
+          epochIndex: report.epochIndex,
+          reason: decision.reason ?? 'gate returned proceed=false',
+        });
+        return true;
+      }
+    }
+
+    // ----- Submission pipeline runs -----
+    try {
+      const result = await this.submissionSink.saveReport(persisted);
+      if (result.reportTxId === undefined) {
+        // The submission pipeline dropped the report (e.g. the 80%
+        // failure-rate safety inside PipelineReportSink, or a Turbo
+        // upload error logged but swallowed). Don't claim success.
+        this.log.warn(
+          'Submission pipeline produced no reportTxId; will retry next cycle',
           { epochIndex: report.epochIndex },
         );
         return false;
@@ -610,7 +703,7 @@ export class ContinuousObserver {
       });
       return true;
     } catch (error: any) {
-      this.log.error('Failed to submit report', {
+      this.log.error('Submission pipeline failed; will retry next cycle', {
         epochIndex: report.epochIndex,
         error: error.message,
       });

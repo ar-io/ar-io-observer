@@ -225,6 +225,25 @@ export interface ReportSink {
   saveReport(reportInfo: ReportInfo): Promise<ReportInfo>;
 }
 
+/**
+ * Predicate evaluated by {@link ContinuousObserver} before the
+ * submission pipeline runs. Returns `{ proceed: false, reason }` to
+ * short-circuit the external-submission pipeline (Turbo upload +
+ * on-chain `save_observations`) while still running the persistence
+ * pipeline. The canonical Solana implementation reads the Epoch
+ * account once per cycle and decides based on prescription /
+ * already-observed status.
+ *
+ * Throws are propagated and treated by the observer as "indeterminate
+ * — retry next cycle." That's the right call when the gate's RPC
+ * fails: a transient blip shouldn't permanently mark an epoch
+ * un-submittable, but also shouldn't fail-open and upload to Arweave
+ * for a report we can't on-chain anyway.
+ */
+export type SubmissionGate = (
+  report: ObserverReport,
+) => Promise<{ proceed: boolean; reason?: string }>;
+
 export interface ReportStore {
   saveReport(reportInfo: ReportInfo): Promise<ReportInfo>;
   /**
