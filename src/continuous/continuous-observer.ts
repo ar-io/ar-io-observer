@@ -89,6 +89,15 @@ export class ContinuousObserver {
   private state?: ObservationState;
   private prescribedNames: string[] = [];
   private chosenNames: string[] = [];
+  // True once `loadNamesAndInitializeAssessor` succeeds AND
+  // `prescribedNames.length > 0` for the current epoch. The cranker's
+  // `prescribe_epoch` instruction runs ~30-60s AFTER `create_epoch`
+  // (it has to wait for `tally_weights` to finish first). If we read
+  // the Epoch PDA in that window, `prescribed_names` is empty and so
+  // is the shared entropy that the chosen-name selector mixes in.
+  // We defer the read until the first observation cycle and re-try
+  // each cycle until it lands.
+  private prescribedNamesReady = false;
   private stopped = false;
 
   constructor({
@@ -244,8 +253,9 @@ export class ContinuousObserver {
       this.state = savedState;
       this.scheduler.restoreFromState(savedState);
 
-      // Restore names and initialize assessor
-      await this.loadNamesAndInitializeAssessor();
+      // Names + assessor are loaded lazily on the first observation
+      // cycle so we don't race the cranker's `prescribe_epoch`. See
+      // `prescribedNamesReady`.
     } else {
       // Initialize fresh for current epoch
       if (savedState !== null) {
@@ -334,9 +344,6 @@ export class ContinuousObserver {
       submissionDeadlineExceeded: false,
     };
 
-    // Load names and initialize assessor
-    await this.loadNamesAndInitializeAssessor();
-
     // Persist initial state
     await this.stateStore.save(this.state);
 
@@ -347,46 +354,74 @@ export class ContinuousObserver {
       windowEnd: new Date(windowEnd).toISOString(),
       totalObservations: schedule.length,
     });
+
+    // Names + assessor load lazily on the first observation cycle —
+    // see `prescribedNamesReady` for the why.
   }
 
   /**
    * Load ArNS names and initialize the assessor for the current epoch.
+   *
+   * Returns `true` once prescribed names are actually available on-
+   * chain (non-empty). The caller (`runObservationCycle`) treats
+   * `false` as "cranker hasn't run `prescribe_epoch` yet — retry next
+   * cycle." Until prescribed names are present, the shared epoch
+   * entropy is derived from an empty observer/name list, which
+   * weakens the chosen-name selection too — so we hold off on the
+   * whole load.
    */
-  private async loadNamesAndInitializeAssessor(): Promise<void> {
+  private async loadNamesAndInitializeAssessor(): Promise<boolean> {
     if (!this.state) {
       throw new Error('State not initialized');
     }
 
-    // Fetch names. `prescribedNamesSource` is keyed on `epochIndex`
-    // (the SDK's prescribed-name lookup is epoch-relative, not block-
-    // height-relative). The legacy AO `ContractNamesSource` had the
-    // same signature; the previous call site passed `epochStartHeight`
-    // by mistake, which silently resolved to `undefined` and crashed
-    // inside the SDK only AFTER the prior chain-entropy 400 was fixed.
-    // `chosenNamesSource` (RandomArnsNamesSource) is keyed on `height`
-    // for the entropy hop only — kept as-is.
-    const [prescribed, chosen] = await Promise.all([
-      this.prescribedNamesSource.getNames({
-        epochIndex: this.state.epochIndex,
-      }),
-      this.chosenNamesSource.getNames({
-        height: this.state.epochStartHeight,
-      }),
-    ]);
+    // `prescribedNamesSource` is keyed on `epochIndex` (the SDK's
+    // prescribed-name lookup is epoch-relative, not block-height-
+    // relative). Pre-prescribe_epoch this returns `[]`. Once the
+    // cranker lands prescribe_epoch the same call returns 2 names.
+    const prescribed = await this.prescribedNamesSource.getNames({
+      epochIndex: this.state.epochIndex,
+    });
+
+    if (prescribed.length === 0) {
+      this.log.verbose(
+        'Prescribed names not yet available on-chain — waiting for cranker',
+        { epochIndex: this.state.epochIndex },
+      );
+      return false;
+    }
+
+    // Only fetch chosen names once prescribed names are ready. Chosen
+    // names use the shared epoch entropy (which mixes in the
+    // prescribed observers + name hashes) — fetching pre-prescription
+    // would derive them from an empty entropy state.
+    const chosen = await this.chosenNamesSource.getNames({
+      height: this.state.epochStartHeight,
+    });
 
     this.prescribedNames = prescribed;
     this.chosenNames = chosen;
 
-    // Get entropy for this epoch
+    // Entropy is now fetched post-prescribe_epoch, so the on-chain
+    // observer list + name hashes are populated and feed into the
+    // hash. Cache invalidation in `SolanaEpochEntropySource` ensures
+    // any prior empty-state read is not reused.
     const entropy = await this.entropySource.getEntropy({
       height: this.state.epochStartHeight,
     });
 
-    // Initialize assessor
     this.assessor.initializeForEpoch({
       entropy,
       namesCount: this.prescribedNames.length + this.chosenNames.length,
     });
+
+    this.log.info('Names + assessor initialized for epoch', {
+      epochIndex: this.state.epochIndex,
+      prescribedCount: this.prescribedNames.length,
+      chosenCount: this.chosenNames.length,
+    });
+
+    return true;
   }
 
   /**
@@ -422,8 +457,26 @@ export class ContinuousObserver {
       // Clear state and reinitialize
       await this.stateStore.clear();
       this.assessor.clearEpochState();
+      this.prescribedNamesReady = false;
+      this.prescribedNames = [];
+      this.chosenNames = [];
       await this.initializeEpoch(currentEpochIndex);
       return;
+    }
+
+    // Lazy-load prescribed/chosen names + entropy once the cranker
+    // has actually run `prescribe_epoch`. We retry every cycle until
+    // it lands (typically within ~1 minute of epoch start). Without
+    // this, every cycle of the entire epoch would observe with an
+    // empty prescribed-name set — making pass/fail judgments off the
+    // chosen names alone, weakening the bitmap submission.
+    if (!this.prescribedNamesReady) {
+      const ready = await this.loadNamesAndInitializeAssessor();
+      if (!ready) {
+        this.updateCycleMetrics(now);
+        return;
+      }
+      this.prescribedNamesReady = true;
     }
 
     // Not yet in window? Wait

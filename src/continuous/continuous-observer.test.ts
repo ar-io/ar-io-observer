@@ -263,11 +263,16 @@ describe('ContinuousObserver Integration', function () {
         hostsSource: {
           getHosts: sinon.stub().resolves(gateways),
         },
+        // Non-empty prescribed list — the observer's new
+        // `prescribedNamesReady` gate skips the whole cycle when the
+        // contract hasn't run `prescribe_epoch` yet (returns []).
+        // These tests exercise the post-prescription flow, so stub
+        // realistic protocol-spec values.
         prescribedNamesSource: {
-          getNames: sinon.stub().resolves([]),
+          getNames: sinon.stub().resolves(['prescribed-1', 'prescribed-2']),
         },
         chosenNamesSource: {
-          getNames: sinon.stub().resolves([]),
+          getNames: sinon.stub().resolves(['chosen-1', 'chosen-2']),
         },
         entropySource,
         stateStore,
@@ -449,11 +454,16 @@ describe('ContinuousObserver Integration', function () {
         hostsSource: {
           getHosts: sinon.stub().resolves(gateways),
         },
+        // Non-empty prescribed list — the observer's new
+        // `prescribedNamesReady` gate skips the whole cycle when the
+        // contract hasn't run `prescribe_epoch` yet (returns []).
+        // These tests exercise the post-prescription flow, so stub
+        // realistic protocol-spec values.
         prescribedNamesSource: {
-          getNames: sinon.stub().resolves([]),
+          getNames: sinon.stub().resolves(['prescribed-1', 'prescribed-2']),
         },
         chosenNamesSource: {
-          getNames: sinon.stub().resolves([]),
+          getNames: sinon.stub().resolves(['chosen-1', 'chosen-2']),
         },
         entropySource,
         stateStore,
@@ -480,6 +490,12 @@ describe('ContinuousObserver Integration', function () {
     ): void {
       (observer as any).state = state;
       (observer as any).scheduler.restoreFromState(state);
+      // Tests in this block pre-inject `prescribedNames` + `chosenNames`
+      // and swap in a hand-rolled assessor mock that doesn't implement
+      // `initializeForEpoch`. Mark names as already-loaded so
+      // `runObservationCycle` skips the lazy load that would otherwise
+      // crash on the stub. Tests of the lazy-load gate live separately.
+      (observer as any).prescribedNamesReady = true;
     }
 
     it('drains multiple overdue observations for the same gateway in one cycle', async function () {
@@ -1306,6 +1322,166 @@ describe('ContinuousObserver Integration', function () {
       expect(gateArg.observerAddress).to.equal(
         submissionArg.report.observerAddress,
       );
+    });
+  });
+
+  describe('Prescribed-Name Lazy Load (prescribe_epoch race)', function () {
+    // Exercises the deferred name-load path. The cranker calls
+    // `prescribe_epoch` ~30-60s AFTER `create_epoch` (it has to wait
+    // on `tally_weights` to finish first). Eagerly reading prescribed
+    // names at epoch-detection time always returned []. The observer
+    // now retries each cycle until the cranker has run.
+
+    function newLazyLoadObserver(opts: {
+      prescribedNamesSource: { getNames: sinon.SinonStub };
+      chosenNamesSource: { getNames: sinon.SinonStub };
+      assessor?: any;
+    }): ContinuousObserver {
+      const observer = new ContinuousObserver({
+        observerAddress: 'observer-wallet',
+        referenceGateway: {
+          getArnsResolution: sinon.stub().rejects(new Error('unused')),
+          checkChunkAvailability: sinon.stub().rejects(new Error('unused')),
+          getChunkMetadata: sinon.stub().rejects(new Error('unused')),
+        },
+        epochSource: {
+          getEpochIndex: sinon.stub().resolves(1),
+          getEpochStartTimestamp: sinon.stub().resolves(epochStartTimestamp),
+          getEpochEndTimestamp: sinon.stub().resolves(epochEndTimestamp),
+          getEpochStartHeight: sinon.stub().resolves(epochStartHeight),
+          getEpochSettings: sinon.stub().resolves({
+            epochZeroStartTimestamp: 0,
+            durationMs: epochEndTimestamp - epochStartTimestamp,
+          }),
+        },
+        hostsSource: { getHosts: sinon.stub().resolves(gateways) },
+        prescribedNamesSource: opts.prescribedNamesSource,
+        chosenNamesSource: opts.chosenNamesSource,
+        entropySource,
+        stateStore: {
+          load: sinon.stub().resolves(null),
+          save: sinon.stub().resolves(),
+          clear: sinon.stub().resolves(),
+        } as any,
+        persistenceSink: { saveReport: sinon.stub().resolves({}) },
+        nodeReleaseVersion: 'test-release',
+        nameAssessmentConcurrency: 1,
+        log: testLog,
+      });
+      // Minimal state — past the epoch transition check but BEFORE the
+      // observation window opens, so the cycle exits after the lazy
+      // load attempt without trying to schedule any work.
+      (observer as any).state = {
+        epochIndex: 1,
+        epochStartTimestamp,
+        epochEndTimestamp,
+        epochStartHeight,
+        // Window in the future → `isBeforeWindow` returns true → cycle
+        // returns early after the load attempt, so we can assert
+        // purely on the prescribedNamesSource call count.
+        windowStart: Date.now() + 60_000,
+        windowEnd: Date.now() + 120_000,
+        gatewayObservations: new Map(),
+        gatewayWallets: new Map(),
+        pendingObservations: [],
+        prescribedNames: [],
+        chosenNames: [],
+        reportSubmitted: false,
+        submissionDeadlineExceeded: false,
+      };
+      if (opts.assessor) (observer as any).assessor = opts.assessor;
+      return observer;
+    }
+
+    afterEach(() => sinon.restore());
+
+    it('does NOT load names at epoch construction (defers to cycle)', async function () {
+      const prescribedNamesSource = {
+        getNames: sinon.stub().resolves(['p1', 'p2']),
+      };
+      const chosenNamesSource = {
+        getNames: sinon.stub().resolves(['c1']),
+      };
+      newLazyLoadObserver({ prescribedNamesSource, chosenNamesSource });
+      // Construction alone must not have triggered a load — that was
+      // the eager path that raced the cranker.
+      expect(prescribedNamesSource.getNames.called).to.equal(false);
+      expect(chosenNamesSource.getNames.called).to.equal(false);
+    });
+
+    it('skips the cycle and re-tries when prescribed names is empty (pre-prescribe_epoch)', async function () {
+      const prescribedNamesSource = {
+        getNames: sinon.stub().resolves([]), // cranker hasn't run yet
+      };
+      const chosenNamesSource = {
+        getNames: sinon.stub().resolves(['c1', 'c2']),
+      };
+      const assessor = {
+        initializeForEpoch: sinon.stub(),
+        assessOwnership: sinon.stub(),
+        assessGatewayArns: sinon.stub(),
+        clearEpochState: sinon.stub(),
+      };
+      const observer = newLazyLoadObserver({
+        prescribedNamesSource,
+        chosenNamesSource,
+        assessor,
+      });
+
+      await (observer as any).runObservationCycle();
+      await (observer as any).runObservationCycle();
+      await (observer as any).runObservationCycle();
+
+      // Each cycle retries the prescribed read; chosen is never
+      // fetched while prescribed is empty (would otherwise burn a
+      // RandomArnsNamesSource entropy read on stale state).
+      expect(prescribedNamesSource.getNames.callCount).to.equal(3);
+      expect(chosenNamesSource.getNames.called).to.equal(false);
+      expect(assessor.initializeForEpoch.called).to.equal(false);
+      expect((observer as any).prescribedNamesReady).to.equal(false);
+    });
+
+    it('initializes assessor + flips ready once prescribed names land', async function () {
+      const prescribedNamesSource = {
+        getNames: sinon
+          .stub()
+          .onFirstCall()
+          .resolves([]) // pre-prescribe
+          .onSecondCall()
+          .resolves(['p1', 'p2']), // post-prescribe
+      };
+      const chosenNamesSource = {
+        getNames: sinon.stub().resolves(['c1', 'c2', 'c3']),
+      };
+      const assessor = {
+        initializeForEpoch: sinon.stub(),
+        assessOwnership: sinon.stub(),
+        assessGatewayArns: sinon.stub(),
+        clearEpochState: sinon.stub(),
+      };
+      const observer = newLazyLoadObserver({
+        prescribedNamesSource,
+        chosenNamesSource,
+        assessor,
+      });
+
+      await (observer as any).runObservationCycle();
+      expect((observer as any).prescribedNamesReady).to.equal(false);
+
+      await (observer as any).runObservationCycle();
+      expect((observer as any).prescribedNamesReady).to.equal(true);
+      expect((observer as any).prescribedNames).to.deep.equal(['p1', 'p2']);
+      expect((observer as any).chosenNames).to.deep.equal(['c1', 'c2', 'c3']);
+      expect(assessor.initializeForEpoch.calledOnce).to.equal(true);
+      // namesCount = prescribed + chosen
+      expect(
+        assessor.initializeForEpoch.firstCall.args[0].namesCount,
+      ).to.equal(5);
+
+      // Third cycle — flag is already set, no re-fetch.
+      await (observer as any).runObservationCycle();
+      expect(prescribedNamesSource.getNames.callCount).to.equal(2);
+      expect(assessor.initializeForEpoch.callCount).to.equal(1);
     });
   });
 });
