@@ -33,7 +33,7 @@ import type winston from 'winston';
 import {
   deserializeEpochSettingsFull,
   getEpochSettingsPDA,
-} from '@ar.io/sdk/solana';
+} from '@ar.io/sdk';
 import type {
   EpochSettings,
   EpochTimestampParams,

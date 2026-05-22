@@ -15,7 +15,7 @@ import * as sinon from 'sinon';
 import * as winston from 'winston';
 import type { Address } from '@solana/kit';
 
-import type { SolanaARIOReadable, SolanaARIOWriteable } from '@ar.io/sdk/solana';
+import type { SolanaARIOReadable, SolanaARIOWriteable } from '@ar.io/sdk';
 import { SolanaContractReportSink } from './solana-contract-report-sink.js';
 import type { ObserverReport, ReportInfo } from '../types.js';
 

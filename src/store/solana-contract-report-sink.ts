@@ -24,7 +24,7 @@
  * needed from the observer side.
  */
 import type { Address } from '@solana/kit';
-import type { SolanaARIOReadable, SolanaARIOWriteable } from '@ar.io/sdk/solana';
+import type { SolanaARIOReadable, SolanaARIOWriteable } from '@ar.io/sdk';
 import type winston from 'winston';
 
 import type { ObserverReport, ReportInfo, ReportSink } from '../types.js';
