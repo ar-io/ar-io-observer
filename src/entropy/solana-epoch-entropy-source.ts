@@ -54,7 +54,7 @@ import type winston from 'winston';
 import {
   deserializeEpoch,
   getEpochPDA,
-} from '@ar.io/sdk/solana';
+} from '@ar.io/sdk';
 import type { EntropySource, EpochTimestampSource } from '../types.js';
 
 export interface SolanaEpochEntropySourceConfig {

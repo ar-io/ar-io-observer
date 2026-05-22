@@ -17,7 +17,7 @@
  */
 import './tracing.js';
 
-import { Logger } from '@ar.io/sdk/node';
+import { Logger } from '@ar.io/sdk';
 import { createLogger, format, transports } from 'winston';
 
 import * as env from './lib/env.js';

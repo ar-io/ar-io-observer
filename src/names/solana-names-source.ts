@@ -21,7 +21,7 @@
  */
 import type winston from 'winston';
 
-import type { SolanaARIOReadable } from '@ar.io/sdk/solana';
+import type { SolanaARIOReadable } from '@ar.io/sdk';
 import type { ArnsNameList, ArnsNamesSource } from '../types.js';
 
 export interface SolanaNamesSourceConfig {

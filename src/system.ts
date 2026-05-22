@@ -17,7 +17,7 @@
  */
 import './tracing.js';
 
-import { SolanaARIOWriteable } from '@ar.io/sdk/solana';
+import { SolanaARIOWriteable } from '@ar.io/sdk';
 import {
   type KeyPairSigner,
   createKeyPairSignerFromBytes,
@@ -182,10 +182,8 @@ const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
   const solanaSigner = wallets.operator as KeyPairSigner;
   const observerSigner = wallets.observer as KeyPairSigner;
   networkContract = new SolanaARIOWriteable({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rpc: solanaRpc as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rpcSubscriptions: solanaRpcSubscriptions as any,
+    rpc: solanaRpc,
+    rpcSubscriptions: solanaRpcSubscriptions,
     signer: solanaSigner,
     ...(config.ARIO_CORE_PROGRAM_ID
       ? { coreProgramId: config.ARIO_CORE_PROGRAM_ID as any }
@@ -209,10 +207,8 @@ const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
   // the cranker's send pipeline doesn't accidentally consume them
   // interchangeably.
   solanaObserverContract = new SolanaARIOWriteable({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rpc: solanaRpc as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rpcSubscriptions: solanaRpcSubscriptions as any,
+    rpc: solanaRpc,
+    rpcSubscriptions: solanaRpcSubscriptions,
     signer: observerSigner,
     ...(config.ARIO_CORE_PROGRAM_ID
       ? { coreProgramId: config.ARIO_CORE_PROGRAM_ID as any }
@@ -328,10 +324,8 @@ const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
       config.ARIO_ARNS_PROGRAM_ID as any,
     );
     const cranker = new EpochCranker({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      contract: networkContract as unknown as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      rpc: solanaRpc as any,
+      contract: networkContract,
+      rpc: solanaRpc,
       signer: solanaSigner,
       pollIntervalMs: config.CRANK_POLL_INTERVAL_MS,
       batchSize: config.CRANK_BATCH_SIZE,
@@ -478,12 +472,7 @@ const networkGatewaySource =
   config.REFERENCE_GATEWAY_NETWORK_FALLBACK ||
   config.REFERENCE_GATEWAY_NETWORK_ONLY
     ? new CachedNetworkGatewaySource({
-        // Solana readable is structurally compatible with the AoARIORead
-        // surface used here (getGateways, etc.) — the only nominal
-        // mismatch is the AO-only `process: AOProcess` field which this
-        // class never reads.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        contract: networkContract as any,
+        contract: networkContract,
         config: {
           minPassRate: config.REFERENCE_GATEWAY_MIN_PASS_RATE,
           minConsecutivePasses: config.REFERENCE_GATEWAY_MIN_CONSECUTIVE_PASSES,

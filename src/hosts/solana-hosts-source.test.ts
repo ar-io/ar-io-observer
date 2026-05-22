@@ -8,7 +8,7 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import * as winston from 'winston';
 
-import type { SolanaARIOReadable } from '@ar.io/sdk/solana';
+import type { SolanaARIOReadable } from '@ar.io/sdk';
 import { SolanaHostsSource } from './solana-hosts-source.js';
 
 function makeLog(): winston.Logger {

@@ -14,7 +14,7 @@
  * pipeline ordering, error handling, and edge-case behavior in sync.
  */
 import type { Address, Rpc, SolanaRpcApi, TransactionSigner } from '@solana/kit';
-import type { SolanaARIOWriteable } from '@ar.io/sdk/solana';
+import type { SolanaARIOWriteable } from '@ar.io/sdk';
 import { classifyError, type ErrorCategory } from './errors.js';
 
 const LAMPORTS_PER_SOL = 1_000_000_000;

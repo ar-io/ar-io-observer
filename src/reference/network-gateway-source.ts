@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { AoARIORead } from '@ar.io/sdk/node';
+import { ARIORead } from '@ar.io/sdk';
 import { Logger } from 'winston';
 
 import * as metrics from '../metrics.js';
@@ -44,7 +44,7 @@ import {
  * - Clears unresponsive list when cache refreshes
  */
 export class CachedNetworkGatewaySource implements NetworkGatewaySource {
-  private readonly contract: AoARIORead;
+  private readonly contract: ARIORead;
   private readonly config: NetworkGatewaySelectionConfig;
   private readonly log: Logger;
 
@@ -58,7 +58,7 @@ export class CachedNetworkGatewaySource implements NetworkGatewaySource {
     config,
     log,
   }: {
-    contract: AoARIORead;
+    contract: ARIORead;
     config: NetworkGatewaySelectionConfig;
     log: Logger;
   }) {
