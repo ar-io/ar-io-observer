@@ -176,10 +176,23 @@ const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
     });
     return signer;
   };
+  const loadKeypairFromBytes = async (
+    bytes: Uint8Array,
+    role: string,
+    source: string,
+  ) => {
+    const signer = await createKeyPairSignerFromBytes(bytes);
+    log.info(`Loaded ${role} Solana keypair`, {
+      source,
+      pubkey: signer.address,
+    });
+    return signer;
+  };
   const wallets = await resolveSolanaWallets(
     config,
     walletJwk,
     loadKeypair,
+    loadKeypairFromBytes,
     log,
   );
   const solanaSigner = wallets.operator as KeyPairSigner;

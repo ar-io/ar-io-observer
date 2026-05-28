@@ -13,11 +13,15 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import type { Logger } from 'winston';
 
+import bs58 from 'bs58';
+
 import {
+  decodeBase58SolanaSecretKey,
   resolveArweaveUploadJwk,
   resolveSolanaWallets,
   resolveUploadIdentity,
   type ArweaveJwkLoader,
+  type SolanaKeypairBytesLoader,
   type SolanaKeypairLoader,
   type SolanaSignerLike,
   type UploadLoaders,
@@ -48,6 +52,60 @@ function makeKeypairLoader(): {
     return mkSigner(`PUB_${path.split('/').pop()}`);
   };
   return { loader, calls };
+}
+
+/** Bytes loader that throws if invoked — installed as the default for
+ *  existing tests that only exercise the path-based loader. Anything
+ *  that accidentally drives them to the bytes branch fails loudly. */
+const unusedBytesLoader: SolanaKeypairBytesLoader = async () => {
+  throw new Error('unusedBytesLoader should not have been called');
+};
+
+/** Bytes loader paired with makeKeypairLoader for the `*_PRIVATE_KEY`
+ *  path. Encodes the source env-var name into the pubkey so assertions
+ *  can distinguish "loaded from PK env" vs "loaded from path". */
+function makeKeypairBytesLoader(): {
+  loader: SolanaKeypairBytesLoader;
+  calls: Array<{ source: string; role: string; bytesLength: number }>;
+} {
+  const calls: Array<{ source: string; role: string; bytesLength: number }> =
+    [];
+  const loader: SolanaKeypairBytesLoader = async (bytes, role, source) => {
+    calls.push({ source, role, bytesLength: bytes.length });
+    return mkSigner(`PUB_${source}`);
+  };
+  return { loader, calls };
+}
+
+/** Build a valid 64-byte base58 string for use as a SOLANA_PRIVATE_KEY in
+ *  tests. The bytes themselves don't need to be a real Ed25519 keypair —
+ *  the mock loader never actually constructs a signer. */
+function mkBase58Secret(seedByte = 0): string {
+  const bytes = new Uint8Array(64);
+  bytes.fill(seedByte);
+  return bs58.encode(bytes);
+}
+
+/** Minimal WalletEnv with all fields undefined; tests override what they
+ *  care about. Centralizes the field list so adding a new env var only
+ *  touches this helper. */
+function blankWalletEnv(): Pick<
+  WalletEnv,
+  | 'SOLANA_KEYPAIR_PATH'
+  | 'SOLANA_PRIVATE_KEY'
+  | 'OBSERVER_KEYPAIR_PATH'
+  | 'OBSERVER_PRIVATE_KEY'
+  | 'SOLANA_UPLOAD_KEYPAIR_PATH'
+  | 'SOLANA_UPLOAD_PRIVATE_KEY'
+> {
+  return {
+    SOLANA_KEYPAIR_PATH: undefined,
+    SOLANA_PRIVATE_KEY: undefined,
+    OBSERVER_KEYPAIR_PATH: undefined,
+    OBSERVER_PRIVATE_KEY: undefined,
+    SOLANA_UPLOAD_KEYPAIR_PATH: undefined,
+    SOLANA_UPLOAD_PRIVATE_KEY: undefined,
+  };
 }
 
 function makeJwkLoader(opts: {
@@ -133,15 +191,21 @@ describe('wallet-config', () => {
           {
             SOLANA_KEYPAIR_PATH: undefined,
             OBSERVER_KEYPAIR_PATH: undefined,
+            SOLANA_PRIVATE_KEY: undefined,
+            OBSERVER_PRIVATE_KEY: undefined,
+            SOLANA_UPLOAD_PRIVATE_KEY: undefined,
             SOLANA_UPLOAD_KEYPAIR_PATH: undefined,
           },
           undefined,
           loader,
+          unusedBytesLoader,
           makeLog(),
         );
       } catch (e: any) {
         threw = true;
-        expect(e.message).to.match(/SOLANA_KEYPAIR_PATH is required/);
+        expect(e.message).to.match(
+          /Operator Solana key is required.*SOLANA_KEYPAIR_PATH.*SOLANA_PRIVATE_KEY/,
+        );
       }
       expect(threw).to.equal(true);
     });
@@ -153,10 +217,14 @@ describe('wallet-config', () => {
           {
             SOLANA_KEYPAIR_PATH: '/keys/op.json',
             OBSERVER_KEYPAIR_PATH: undefined,
+            SOLANA_PRIVATE_KEY: undefined,
+            OBSERVER_PRIVATE_KEY: undefined,
+            SOLANA_UPLOAD_PRIVATE_KEY: undefined,
             SOLANA_UPLOAD_KEYPAIR_PATH: undefined,
           },
           undefined,
           loader,
+          unusedBytesLoader,
           makeLog(),
         );
         expect(result.operator.address).to.equal('PUB_op.json');
@@ -179,10 +247,14 @@ describe('wallet-config', () => {
           {
             SOLANA_KEYPAIR_PATH: '/keys/op.json',
             OBSERVER_KEYPAIR_PATH: undefined,
+            SOLANA_PRIVATE_KEY: undefined,
+            OBSERVER_PRIVATE_KEY: undefined,
+            SOLANA_UPLOAD_PRIVATE_KEY: undefined,
             SOLANA_UPLOAD_KEYPAIR_PATH: undefined,
           },
           jwk,
           loader,
+          unusedBytesLoader,
           makeLog(),
         );
         expect(result.operator.address).to.equal('PUB_op.json');
@@ -201,10 +273,14 @@ describe('wallet-config', () => {
           {
             SOLANA_KEYPAIR_PATH: '/keys/op.json',
             OBSERVER_KEYPAIR_PATH: undefined,
+            SOLANA_PRIVATE_KEY: undefined,
+            OBSERVER_PRIVATE_KEY: undefined,
+            SOLANA_UPLOAD_PRIVATE_KEY: undefined,
             SOLANA_UPLOAD_KEYPAIR_PATH: '/keys/upload.json',
           },
           { kty: 'RSA', n: 'n' },
           loader,
+          unusedBytesLoader,
           makeLog(),
         );
         expect(result.upload.mode).to.equal('arweave-jwk');
@@ -222,10 +298,14 @@ describe('wallet-config', () => {
           {
             SOLANA_KEYPAIR_PATH: '/keys/op.json',
             OBSERVER_KEYPAIR_PATH: '/keys/obs.json',
+            SOLANA_PRIVATE_KEY: undefined,
+            OBSERVER_PRIVATE_KEY: undefined,
+            SOLANA_UPLOAD_PRIVATE_KEY: undefined,
             SOLANA_UPLOAD_KEYPAIR_PATH: '/keys/upload.json',
           },
           undefined,
           loader,
+          unusedBytesLoader,
           makeLog(),
         );
         expect(result.operator.address).to.equal('PUB_op.json');
@@ -250,10 +330,14 @@ describe('wallet-config', () => {
           {
             SOLANA_KEYPAIR_PATH: '/keys/op.json',
             OBSERVER_KEYPAIR_PATH: '/keys/obs.json',
+            SOLANA_PRIVATE_KEY: undefined,
+            OBSERVER_PRIVATE_KEY: undefined,
+            SOLANA_UPLOAD_PRIVATE_KEY: undefined,
             SOLANA_UPLOAD_KEYPAIR_PATH: undefined,
           },
           jwk,
           loader,
+          unusedBytesLoader,
           makeLog(),
         );
         expect(result.operator.address).to.equal('PUB_op.json');
@@ -276,10 +360,14 @@ describe('wallet-config', () => {
           {
             SOLANA_KEYPAIR_PATH: '/keys/op.json',
             OBSERVER_KEYPAIR_PATH: '/keys/obs.json',
+            SOLANA_PRIVATE_KEY: undefined,
+            OBSERVER_PRIVATE_KEY: undefined,
+            SOLANA_UPLOAD_PRIVATE_KEY: undefined,
             SOLANA_UPLOAD_KEYPAIR_PATH: undefined,
           },
           undefined,
           loader,
+          unusedBytesLoader,
           makeLog(),
         );
         expect(result.upload.mode).to.equal('solana-bundle');
@@ -294,10 +382,14 @@ describe('wallet-config', () => {
           {
             SOLANA_KEYPAIR_PATH: '/keys/op.json',
             OBSERVER_KEYPAIR_PATH: undefined,
+            SOLANA_PRIVATE_KEY: undefined,
+            OBSERVER_PRIVATE_KEY: undefined,
+            SOLANA_UPLOAD_PRIVATE_KEY: undefined,
             SOLANA_UPLOAD_KEYPAIR_PATH: undefined,
           },
           undefined,
           loader,
+          unusedBytesLoader,
           makeLog(),
         );
         expect(result.observer).to.equal(result.operator);
@@ -317,6 +409,9 @@ describe('wallet-config', () => {
             {
               SOLANA_KEYPAIR_PATH: '/keys/op.json',
               OBSERVER_KEYPAIR_PATH: '/keys/obs.json',
+              SOLANA_PRIVATE_KEY: undefined,
+              OBSERVER_PRIVATE_KEY: undefined,
+              SOLANA_UPLOAD_PRIVATE_KEY: undefined,
               SOLANA_UPLOAD_KEYPAIR_PATH: undefined,
             },
             undefined,
@@ -328,6 +423,160 @@ describe('wallet-config', () => {
           expect(e.message).to.match(/disk read failed/);
         }
         expect(threw).to.equal(true);
+      });
+    });
+
+    describe('*_PRIVATE_KEY env support (Phantom-export base58 secret key)', () => {
+      it('uses SOLANA_PRIVATE_KEY via the bytes loader (no file read)', async () => {
+        const { loader: pathLoader, calls: pathCalls } = makeKeypairLoader();
+        const { loader: bytesLoader, calls: bytesCalls } =
+          makeKeypairBytesLoader();
+        const result = await resolveSolanaWallets(
+          {
+            ...blankWalletEnv(),
+            SOLANA_PRIVATE_KEY: mkBase58Secret(),
+          },
+          undefined,
+          pathLoader,
+          bytesLoader,
+          makeLog(),
+        );
+        expect(result.operator.address).to.equal('PUB_SOLANA_PRIVATE_KEY');
+        expect(pathCalls).to.have.length(0);
+        expect(bytesCalls).to.have.length(1);
+        expect(bytesCalls[0].role).to.equal('operator/cranker');
+        expect(bytesCalls[0].bytesLength).to.equal(64);
+      });
+
+      it('loads observer from OBSERVER_PRIVATE_KEY while operator stays on path', async () => {
+        const { loader: pathLoader, calls: pathCalls } = makeKeypairLoader();
+        const { loader: bytesLoader, calls: bytesCalls } =
+          makeKeypairBytesLoader();
+        const result = await resolveSolanaWallets(
+          {
+            ...blankWalletEnv(),
+            SOLANA_KEYPAIR_PATH: '/keys/op.json',
+            OBSERVER_PRIVATE_KEY: mkBase58Secret(),
+          },
+          undefined,
+          pathLoader,
+          bytesLoader,
+          makeLog(),
+        );
+        expect(result.operator.address).to.equal('PUB_op.json');
+        expect(result.observer.address).to.equal('PUB_OBSERVER_PRIVATE_KEY');
+        expect(pathCalls.map((c) => c.role)).to.deep.equal([
+          'operator/cranker',
+        ]);
+        expect(bytesCalls.map((c) => c.role)).to.deep.equal(['observer']);
+      });
+
+      it('loads upload signer from SOLANA_UPLOAD_PRIVATE_KEY when no Arweave JWK', async () => {
+        const { loader: pathLoader } = makeKeypairLoader();
+        const { loader: bytesLoader, calls: bytesCalls } =
+          makeKeypairBytesLoader();
+        const result = await resolveSolanaWallets(
+          {
+            ...blankWalletEnv(),
+            SOLANA_KEYPAIR_PATH: '/keys/op.json',
+            SOLANA_UPLOAD_PRIVATE_KEY: mkBase58Secret(),
+          },
+          undefined,
+          pathLoader,
+          bytesLoader,
+          makeLog(),
+        );
+        expect(result.upload.mode).to.equal('solana-bundle');
+        if (result.upload.mode === 'solana-bundle') {
+          expect(result.upload.signer.address).to.equal(
+            'PUB_SOLANA_UPLOAD_PRIVATE_KEY',
+          );
+        }
+        expect(bytesCalls.map((c) => c.role)).to.deep.equal([
+          'upload (explicit)',
+        ]);
+      });
+
+      it('rejects setting both SOLANA_PRIVATE_KEY and SOLANA_KEYPAIR_PATH (ambiguous)', async () => {
+        const { loader: pathLoader } = makeKeypairLoader();
+        const { loader: bytesLoader } = makeKeypairBytesLoader();
+        let threw = false;
+        try {
+          await resolveSolanaWallets(
+            {
+              ...blankWalletEnv(),
+              SOLANA_KEYPAIR_PATH: '/keys/op.json',
+              SOLANA_PRIVATE_KEY: mkBase58Secret(),
+            },
+            undefined,
+            pathLoader,
+            bytesLoader,
+            makeLog(),
+          );
+        } catch (e: any) {
+          threw = true;
+          expect(e.message).to.match(
+            /exactly one of SOLANA_PRIVATE_KEY or SOLANA_KEYPAIR_PATH/,
+          );
+        }
+        expect(threw).to.equal(true);
+      });
+
+      it('treats empty string as unset for *_PRIVATE_KEY envs', async () => {
+        // Empty string is what some env-loading layers (compose, .env)
+        // surface for unset vars; it must behave identically to undefined.
+        const { loader: pathLoader, calls: pathCalls } = makeKeypairLoader();
+        const result = await resolveSolanaWallets(
+          {
+            ...blankWalletEnv(),
+            SOLANA_KEYPAIR_PATH: '/keys/op.json',
+            OBSERVER_PRIVATE_KEY: '',
+            SOLANA_UPLOAD_PRIVATE_KEY: '',
+          },
+          undefined,
+          pathLoader,
+          unusedBytesLoader,
+          makeLog(),
+        );
+        // observer & upload both fall back to operator since the empty
+        // PRIVATE_KEY envs are treated as not set.
+        expect(result.observer).to.equal(result.operator);
+        if (result.upload.mode === 'solana-bundle') {
+          expect(result.upload.signer).to.equal(result.operator);
+        }
+        expect(pathCalls).to.have.length(1);
+      });
+    });
+
+    describe('decodeBase58SolanaSecretKey', () => {
+      it('round-trips a valid 64-byte secret key', () => {
+        const original = new Uint8Array(64);
+        for (let i = 0; i < 64; i++) original[i] = i;
+        const decoded = decodeBase58SolanaSecretKey(
+          bs58.encode(original),
+          'SOLANA_PRIVATE_KEY',
+        );
+        expect(decoded).to.deep.equal(original);
+      });
+
+      it('rejects a 32-byte secret-only payload with a helpful message', () => {
+        // Some tooling exports only the 32-byte secret (not the full
+        // 64-byte secret+public). Catch that explicitly.
+        const secretOnly = new Uint8Array(32);
+        expect(() =>
+          decodeBase58SolanaSecretKey(
+            bs58.encode(secretOnly),
+            'SOLANA_PRIVATE_KEY',
+          ),
+        ).to.throw(/decoded 32 bytes; expected 64/);
+      });
+
+      it('rejects non-base58 input with the env var name in the message', () => {
+        // `0` is not a base58 character — Phantom would never produce
+        // this, but an operator might paste a hex 0x... key by mistake.
+        expect(() =>
+          decodeBase58SolanaSecretKey('0xdeadbeef', 'OBSERVER_PRIVATE_KEY'),
+        ).to.throw(/OBSERVER_PRIVATE_KEY.*not a valid base58/);
       });
     });
   });

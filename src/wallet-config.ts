@@ -14,33 +14,41 @@
  * of the system can consume without re-deriving the precedence rules.
  *
  * Precedence (Solana mode):
- *   operator           = SOLANA_KEYPAIR_PATH                                      (required)
- *   observer           = OBSERVER_KEYPAIR_PATH        ?? operator
- *   upload (Arweave)   = ARWEAVE_UPLOAD_KEY_FILE | ARWEAVE_UPLOAD_JWK             (wins if set)
- *   upload (Solana)    = SOLANA_UPLOAD_KEYPAIR_PATH   ?? observer                 (otherwise)
+ *   operator           = SOLANA_PRIVATE_KEY | SOLANA_KEYPAIR_PATH                  (required, exactly one)
+ *   observer           = OBSERVER_PRIVATE_KEY | OBSERVER_KEYPAIR_PATH ?? operator
+ *   upload (Arweave)   = ARWEAVE_UPLOAD_KEY_FILE | ARWEAVE_UPLOAD_JWK              (wins if set)
+ *   upload (Solana)    = SOLANA_UPLOAD_PRIVATE_KEY | SOLANA_UPLOAD_KEYPAIR_PATH    (otherwise)
+ *                          ?? observer
+ *
+ * Each Solana role accepts EITHER a base58-encoded 64-byte secret key
+ * (`*_PRIVATE_KEY`, the format Phantom and similar wallets export) OR a
+ * path to a 64-byte JSON keypair file (`*_KEYPAIR_PATH`). Setting both
+ * for the same role is rejected as ambiguous.
  *
  * Four supported configurations (each tested in wallet-config.test.ts):
- *   1. all-Solana single key  — SOLANA_KEYPAIR_PATH only
- *   2. Solana ops + Arweave   — SOLANA_KEYPAIR_PATH + ARWEAVE_UPLOAD_KEY_FILE
- *   3. three Solana keys      — SOLANA_KEYPAIR_PATH + OBSERVER_KEYPAIR_PATH
- *                                  + SOLANA_UPLOAD_KEYPAIR_PATH
- *   4. two Solana + Arweave   — SOLANA_KEYPAIR_PATH + OBSERVER_KEYPAIR_PATH
- *                                  + ARWEAVE_UPLOAD_KEY_FILE
+ *   1. all-Solana single key  — SOLANA_KEYPAIR_PATH (or SOLANA_PRIVATE_KEY) only
+ *   2. Solana ops + Arweave   — SOLANA_*           + ARWEAVE_UPLOAD_KEY_FILE
+ *   3. three Solana keys      — SOLANA_* + OBSERVER_* + SOLANA_UPLOAD_*
+ *   4. two Solana + Arweave   — SOLANA_* + OBSERVER_* + ARWEAVE_UPLOAD_KEY_FILE
  *
- * The actual `KeyPairSigner`/JWK construction is left to a caller-supplied
- * loader pair so tests can run without touching disk or invoking the
- * @solana/kit signer factory.
+ * The actual `KeyPairSigner`/JWK construction is left to two
+ * caller-supplied loaders (one path-based, one bytes-based) so tests can
+ * run without touching disk or invoking the @solana/kit signer factory.
  */
 
+import bs58 from 'bs58';
 import type { Logger } from 'winston';
 import type { JWKInterface } from '@dha-team/arbundles/node';
 
 export interface WalletEnv {
   SOLANA_KEYPAIR_PATH: string | undefined;
+  SOLANA_PRIVATE_KEY: string | undefined;
   OBSERVER_KEYPAIR_PATH: string | undefined;
+  OBSERVER_PRIVATE_KEY: string | undefined;
   ARWEAVE_UPLOAD_KEY_FILE: string | undefined;
   ARWEAVE_UPLOAD_JWK: string | undefined;
   SOLANA_UPLOAD_KEYPAIR_PATH: string | undefined;
+  SOLANA_UPLOAD_PRIVATE_KEY: string | undefined;
   ETHEREUM_UPLOAD_PRIVATE_KEY_FILE: string | undefined;
   ETHEREUM_UPLOAD_PRIVATE_KEY: string | undefined;
 }
@@ -58,6 +66,50 @@ export type SolanaKeypairLoader = (
   path: string,
   role: string,
 ) => Promise<SolanaSignerLike>;
+
+/**
+ * Loader for the in-memory `*_PRIVATE_KEY` path. Takes the raw 64-byte
+ * secret key (already validated + base58-decoded) and a role + source
+ * label (the env var name) for logging. Kept separate from the
+ * path-based loader so the caller can keep `@solana/kit` confined to the
+ * production wiring layer.
+ */
+export type SolanaKeypairBytesLoader = (
+  bytes: Uint8Array,
+  role: string,
+  source: string,
+) => Promise<SolanaSignerLike>;
+
+/**
+ * Decode a Phantom-style base58 Solana secret key into the 64-byte form
+ * required by `createKeyPairSignerFromBytes`. Throws with a friendly
+ * error naming the env var on bad input — most common failure modes are:
+ *
+ *   - non-base58 characters (e.g. an Arweave JWK or hex 0x-prefixed key
+ *     dropped into the slot),
+ *   - 32-byte (secret-only) input — Phantom exports the full 64-byte
+ *     secret+public; SDKs that emit 32-byte material would silently
+ *     produce the wrong signer here.
+ */
+export function decodeBase58SolanaSecretKey(
+  raw: string,
+  envName: string,
+): Uint8Array {
+  let bytes: Uint8Array;
+  try {
+    bytes = bs58.decode(raw);
+  } catch {
+    throw new Error(
+      `${envName}: not a valid base58 string (expected the 64-byte secret key from a Solana wallet export, e.g. Phantom).`,
+    );
+  }
+  if (bytes.length !== 64) {
+    throw new Error(
+      `${envName}: decoded ${bytes.length} bytes; expected 64 (the full secret + public key Solana wallets export). 32-byte secret-only material is not supported.`,
+    );
+  }
+  return bytes;
+}
 
 export type ArweaveJwkLoader = {
   /** Load a JWK from a JSON file path. Returns undefined on failure. */
@@ -115,33 +167,103 @@ export function resolveArweaveUploadJwk(
 }
 
 /**
+ * Per-role source picker: returns either a path (file) or pre-decoded
+ * bytes (inline `*_PRIVATE_KEY`), or `undefined` if neither is set.
+ * Throws if both are set — both being set is ambiguous, not redundant.
+ */
+function pickSolanaSignerSource(
+  pkEnv: string | undefined,
+  pkEnvName: string,
+  pathEnv: string | undefined,
+  pathEnvName: string,
+):
+  | { kind: 'path'; path: string }
+  | { kind: 'bytes'; bytes: Uint8Array; source: string }
+  | undefined {
+  const pkSet = pkEnv !== undefined && pkEnv !== '';
+  const pathSet = pathEnv !== undefined && pathEnv !== '';
+  if (pkSet && pathSet) {
+    throw new Error(
+      `Set exactly one of ${pkEnvName} or ${pathEnvName} — both are set, which is ambiguous.`,
+    );
+  }
+  if (pkSet) {
+    return {
+      kind: 'bytes',
+      bytes: decodeBase58SolanaSecretKey(pkEnv as string, pkEnvName),
+      source: pkEnvName,
+    };
+  }
+  if (pathSet) {
+    return { kind: 'path', path: pathEnv as string };
+  }
+  return undefined;
+}
+
+async function loadFromSource(
+  source: NonNullable<ReturnType<typeof pickSolanaSignerSource>>,
+  role: string,
+  loadKeypair: SolanaKeypairLoader,
+  loadKeypairFromBytes: SolanaKeypairBytesLoader,
+): Promise<SolanaSignerLike> {
+  return source.kind === 'bytes'
+    ? loadKeypairFromBytes(source.bytes, role, source.source)
+    : loadKeypair(source.path, role);
+}
+
+/**
  * Resolve all three Solana wallet identities (operator/observer/upload)
- * given the parsed env, an Arweave JWK (already resolved upstream), and a
- * keypair loader. Throws if SOLANA_KEYPAIR_PATH is unset (required).
+ * given the parsed env, an Arweave JWK (already resolved upstream), and
+ * the file + bytes loader pair. Throws if neither SOLANA_KEYPAIR_PATH
+ * nor SOLANA_PRIVATE_KEY is set (operator is required).
  */
 export async function resolveSolanaWallets(
   env: Pick<
     WalletEnv,
     | 'SOLANA_KEYPAIR_PATH'
+    | 'SOLANA_PRIVATE_KEY'
     | 'OBSERVER_KEYPAIR_PATH'
+    | 'OBSERVER_PRIVATE_KEY'
     | 'SOLANA_UPLOAD_KEYPAIR_PATH'
+    | 'SOLANA_UPLOAD_PRIVATE_KEY'
   >,
   arweaveJwk: JWKInterface | undefined,
   loadKeypair: SolanaKeypairLoader,
+  loadKeypairFromBytes: SolanaKeypairBytesLoader,
   log: Pick<Logger, 'info'>,
 ): Promise<ResolvedSolanaWallets> {
-  if (env.SOLANA_KEYPAIR_PATH === undefined) {
-    throw new Error('SOLANA_KEYPAIR_PATH is required');
-  }
-
-  const operator = await loadKeypair(
+  const operatorSource = pickSolanaSignerSource(
+    env.SOLANA_PRIVATE_KEY,
+    'SOLANA_PRIVATE_KEY',
     env.SOLANA_KEYPAIR_PATH,
+    'SOLANA_KEYPAIR_PATH',
+  );
+  if (operatorSource === undefined) {
+    throw new Error(
+      'Operator Solana key is required: set SOLANA_KEYPAIR_PATH (file) or SOLANA_PRIVATE_KEY (base58 secret key).',
+    );
+  }
+  const operator = await loadFromSource(
+    operatorSource,
     'operator/cranker',
+    loadKeypair,
+    loadKeypairFromBytes,
   );
 
+  const observerSource = pickSolanaSignerSource(
+    env.OBSERVER_PRIVATE_KEY,
+    'OBSERVER_PRIVATE_KEY',
+    env.OBSERVER_KEYPAIR_PATH,
+    'OBSERVER_KEYPAIR_PATH',
+  );
   let observer: SolanaSignerLike;
-  if (env.OBSERVER_KEYPAIR_PATH !== undefined) {
-    observer = await loadKeypair(env.OBSERVER_KEYPAIR_PATH, 'observer');
+  if (observerSource !== undefined) {
+    observer = await loadFromSource(
+      observerSource,
+      'observer',
+      loadKeypair,
+      loadKeypairFromBytes,
+    );
   } else {
     log.info(
       'Observer signer not explicitly set — reusing operator/cranker keypair for save_observations.',
@@ -154,18 +276,28 @@ export async function resolveSolanaWallets(
   if (arweaveJwk !== undefined) {
     // Arweave wins; no need for a Solana upload signer.
     upload = { mode: 'arweave-jwk', jwk: arweaveJwk };
-  } else if (env.SOLANA_UPLOAD_KEYPAIR_PATH !== undefined) {
-    const signer = await loadKeypair(
-      env.SOLANA_UPLOAD_KEYPAIR_PATH,
-      'upload (explicit)',
-    );
-    upload = { mode: 'solana-bundle', signer };
   } else {
-    log.info(
-      'No upload wallet explicitly configured — reusing observer keypair for any Solana-signed bundle uploads.',
-      { pubkey: observer.address },
+    const uploadSource = pickSolanaSignerSource(
+      env.SOLANA_UPLOAD_PRIVATE_KEY,
+      'SOLANA_UPLOAD_PRIVATE_KEY',
+      env.SOLANA_UPLOAD_KEYPAIR_PATH,
+      'SOLANA_UPLOAD_KEYPAIR_PATH',
     );
-    upload = { mode: 'solana-bundle', signer: observer };
+    if (uploadSource !== undefined) {
+      const signer = await loadFromSource(
+        uploadSource,
+        'upload (explicit)',
+        loadKeypair,
+        loadKeypairFromBytes,
+      );
+      upload = { mode: 'solana-bundle', signer };
+    } else {
+      log.info(
+        'No upload wallet explicitly configured — reusing observer keypair for any Solana-signed bundle uploads.',
+        { pubkey: observer.address },
+      );
+      upload = { mode: 'solana-bundle', signer: observer };
+    }
   }
 
   return { operator, observer, upload };
