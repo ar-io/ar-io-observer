@@ -464,6 +464,30 @@ export class ContinuousObserver {
       return;
     }
 
+    // Close the submission window FIRST, before the name-loading retry
+    // below. If `prescribe_epoch` never lands, `prescribedNamesReady`
+    // stays false and the lazy-load block would `return` every cycle —
+    // never reaching the deadline check, so `submissionDeadlineExceeded`
+    // would never persist and the epoch's state would linger until
+    // rollover. Gating here ensures the window closes regardless.
+    if (
+      !this.state.submissionDeadlineExceeded &&
+      now >= this.scheduler.getSubmissionDeadline()
+    ) {
+      this.state.submissionDeadlineExceeded = true;
+      this.state.pendingObservations = [];
+      this.scheduler.clearSchedule();
+      await this.stateStore.save(this.state);
+      this.log.warn('Submission window closed for epoch', {
+        epochIndex: this.state.epochIndex,
+      });
+    }
+
+    if (this.state.submissionDeadlineExceeded) {
+      this.updateCycleMetrics(now);
+      return;
+    }
+
     // Lazy-load prescribed/chosen names + entropy once the cranker
     // has actually run `prescribe_epoch`. We retry every cycle until
     // it lands (typically within ~1 minute of epoch start). Without
@@ -489,25 +513,10 @@ export class ContinuousObserver {
       return;
     }
 
-    if (
-      !this.state.submissionDeadlineExceeded &&
-      now >= this.scheduler.getSubmissionDeadline()
-    ) {
-      this.state.submissionDeadlineExceeded = true;
-      this.state.pendingObservations = [];
-      this.scheduler.clearSchedule();
-      await this.stateStore.save(this.state);
-      this.log.warn('Submission window closed for epoch', {
-        epochIndex: this.state.epochIndex,
-      });
-    }
-
-    // Update progress and state metrics after deadline transitions.
+    // Update progress and state metrics for the active in-window cycle.
+    // (Deadline transition + exceeded short-circuit are handled above,
+    // before name loading.)
     this.updateCycleMetrics(now);
-
-    if (this.state.submissionDeadlineExceeded) {
-      return;
-    }
 
     // Get due gateways and observe with limited concurrency
     const dueObservations = this.scheduler.getObservationsDue(now);

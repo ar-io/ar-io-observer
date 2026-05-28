@@ -1389,6 +1389,12 @@ describe('ContinuousObserver Integration', function () {
         reportSubmitted: false,
         submissionDeadlineExceeded: false,
       };
+      // Keep the scheduler consistent with the injected state, mirroring
+      // initializeOrRestore in production. Without this the scheduler's
+      // window/deadline stay at construction defaults (in the past), so
+      // runObservationCycle's submission-deadline guard would treat
+      // epoch-start as past-deadline and short-circuit before the lazy load.
+      (observer as any).scheduler.restoreFromState((observer as any).state);
       if (opts.assessor) (observer as any).assessor = opts.assessor;
       return observer;
     }
@@ -1482,6 +1488,42 @@ describe('ContinuousObserver Integration', function () {
       await (observer as any).runObservationCycle();
       expect(prescribedNamesSource.getNames.callCount).to.equal(2);
       expect(assessor.initializeForEpoch.callCount).to.equal(1);
+    });
+
+    it('closes the submission window once the deadline passes even if prescribe_epoch never lands', async function () {
+      // Cranker never runs prescribe_epoch → names stay empty forever.
+      const prescribedNamesSource = {
+        getNames: sinon.stub().resolves([]),
+      };
+      const chosenNamesSource = {
+        getNames: sinon.stub().resolves(['c1']),
+      };
+      const observer = newLazyLoadObserver({
+        prescribedNamesSource,
+        chosenNamesSource,
+      });
+
+      // Move the window far into the past so the cycle is firmly past the
+      // submission deadline (windowEnd + submissionBufferMs) regardless of
+      // the configured buffer.
+      const dayMs = 24 * 60 * 60 * 1000;
+      (observer as any).state.windowStart = Date.now() - 2 * dayMs;
+      (observer as any).state.windowEnd = Date.now() - dayMs;
+      (observer as any).scheduler.restoreFromState((observer as any).state);
+
+      await (observer as any).runObservationCycle();
+
+      // Window must close (regression: previously the empty-names early
+      // return ran first, so the deadline branch was never reached and
+      // the epoch state lingered until rollover).
+      expect((observer as any).state.submissionDeadlineExceeded).to.equal(true);
+      // ...and we must stop retrying the name load once closed.
+      expect((observer as any).prescribedNamesReady).to.equal(false);
+      const callsAfterClose = prescribedNamesSource.getNames.callCount;
+      await (observer as any).runObservationCycle();
+      expect(prescribedNamesSource.getNames.callCount).to.equal(
+        callsAfterClose,
+      );
     });
   });
 });
