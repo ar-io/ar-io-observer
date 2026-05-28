@@ -51,10 +51,7 @@ import {
 import crypto from 'node:crypto';
 import type winston from 'winston';
 
-import {
-  deserializeEpoch,
-  getEpochPDA,
-} from '@ar.io/sdk';
+import { deserializeEpoch, getEpochPDA } from '@ar.io/sdk';
 import type { EntropySource, EpochTimestampSource } from '../types.js';
 
 export interface SolanaEpochEntropySourceConfig {
@@ -143,13 +140,13 @@ export class SolanaEpochEntropySource implements EntropySource {
     hash.update(`observers=`);
     for (let i = 0; i < epoch.observerCount; i++) {
       const addr = epoch.prescribedObservers[i];
-      if (addr) hash.update(String(addr));
+      if (addr !== undefined) hash.update(String(addr));
       hash.update(',');
     }
     hash.update(`\nnameHashes=`);
     for (let i = 0; i < epoch.nameCount; i++) {
       const h = epoch.prescribedNameHashes[i];
-      if (h) hash.update(h);
+      if (h !== undefined) hash.update(h);
     }
 
     const entropy = hash.digest();

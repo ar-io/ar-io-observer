@@ -152,7 +152,10 @@ let observerAddress: string = config.OBSERVER_WALLET;
 if (!config.SOLANA_RPC_URL) {
   throw new Error('SOLANA_RPC_URL is required');
 }
-if (!config.SOLANA_KEYPAIR_PATH) {
+if (
+  config.SOLANA_KEYPAIR_PATH === undefined ||
+  config.SOLANA_KEYPAIR_PATH === ''
+) {
   throw new Error('SOLANA_KEYPAIR_PATH is required');
 }
 const solanaRpc = createSolanaRpc(config.SOLANA_RPC_URL);
@@ -185,16 +188,20 @@ const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
     rpc: solanaRpc,
     rpcSubscriptions: solanaRpcSubscriptions,
     signer: solanaSigner,
-    ...(config.ARIO_CORE_PROGRAM_ID
+    ...(config.ARIO_CORE_PROGRAM_ID !== undefined &&
+    config.ARIO_CORE_PROGRAM_ID !== ''
       ? { coreProgramId: config.ARIO_CORE_PROGRAM_ID as any }
       : {}),
-    ...(config.ARIO_GAR_PROGRAM_ID
+    ...(config.ARIO_GAR_PROGRAM_ID !== undefined &&
+    config.ARIO_GAR_PROGRAM_ID !== ''
       ? { garProgramId: config.ARIO_GAR_PROGRAM_ID as any }
       : {}),
-    ...(config.ARIO_ARNS_PROGRAM_ID
+    ...(config.ARIO_ARNS_PROGRAM_ID !== undefined &&
+    config.ARIO_ARNS_PROGRAM_ID !== ''
       ? { arnsProgramId: config.ARIO_ARNS_PROGRAM_ID as any }
       : {}),
-    ...(config.ARIO_ANT_PROGRAM_ID
+    ...(config.ARIO_ANT_PROGRAM_ID !== undefined &&
+    config.ARIO_ANT_PROGRAM_ID !== ''
       ? { antProgramId: config.ARIO_ANT_PROGRAM_ID as any }
       : {}),
   });
@@ -210,16 +217,20 @@ const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
     rpc: solanaRpc,
     rpcSubscriptions: solanaRpcSubscriptions,
     signer: observerSigner,
-    ...(config.ARIO_CORE_PROGRAM_ID
+    ...(config.ARIO_CORE_PROGRAM_ID !== undefined &&
+    config.ARIO_CORE_PROGRAM_ID !== ''
       ? { coreProgramId: config.ARIO_CORE_PROGRAM_ID as any }
       : {}),
-    ...(config.ARIO_GAR_PROGRAM_ID
+    ...(config.ARIO_GAR_PROGRAM_ID !== undefined &&
+    config.ARIO_GAR_PROGRAM_ID !== ''
       ? { garProgramId: config.ARIO_GAR_PROGRAM_ID as any }
       : {}),
-    ...(config.ARIO_ARNS_PROGRAM_ID
+    ...(config.ARIO_ARNS_PROGRAM_ID !== undefined &&
+    config.ARIO_ARNS_PROGRAM_ID !== ''
       ? { arnsProgramId: config.ARIO_ARNS_PROGRAM_ID as any }
       : {}),
-    ...(config.ARIO_ANT_PROGRAM_ID
+    ...(config.ARIO_ANT_PROGRAM_ID !== undefined &&
+    config.ARIO_ANT_PROGRAM_ID !== ''
       ? { antProgramId: config.ARIO_ANT_PROGRAM_ID as any }
       : {}),
   });
@@ -264,7 +275,9 @@ const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
   switch (uploadIdentity.mode) {
     case 'arweave':
       bundleSigner = new ArweaveSigner(uploadIdentity.jwk);
-      bundleSignerLabel = await arweave.wallets.jwkToAddress(uploadIdentity.jwk);
+      bundleSignerLabel = await arweave.wallets.jwkToAddress(
+        uploadIdentity.jwk,
+      );
       bundleSignerChain = 'arweave';
       break;
     case 'solana':
@@ -283,7 +296,9 @@ const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
       );
       bundleSignerLabel =
         '0x' +
-        Buffer.from((bundleSigner as any).publicKey).toString('hex').slice(-40);
+        Buffer.from((bundleSigner as any).publicKey)
+          .toString('hex')
+          .slice(-40);
       bundleSignerChain = 'ethereum';
       break;
     case 'disabled':
@@ -303,12 +318,18 @@ const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
   // Epoch cranking — opt-in via ENABLE_EPOCH_CRANKING=true. Zero overhead
   // when disabled (dynamic import).
   if (config.ENABLE_EPOCH_CRANKING) {
-    if (!config.ARIO_ARNS_PROGRAM_ID) {
+    if (
+      config.ARIO_ARNS_PROGRAM_ID === undefined ||
+      config.ARIO_ARNS_PROGRAM_ID === ''
+    ) {
       throw new Error(
         'ARIO_ARNS_PROGRAM_ID is required when ENABLE_EPOCH_CRANKING=true (needed to derive the NameRegistry PDA for prescribe_epoch).',
       );
     }
-    if (!config.ARIO_GAR_PROGRAM_ID) {
+    if (
+      config.ARIO_GAR_PROGRAM_ID === undefined ||
+      config.ARIO_GAR_PROGRAM_ID === ''
+    ) {
       throw new Error(
         'ARIO_GAR_PROGRAM_ID is required when ENABLE_EPOCH_CRANKING=true (needed to read EpochSettings).',
       );
@@ -344,7 +365,7 @@ const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
         const [pda] = await getEpochSettingsPDA(
           config.ARIO_GAR_PROGRAM_ID as any,
         );
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         const account = await fetchEncodedAccount(solanaRpc as any, pda, {
           commitment: 'confirmed',
         });
@@ -381,15 +402,17 @@ const observedGatewayHostList =
         log,
       });
 
-if (!config.ARIO_GAR_PROGRAM_ID) {
+if (
+  config.ARIO_GAR_PROGRAM_ID === undefined ||
+  config.ARIO_GAR_PROGRAM_ID === ''
+) {
   throw new Error(
     'ARIO_GAR_PROGRAM_ID is required (used to derive the EpochSettings PDA).',
   );
 }
 export const epochSource = new SolanaEpochSource({
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   rpc: solanaRpc as any,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   garProgramAddress: config.ARIO_GAR_PROGRAM_ID as any,
   log,
 });
@@ -418,9 +441,9 @@ if (!config.ARIO_GAR_PROGRAM_ID) {
 }
 const sharedEpochEntropySource = new SolanaEpochEntropySource({
   epochSource,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   rpc: solanaRpc as any,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   garProgramAddress: config.ARIO_GAR_PROGRAM_ID as any,
   log,
 });
@@ -663,7 +686,7 @@ export const contractReportSink = new SolanaContractReportSink({
   log,
   contract: solanaObserverContract,
   readable: solanaObserverContract, // Writeable extends Readable
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   observerAddress: solanaObserverAddress as any,
 });
 
@@ -703,7 +726,7 @@ export const submissionGate =
     ? async (report: ObserverReport) => {
         const status = await solanaObserverContract.getEpochObservationStatus(
           report.epochIndex,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
           solanaObserverAddress as any,
         );
         if (!status.prescribed) {

@@ -69,7 +69,10 @@ function makeReport(opts: {
   } as any;
 }
 
-function makeReportInfo(report: ObserverReport, reportTxId?: string): ReportInfo {
+function makeReportInfo(
+  report: ObserverReport,
+  reportTxId?: string,
+): ReportInfo {
   return {
     report,
     reportTxId,
@@ -103,10 +106,7 @@ function makeReadable(
 }
 
 /** Build a stub writeable that returns a fake tx signature from saveObservations. */
-function makeWriteable(opts: {
-  txId?: string;
-  throws?: Error;
-}): {
+function makeWriteable(opts: { txId?: string; throws?: Error }): {
   contract: SolanaARIOWriteable;
   saveStub: sinon.SinonStub;
 } {
@@ -145,7 +145,9 @@ describe('SolanaContractReportSink', () => {
         epochIndex: 42,
         failedWallets: ['Failed1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'],
       });
-      const result = await sink.saveReport(makeReportInfo(report, REPORT_TX_ID));
+      const result = await sink.saveReport(
+        makeReportInfo(report, REPORT_TX_ID),
+      );
 
       expect(saveStub.calledOnce).to.equal(true);
       const args = saveStub.firstCall.args[0];
@@ -173,7 +175,9 @@ describe('SolanaContractReportSink', () => {
         observerAddress: OBSERVER_PUBKEY,
       });
       const report = makeReport({ epochIndex: 7, failedWallets: [] });
-      const result = await sink.saveReport(makeReportInfo(report, REPORT_TX_ID));
+      const result = await sink.saveReport(
+        makeReportInfo(report, REPORT_TX_ID),
+      );
       expect(saveStub.calledOnce).to.equal(true);
       expect(saveStub.firstCall.args[0].failedGateways).to.deep.equal([]);
       expect(result.interactionTxIds).to.deep.equal(['SIG_EMPTY']);

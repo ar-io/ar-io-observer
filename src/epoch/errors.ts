@@ -35,8 +35,7 @@ const ALREADY_DONE_ERRORS = new Set<number>([
   //          path where the account exists but has zero data could
   //          surface this. Semantically equivalent to "nothing to
   //          close."
-  3007,
-  3012,
+  3007, 3012,
   // RewardsAlreadyDistributed (variant 37)
   6037,
   // EpochAlreadyExists (variant 41)
@@ -79,7 +78,11 @@ const NOT_READY_ERRORS = new Set<number>([
 function collectErrorText(error: unknown): string {
   const parts: string[] = [];
   let current: unknown = error;
-  for (let depth = 0; current != null && depth < 10; depth++) {
+  for (
+    let depth = 0;
+    current !== undefined && current !== null && depth < 10;
+    depth++
+  ) {
     if (typeof current === 'string') {
       parts.push(current);
       break;
@@ -90,7 +93,7 @@ function collectErrorText(error: unknown): string {
         context?: { logs?: string[]; err?: unknown };
         cause?: unknown;
       };
-      if (e.message) parts.push(e.message);
+      if (e.message !== undefined && e.message !== '') parts.push(e.message);
       if (Array.isArray(e.context?.logs)) parts.push(e.context.logs.join('\n'));
       if (e.context?.err && typeof e.context.err === 'object') {
         // kit packs `{ InstructionError: [idx, {Custom: N}] }` here
@@ -134,7 +137,10 @@ export function classifyError(error: unknown): ErrorCategory {
   // Walk the cause chain so we catch it whether it's at the top-level
   // message or nested inside a `SolanaError`.
   const msg = collectErrorText(error);
-  if (msg.includes('already been processed') || msg.includes('AlreadyProcessed')) {
+  if (
+    msg.includes('already been processed') ||
+    msg.includes('AlreadyProcessed')
+  ) {
     return 'already_done';
   }
 

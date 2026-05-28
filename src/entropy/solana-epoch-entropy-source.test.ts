@@ -18,7 +18,13 @@ import { SolanaEpochEntropySource } from './solana-epoch-entropy-source.js';
 function makeLog(): winston.Logger {
   const noop = sinon.stub();
   return {
-    child: () => ({ verbose: noop, info: noop, warn: noop, error: noop, debug: noop }),
+    child: () => ({
+      verbose: noop,
+      info: noop,
+      warn: noop,
+      error: noop,
+      debug: noop,
+    }),
     verbose: noop,
     info: noop,
     warn: noop,

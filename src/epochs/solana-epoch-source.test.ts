@@ -13,7 +13,13 @@ import { SolanaEpochSource } from './solana-epoch-source.js';
 function makeLog(): winston.Logger {
   const noop = sinon.stub();
   return {
-    child: () => ({ verbose: noop, info: noop, warn: noop, error: noop, debug: noop }),
+    child: () => ({
+      verbose: noop,
+      info: noop,
+      warn: noop,
+      error: noop,
+      debug: noop,
+    }),
     verbose: noop,
     info: noop,
     warn: noop,
@@ -88,9 +94,7 @@ describe('SolanaEpochSource', () => {
       expect(p.epochStartTimestamp).to.equal(
         (1_700_000_000 + 17 * 3600) * 1000,
       );
-      expect(p.epochEndTimestamp).to.equal(
-        (1_700_000_000 + 18 * 3600) * 1000,
-      );
+      expect(p.epochEndTimestamp).to.equal((1_700_000_000 + 18 * 3600) * 1000);
       expect(p.epochStartHeight).to.equal(0);
     });
 

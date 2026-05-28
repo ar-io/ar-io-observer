@@ -13,7 +13,12 @@
  * `cranker/src/state-machine.ts` in the solana-ar-io monorepo. Keep the
  * pipeline ordering, error handling, and edge-case behavior in sync.
  */
-import type { Address, Rpc, SolanaRpcApi, TransactionSigner } from '@solana/kit';
+import type {
+  Address,
+  Rpc,
+  SolanaRpcApi,
+  TransactionSigner,
+} from '@solana/kit';
 import type { SolanaARIOWriteable } from '@ar.io/sdk';
 import { classifyError, type ErrorCategory } from './errors.js';
 
@@ -173,7 +178,8 @@ export class EpochCranker {
     const currentIndex = settings.currentEpochIndex;
     const targetEpochIndex = currentIndex > 0 ? currentIndex - 1 : 0;
     const now = Math.floor(Date.now() / 1000);
-    const nextEpochStart = settings.genesisTimestamp + currentIndex * settings.epochDuration;
+    const nextEpochStart =
+      settings.genesisTimestamp + currentIndex * settings.epochDuration;
 
     // 2. Bootstrap: no epochs exist yet, create epoch 0 if genesis time passed
     if (currentIndex === 0) {
@@ -209,10 +215,14 @@ export class EpochCranker {
         progress: `${epoch.tallyIndex}/${epoch.activeGatewayCount}`,
       });
       try {
-        const gatewayPDAs = epoch.activeGatewayCount > 0
-          ? await ario.getRegistryGatewayPDAs(epoch.tallyIndex, batchSize)
-          : [];
-        await ario.tallyWeights({ epochIndex: targetEpochIndex, gatewayAccounts: gatewayPDAs });
+        const gatewayPDAs =
+          epoch.activeGatewayCount > 0
+            ? await ario.getRegistryGatewayPDAs(epoch.tallyIndex, batchSize)
+            : [];
+        await ario.tallyWeights({
+          epochIndex: targetEpochIndex,
+          gatewayAccounts: gatewayPDAs,
+        });
       } catch (err) {
         this.handleError(err, 'tally_weights');
       }
@@ -250,10 +260,17 @@ export class EpochCranker {
         progress: `${epoch.distributionIndex}/${epoch.activeGatewayCount}`,
       });
       try {
-        const gatewayPDAs = epoch.activeGatewayCount > 0
-          ? await ario.getRegistryGatewayPDAs(epoch.distributionIndex, batchSize)
-          : [];
-        await ario.distributeEpoch({ epochIndex: targetEpochIndex, gatewayAccounts: gatewayPDAs });
+        const gatewayPDAs =
+          epoch.activeGatewayCount > 0
+            ? await ario.getRegistryGatewayPDAs(
+                epoch.distributionIndex,
+                batchSize,
+              )
+            : [];
+        await ario.distributeEpoch({
+          epochIndex: targetEpochIndex,
+          gatewayAccounts: gatewayPDAs,
+        });
       } catch (err) {
         this.handleError(err, 'distribute_epoch');
       }
@@ -341,7 +358,9 @@ export class EpochCranker {
         if (cfg && Number(cfg.nextRecordsPruneTimestamp) <= now) {
           const expired = await ario.getExpiredArnsRecords(now);
           while (expired.length > 0 && budget.remaining > 0) {
-            const batch = expired.splice(0, batchSize).map((r: any) => r.pubkey);
+            const batch = expired
+              .splice(0, batchSize)
+              .map((r: any) => r.pubkey);
             try {
               await ario.pruneExpiredNames({
                 maxNames: batch.length,
@@ -367,7 +386,9 @@ export class EpochCranker {
         if (cfg && Number(cfg.nextReturnedNamesPruneTimestamp) <= now) {
           const expired = await ario.getExpiredReturnedNames(now);
           while (expired.length > 0 && budget.remaining > 0) {
-            const batch = expired.splice(0, batchSize).map((r: any) => r.pubkey);
+            const batch = expired
+              .splice(0, batchSize)
+              .map((r: any) => r.pubkey);
             try {
               await ario.pruneReturnedNames({
                 maxNames: batch.length,

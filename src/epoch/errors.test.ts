@@ -25,7 +25,9 @@ describe('cranker error classification', () => {
     it('extracts hex `custom program error: 0xbbf` (= 3007) form from simulation failures', () => {
       // What we actually see in `[crank:close_observation]` logs when
       // the cranker hits a non-existent Observation PDA.
-      const err = new Error('Transaction simulation failed: custom program error: 0xbbf');
+      const err = new Error(
+        'Transaction simulation failed: custom program error: 0xbbf',
+      );
       expect(parseAnchorErrorCode(err)).to.equal(3007);
     });
 
@@ -103,15 +105,27 @@ describe('cranker error classification', () => {
       // Program owns the slot); 3012 is defensive coverage for
       // zero-data accounts.
       expect(
-        classifyError(new Error('AnchorError ... Error Number: 3007 ... AccountOwnedByWrongProgram')),
+        classifyError(
+          new Error(
+            'AnchorError ... Error Number: 3007 ... AccountOwnedByWrongProgram',
+          ),
+        ),
       ).to.equal('already_done');
       expect(
-        classifyError(new Error('AnchorError ... Error Number: 3012 ... AccountNotInitialized')),
+        classifyError(
+          new Error(
+            'AnchorError ... Error Number: 3012 ... AccountNotInitialized',
+          ),
+        ),
       ).to.equal('already_done');
       // And the simulation-failure hex form that we actually see in
       // close_observation logs:
       expect(
-        classifyError(new Error('Transaction simulation failed: custom program error: 0xbbf')),
+        classifyError(
+          new Error(
+            'Transaction simulation failed: custom program error: 0xbbf',
+          ),
+        ),
       ).to.equal('already_done');
       // And the realistic SolanaError cause chain produced by the SDK
       // when close_observation hits a non-existent PDA:
@@ -164,8 +178,12 @@ describe('cranker error classification', () => {
       expect(
         classifyError(new Error('HTTP error (429): Too Many Requests')),
       ).to.equal('not_ready');
-      expect(classifyError(new Error('Too Many Requests'))).to.equal('not_ready');
-      expect(classifyError(new Error('rate limit exceeded'))).to.equal('not_ready');
+      expect(classifyError(new Error('Too Many Requests'))).to.equal(
+        'not_ready',
+      );
+      expect(classifyError(new Error('rate limit exceeded'))).to.equal(
+        'not_ready',
+      );
       // Also walks the cause chain — RPC error nested in SolanaError
       const inner = new Error('HTTP error (429): Too Many Requests');
       const outer = Object.assign(new Error('Transaction send failed'), {
@@ -175,12 +193,18 @@ describe('cranker error classification', () => {
     });
 
     it('treats RPC-level "already processed" as "already_done"', () => {
-      expect(classifyError(new Error('Transaction already been processed'))).to.equal('already_done');
-      expect(classifyError(new Error('AlreadyProcessed'))).to.equal('already_done');
+      expect(
+        classifyError(new Error('Transaction already been processed')),
+      ).to.equal('already_done');
+      expect(classifyError(new Error('AlreadyProcessed'))).to.equal(
+        'already_done',
+      );
     });
 
     it('falls through to "real" for unrecognised errors', () => {
-      expect(classifyError(new Error('completely unexpected program error'))).to.equal('real');
+      expect(
+        classifyError(new Error('completely unexpected program error')),
+      ).to.equal('real');
     });
   });
 });

@@ -80,7 +80,6 @@ async function createReportDataItem(signer: Signer, report: ObserverReport) {
  * Exported for unit testing.
  */
 export function signerOwnerAddress(signer: Signer): string {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pubkey = (signer as any).publicKey as Buffer;
   return crypto
     .createHash('sha256')

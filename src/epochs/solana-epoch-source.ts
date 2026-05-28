@@ -30,10 +30,7 @@ import {
 } from '@solana/kit';
 import type winston from 'winston';
 
-import {
-  deserializeEpochSettingsFull,
-  getEpochSettingsPDA,
-} from '@ar.io/sdk';
+import { deserializeEpochSettingsFull, getEpochSettingsPDA } from '@ar.io/sdk';
 import type {
   EpochSettings,
   EpochTimestampParams,

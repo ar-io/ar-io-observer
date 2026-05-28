@@ -47,7 +47,10 @@ describe('signerOwnerAddress', () => {
 
   it('returns base64url(sha256(publicKey)) for a 512-byte (Arweave RSA-4096) pubkey', () => {
     // Use a random-looking but deterministic 512-byte modulus.
-    const pubkey = crypto.createHash('sha512').update('arweave-modulus').digest();
+    const pubkey = crypto
+      .createHash('sha512')
+      .update('arweave-modulus')
+      .digest();
     const modulus = Buffer.concat([pubkey, pubkey, pubkey, pubkey]); // 256 bytes
     const fullModulus = Buffer.concat([modulus, modulus]); // 512 bytes
     const expected = crypto
@@ -75,8 +78,12 @@ describe('signerOwnerAddress', () => {
   });
 
   it('different pubkeys produce different owner addresses', () => {
-    const a = signerOwnerAddress(fakeSigner(Buffer.from('00'.repeat(32), 'hex')));
-    const b = signerOwnerAddress(fakeSigner(Buffer.from('01'.repeat(32), 'hex')));
+    const a = signerOwnerAddress(
+      fakeSigner(Buffer.from('00'.repeat(32), 'hex')),
+    );
+    const b = signerOwnerAddress(
+      fakeSigner(Buffer.from('01'.repeat(32), 'hex')),
+    );
     expect(a).to.not.equal(b);
   });
 });
