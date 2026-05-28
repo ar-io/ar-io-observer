@@ -14,7 +14,13 @@ import { SolanaHostsSource } from './solana-hosts-source.js';
 function makeLog(): winston.Logger {
   const noop = sinon.stub();
   return {
-    child: () => ({ verbose: noop, info: noop, warn: noop, error: noop, debug: noop }),
+    child: () => ({
+      verbose: noop,
+      info: noop,
+      warn: noop,
+      error: noop,
+      debug: noop,
+    }),
     verbose: noop,
     info: noop,
     warn: noop,
@@ -34,11 +40,19 @@ describe('SolanaHostsSource', () => {
     const readable = makeReadable([
       {
         gatewayAddress: 'OPERATOR_A',
-        settings: { fqdn: 'gateway-a.example.com', port: 443, protocol: 'https' },
+        settings: {
+          fqdn: 'gateway-a.example.com',
+          port: 443,
+          protocol: 'https',
+        },
       },
       {
         gatewayAddress: 'OPERATOR_B',
-        settings: { fqdn: 'gateway-b.example.com', port: 443, protocol: 'https' },
+        settings: {
+          fqdn: 'gateway-b.example.com',
+          port: 443,
+          protocol: 'https',
+        },
       },
     ]);
     const src = new SolanaHostsSource({ readable, log: makeLog() });

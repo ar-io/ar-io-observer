@@ -94,7 +94,9 @@ export class SolanaContractReportSink implements ReportSink {
     // can't submit a bogus on-chain tx. The cost is one extra RPC read
     // per submission cycle — negligible compared to the Turbo upload
     // that already preceded us.
-    let status: Awaited<ReturnType<SolanaARIOReadable['getEpochObservationStatus']>>;
+    let status: Awaited<
+      ReturnType<SolanaARIOReadable['getEpochObservationStatus']>
+    >;
     try {
       status = await this.readable.getEpochObservationStatus(
         epochIndex,
@@ -119,14 +121,11 @@ export class SolanaContractReportSink implements ReportSink {
       return reportInfo;
     }
     if (status.alreadyObserved) {
-      this.log.warn(
-        'Observation already submitted for this epoch — skipping',
-        {
-          epochIndex,
-          observer: this.observerAddress,
-          observerIdx: status.observerIdx,
-        },
-      );
+      this.log.warn('Observation already submitted for this epoch — skipping', {
+        epochIndex,
+        observer: this.observerAddress,
+        observerIdx: status.observerIdx,
+      });
       return reportInfo;
     }
     if (!status.windowOpen) {

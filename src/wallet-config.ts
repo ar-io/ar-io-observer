@@ -256,7 +256,10 @@ function parseSolanaKeypair(raw: string, path: string): Uint8Array {
   }
   if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
     const keys = Object.keys(parsed as object).slice(0, 5);
-    if ((parsed as any).kty === 'RSA' && typeof (parsed as any).n === 'string') {
+    if (
+      (parsed as any).kty === 'RSA' &&
+      typeof (parsed as any).n === 'string'
+    ) {
       throw new Error(
         `Expected a Solana keypair (64-byte JSON array) at ${path}, found an Arweave RSA JWK ` +
           `(keys: [${keys.join(', ')}]). Did you mean to set ARWEAVE_UPLOAD_KEY_FILE instead?`,
@@ -290,7 +293,9 @@ function parseArweaveJwk(raw: string, origin: string): JWKInterface {
   try {
     parsed = JSON.parse(raw);
   } catch (err: any) {
-    throw new Error(`Failed to parse Arweave JWK from ${origin}: ${err.message}`);
+    throw new Error(
+      `Failed to parse Arweave JWK from ${origin}: ${err.message}`,
+    );
   }
   if (Array.isArray(parsed)) {
     throw new Error(
@@ -336,15 +341,16 @@ export function resolveUploadIdentity(
   fallbackSolanaPath?: string, // observer or operator path, when no explicit upload key
 ): UploadIdentity {
   const arweaveEnvs = [
-    env.ARWEAVE_UPLOAD_KEY_FILE && 'ARWEAVE_UPLOAD_KEY_FILE',
-    env.ARWEAVE_UPLOAD_JWK && 'ARWEAVE_UPLOAD_JWK',
+    Boolean(env.ARWEAVE_UPLOAD_KEY_FILE) && 'ARWEAVE_UPLOAD_KEY_FILE',
+    Boolean(env.ARWEAVE_UPLOAD_JWK) && 'ARWEAVE_UPLOAD_JWK',
   ].filter(Boolean) as string[];
   const ethereumEnvs = [
-    env.ETHEREUM_UPLOAD_PRIVATE_KEY_FILE && 'ETHEREUM_UPLOAD_PRIVATE_KEY_FILE',
-    env.ETHEREUM_UPLOAD_PRIVATE_KEY && 'ETHEREUM_UPLOAD_PRIVATE_KEY',
+    Boolean(env.ETHEREUM_UPLOAD_PRIVATE_KEY_FILE) &&
+      'ETHEREUM_UPLOAD_PRIVATE_KEY_FILE',
+    Boolean(env.ETHEREUM_UPLOAD_PRIVATE_KEY) && 'ETHEREUM_UPLOAD_PRIVATE_KEY',
   ].filter(Boolean) as string[];
   const solanaEnvs = [
-    env.SOLANA_UPLOAD_KEYPAIR_PATH && 'SOLANA_UPLOAD_KEYPAIR_PATH',
+    Boolean(env.SOLANA_UPLOAD_KEYPAIR_PATH) && 'SOLANA_UPLOAD_KEYPAIR_PATH',
   ].filter(Boolean) as string[];
 
   const groups = [
@@ -365,13 +371,19 @@ export function resolveUploadIdentity(
   if (arweaveEnvs.length > 0) {
     if (env.ARWEAVE_UPLOAD_KEY_FILE !== undefined) {
       const raw = loaders.readFile(env.ARWEAVE_UPLOAD_KEY_FILE);
-      const jwk = parseArweaveJwk(raw, `ARWEAVE_UPLOAD_KEY_FILE (${env.ARWEAVE_UPLOAD_KEY_FILE})`);
+      const jwk = parseArweaveJwk(
+        raw,
+        `ARWEAVE_UPLOAD_KEY_FILE (${env.ARWEAVE_UPLOAD_KEY_FILE})`,
+      );
       log.info('Upload identity: Arweave JWK (from file)', {
         path: env.ARWEAVE_UPLOAD_KEY_FILE,
       });
       return { mode: 'arweave', source: 'file', jwk };
     }
-    const jwk = parseArweaveJwk(env.ARWEAVE_UPLOAD_JWK!, 'ARWEAVE_UPLOAD_JWK env');
+    const jwk = parseArweaveJwk(
+      env.ARWEAVE_UPLOAD_JWK!,
+      'ARWEAVE_UPLOAD_JWK env',
+    );
     log.info('Upload identity: Arweave JWK (from env)');
     return { mode: 'arweave', source: 'env', jwk };
   }
@@ -416,9 +428,12 @@ export function resolveUploadIdentity(
   if (fallbackSolanaPath !== undefined) {
     const raw = loaders.readFile(fallbackSolanaPath);
     const secretKey = parseSolanaKeypair(raw, fallbackSolanaPath);
-    log.info('Upload identity: Solana keypair (fallback to observer/operator key)', {
-      path: fallbackSolanaPath,
-    });
+    log.info(
+      'Upload identity: Solana keypair (fallback to observer/operator key)',
+      {
+        path: fallbackSolanaPath,
+      },
+    );
     return {
       mode: 'solana',
       source: 'file',

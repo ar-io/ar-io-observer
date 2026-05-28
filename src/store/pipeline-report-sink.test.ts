@@ -247,9 +247,7 @@ describe('PipelineReportSink', function () {
 
     it('honors a custom maxGatewayFailureThreshold below the default', async function () {
       // Threshold 0.5 → 60% failure should trip; 50% should pass.
-      const sinks: ReportSinkEntry[] = [
-        { name: 'sink1', sink: mockSink1 },
-      ];
+      const sinks: ReportSinkEntry[] = [{ name: 'sink1', sink: mockSink1 }];
       pipelineReportSink = new PipelineReportSink({
         log: logStub,
         sinks,
@@ -287,9 +285,7 @@ describe('PipelineReportSink', function () {
     });
 
     it('handles an empty gateway-assessments map without crashing (no divide-by-zero)', async function () {
-      const sinks: ReportSinkEntry[] = [
-        { name: 'sink1', sink: mockSink1 },
-      ];
+      const sinks: ReportSinkEntry[] = [{ name: 'sink1', sink: mockSink1 }];
       pipelineReportSink = new PipelineReportSink({ log: logStub, sinks });
       const report = createMockReport(0, 0); // no gateways
       await pipelineReportSink.saveReport({ report });

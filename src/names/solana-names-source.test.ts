@@ -14,7 +14,13 @@ import { SolanaNamesSource } from './solana-names-source.js';
 function makeLog(): winston.Logger {
   const noop = sinon.stub();
   return {
-    child: () => ({ verbose: noop, info: noop, warn: noop, error: noop, debug: noop }),
+    child: () => ({
+      verbose: noop,
+      info: noop,
+      warn: noop,
+      error: noop,
+      debug: noop,
+    }),
     verbose: noop,
     info: noop,
     warn: noop,
@@ -45,10 +51,7 @@ describe('SolanaNamesSource', () => {
     it('walks paginated ArnsRecord results and returns sorted unique names', async () => {
       const stub = sinon.stub();
       stub.onCall(0).resolves({
-        items: [
-          { name: 'turbo' },
-          { name: 'ardrive' },
-        ],
+        items: [{ name: 'turbo' }, { name: 'ardrive' }],
         nextCursor: 'CURSOR_1',
       });
       stub.onCall(1).resolves({
@@ -63,8 +66,14 @@ describe('SolanaNamesSource', () => {
       const names = await src.getAllNames(0);
       expect(names).to.deep.equal(['ardrive', 'permaweb', 'turbo']);
       expect(stub.callCount).to.equal(2);
-      expect(stub.firstCall.args[0]).to.deep.equal({ cursor: undefined, limit: 1000 });
-      expect(stub.secondCall.args[0]).to.deep.equal({ cursor: 'CURSOR_1', limit: 1000 });
+      expect(stub.firstCall.args[0]).to.deep.equal({
+        cursor: undefined,
+        limit: 1000,
+      });
+      expect(stub.secondCall.args[0]).to.deep.equal({
+        cursor: 'CURSOR_1',
+        limit: 1000,
+      });
     });
 
     it('honors a custom page size', async () => {
@@ -76,7 +85,10 @@ describe('SolanaNamesSource', () => {
         pageSize: 250,
       });
       await src.getAllNames(0);
-      expect(stub.firstCall.args[0]).to.deep.equal({ cursor: undefined, limit: 250 });
+      expect(stub.firstCall.args[0]).to.deep.equal({
+        cursor: undefined,
+        limit: 250,
+      });
     });
 
     it('caches results within allNamesCacheTtlMs', async () => {

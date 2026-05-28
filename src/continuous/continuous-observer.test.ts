@@ -505,7 +505,9 @@ describe('ContinuousObserver Integration', function () {
         clear: sinon.stub().resolves(),
       };
       const reportSink = {
-        saveReport: sinon.stub().resolves({ report: {} as any, reportTxId: 'mock-arweave-tx-id' }),
+        saveReport: sinon
+          .stub()
+          .resolves({ report: {} as any, reportTxId: 'mock-arweave-tx-id' }),
       };
       const observer = createObserverForCatchUp({
         stateStore,
@@ -583,7 +585,9 @@ describe('ContinuousObserver Integration', function () {
         clear: sinon.stub().resolves(),
       };
       const reportSink = {
-        saveReport: sinon.stub().resolves({ report: {} as any, reportTxId: 'mock-arweave-tx-id' }),
+        saveReport: sinon
+          .stub()
+          .resolves({ report: {} as any, reportTxId: 'mock-arweave-tx-id' }),
       };
       const observer = createObserverForCatchUp({
         stateStore,
@@ -689,7 +693,9 @@ describe('ContinuousObserver Integration', function () {
         clear: sinon.stub().resolves(),
       };
       const reportSink = {
-        saveReport: sinon.stub().resolves({ report: {} as any, reportTxId: 'mock-arweave-tx-id' }),
+        saveReport: sinon
+          .stub()
+          .resolves({ report: {} as any, reportTxId: 'mock-arweave-tx-id' }),
       };
       const observer = createObserverForCatchUp({
         stateStore,
@@ -753,7 +759,9 @@ describe('ContinuousObserver Integration', function () {
         clear: sinon.stub().resolves(),
       };
       const reportSink = {
-        saveReport: sinon.stub().resolves({ report: {} as any, reportTxId: 'mock-arweave-tx-id' }),
+        saveReport: sinon
+          .stub()
+          .resolves({ report: {} as any, reportTxId: 'mock-arweave-tx-id' }),
       };
       const observer = createObserverForCatchUp({
         stateStore,
@@ -854,7 +862,9 @@ describe('ContinuousObserver Integration', function () {
         clear: sinon.stub().resolves(),
       };
       const reportSink = {
-        saveReport: sinon.stub().resolves({ report: {} as any, reportTxId: 'mock-arweave-tx-id' }),
+        saveReport: sinon
+          .stub()
+          .resolves({ report: {} as any, reportTxId: 'mock-arweave-tx-id' }),
       };
       const observer = createObserverForCatchUp({
         stateStore,
@@ -1146,9 +1156,10 @@ describe('ContinuousObserver Integration', function () {
 
     function persistenceSinkStub(): { saveReport: sinon.SinonStub } {
       return {
-        saveReport: sinon
-          .stub()
-          .callsFake(async (info: any) => ({ ...info, persistedLocally: true })),
+        saveReport: sinon.stub().callsFake(async (info: any) => ({
+          ...info,
+          persistedLocally: true,
+        })),
       };
     }
 
@@ -1480,9 +1491,9 @@ describe('ContinuousObserver Integration', function () {
       expect((observer as any).chosenNames).to.deep.equal(['c1', 'c2', 'c3']);
       expect(assessor.initializeForEpoch.calledOnce).to.equal(true);
       // namesCount = prescribed + chosen
-      expect(
-        assessor.initializeForEpoch.firstCall.args[0].namesCount,
-      ).to.equal(5);
+      expect(assessor.initializeForEpoch.firstCall.args[0].namesCount).to.equal(
+        5,
+      );
 
       // Third cycle — flag is already set, no re-fetch.
       await (observer as any).runObservationCycle();
