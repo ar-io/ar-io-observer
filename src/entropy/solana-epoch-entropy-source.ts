@@ -54,7 +54,7 @@ import type winston from 'winston';
 import {
   deserializeEpoch,
   getEpochPDA,
-} from '@ar.io/sdk/solana';
+} from '@ar.io/sdk';
 import type { EntropySource, EpochTimestampSource } from '../types.js';
 
 export interface SolanaEpochEntropySourceConfig {
@@ -153,6 +153,21 @@ export class SolanaEpochEntropySource implements EntropySource {
     }
 
     const entropy = hash.digest();
+
+    // Don't cache pre-prescribe_epoch state. When `observerCount` and
+    // `nameCount` are both zero, the cranker hasn't yet written the
+    // prescribed sets into the Epoch PDA — caching here would lock
+    // the entropy to an empty-state hash for the cache TTL, and even
+    // a subsequent `prescribe_epoch` landing wouldn't refresh it.
+    // Return the value but force the next call to re-fetch.
+    if (epoch.observerCount === 0 && epoch.nameCount === 0) {
+      this.log.verbose(
+        'Epoch entropy derived from pre-prescribe state; skipping cache',
+        { epochIndex },
+      );
+      return entropy;
+    }
+
     this.cached = { epochIndex, entropy, fetchedAt: now };
     this.log.verbose('Derived shared epoch entropy', {
       epochIndex,

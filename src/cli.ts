@@ -16,12 +16,43 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 import { args } from './config.js';
-import { observer, reportSink } from './system.js';
+import {
+  observer,
+  persistenceReportSink,
+  submissionGate,
+  submissionReportSink,
+} from './system.js';
 
 const report = await observer.generateReport();
 console.log('Report: ');
 console.log(JSON.stringify(report, null, 2));
 
 if (args.saveReport) {
-  await reportSink.saveReport({ report });
+  // Mirror ContinuousObserver: persistence ALWAYS runs; submission
+  // gated on prescription so the one-shot CLI doesn't burn Turbo
+  // credits + RPC for a report with no on-chain pathway.
+  const persisted = await persistenceReportSink.saveReport({ report });
+
+  if (submissionReportSink !== undefined) {
+    let proceed = true;
+    if (submissionGate !== undefined) {
+      try {
+        const decision = await submissionGate(report);
+        proceed = decision.proceed;
+        if (!proceed) {
+          console.log(
+            `Submission skipped: ${decision.reason ?? 'gate returned proceed=false'}`,
+          );
+        }
+      } catch (err: any) {
+        // Conservative: if we can't determine prescription, don't
+        // upload. The CLI is one-shot — there's no "retry next cycle."
+        console.log(`Submission gate failed: ${err.message}`);
+        proceed = false;
+      }
+    }
+    if (proceed) {
+      await submissionReportSink.saveReport(persisted);
+    }
+  }
 }

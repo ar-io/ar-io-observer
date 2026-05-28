@@ -24,7 +24,7 @@
  * needed from the observer side.
  */
 import type { Address } from '@solana/kit';
-import type { SolanaARIOReadable, SolanaARIOWriteable } from '@ar.io/sdk/solana';
+import type { SolanaARIOReadable, SolanaARIOWriteable } from '@ar.io/sdk';
 import type winston from 'winston';
 
 import type { ObserverReport, ReportInfo, ReportSink } from '../types.js';
@@ -83,7 +83,17 @@ export class SolanaContractReportSink implements ReportSink {
       return reportInfo;
     }
 
-    // -------- Pre-flight gates (one RPC read of the Epoch account) --------
+    // -------- Defensive pre-flight gates (one RPC read of the Epoch
+    // account) --------
+    //
+    // The primary gate now lives in `PipelineReportSink` via
+    // `shouldSubmitExternally`, which short-circuits BEFORE Turbo
+    // uploads anything when we're not prescribed. This block is kept
+    // as a belt-and-suspenders check so direct callers / test harnesses
+    // that wire `SolanaContractReportSink` outside the pipeline still
+    // can't submit a bogus on-chain tx. The cost is one extra RPC read
+    // per submission cycle — negligible compared to the Turbo upload
+    // that already preceded us.
     let status: Awaited<ReturnType<SolanaARIOReadable['getEpochObservationStatus']>>;
     try {
       status = await this.readable.getEpochObservationStatus(

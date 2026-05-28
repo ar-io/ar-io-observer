@@ -263,15 +263,24 @@ describe('ContinuousObserver Integration', function () {
         hostsSource: {
           getHosts: sinon.stub().resolves(gateways),
         },
+        // Non-empty prescribed list — the observer's new
+        // `prescribedNamesReady` gate skips the whole cycle when the
+        // contract hasn't run `prescribe_epoch` yet (returns []).
+        // These tests exercise the post-prescription flow, so stub
+        // realistic protocol-spec values.
         prescribedNamesSource: {
-          getNames: sinon.stub().resolves([]),
+          getNames: sinon.stub().resolves(['prescribed-1', 'prescribed-2']),
         },
         chosenNamesSource: {
-          getNames: sinon.stub().resolves([]),
+          getNames: sinon.stub().resolves(['chosen-1', 'chosen-2']),
         },
         entropySource,
         stateStore,
-        reportSink,
+        // Wire the single test stub as the persistence sink. Tests
+        // that exercise the submission pipeline explicitly pass a
+        // distinct `submissionSink` (none of these do today, but the
+        // split is observable to callers).
+        persistenceSink: reportSink,
         nodeReleaseVersion: 'test-release',
         nameAssessmentConcurrency: 1,
         config: {
@@ -445,15 +454,24 @@ describe('ContinuousObserver Integration', function () {
         hostsSource: {
           getHosts: sinon.stub().resolves(gateways),
         },
+        // Non-empty prescribed list — the observer's new
+        // `prescribedNamesReady` gate skips the whole cycle when the
+        // contract hasn't run `prescribe_epoch` yet (returns []).
+        // These tests exercise the post-prescription flow, so stub
+        // realistic protocol-spec values.
         prescribedNamesSource: {
-          getNames: sinon.stub().resolves([]),
+          getNames: sinon.stub().resolves(['prescribed-1', 'prescribed-2']),
         },
         chosenNamesSource: {
-          getNames: sinon.stub().resolves([]),
+          getNames: sinon.stub().resolves(['chosen-1', 'chosen-2']),
         },
         entropySource,
         stateStore,
-        reportSink,
+        // Wire the single test stub as the persistence sink. Tests
+        // that exercise the submission pipeline explicitly pass a
+        // distinct `submissionSink` (none of these do today, but the
+        // split is observable to callers).
+        persistenceSink: reportSink,
         nodeReleaseVersion: 'test-release',
         nameAssessmentConcurrency: 1,
         config: {
@@ -472,6 +490,12 @@ describe('ContinuousObserver Integration', function () {
     ): void {
       (observer as any).state = state;
       (observer as any).scheduler.restoreFromState(state);
+      // Tests in this block pre-inject `prescribedNames` + `chosenNames`
+      // and swap in a hand-rolled assessor mock that doesn't implement
+      // `initializeForEpoch`. Mark names as already-loaded so
+      // `runObservationCycle` skips the lazy load that would otherwise
+      // crash on the stub. Tests of the lazy-load gate live separately.
+      (observer as any).prescribedNamesReady = true;
     }
 
     it('drains multiple overdue observations for the same gateway in one cycle', async function () {
@@ -1056,6 +1080,450 @@ describe('ContinuousObserver Integration', function () {
           : observations[observations.length - 1];
 
       expect(best.observedAt).to.equal(3000);
+    });
+  });
+
+  describe('Persistence + Submission Split', function () {
+    // Exercises `finalizeAndSubmitReport` directly with a hand-rolled
+    // observer so we can verify the two-phase semantics without
+    // standing up the whole scheduler.
+    function newObserver(opts: {
+      persistenceSink: { saveReport: sinon.SinonStub };
+      submissionSink?: { saveReport: sinon.SinonStub };
+      submissionGate?: sinon.SinonStub;
+    }): ContinuousObserver {
+      const observer = new ContinuousObserver({
+        observerAddress: 'observer-wallet',
+        referenceGateway: {
+          getArnsResolution: sinon.stub().rejects(new Error('unused')),
+          checkChunkAvailability: sinon.stub().rejects(new Error('unused')),
+          getChunkMetadata: sinon.stub().rejects(new Error('unused')),
+        },
+        epochSource: {
+          getEpochIndex: sinon.stub().resolves(1),
+          getEpochStartTimestamp: sinon.stub().resolves(epochStartTimestamp),
+          getEpochEndTimestamp: sinon.stub().resolves(epochEndTimestamp),
+          getEpochStartHeight: sinon.stub().resolves(epochStartHeight),
+          getEpochSettings: sinon.stub().resolves({
+            epochZeroStartTimestamp: 0,
+            durationMs: epochEndTimestamp - epochStartTimestamp,
+          }),
+        },
+        hostsSource: { getHosts: sinon.stub().resolves(gateways) },
+        prescribedNamesSource: { getNames: sinon.stub().resolves([]) },
+        chosenNamesSource: { getNames: sinon.stub().resolves([]) },
+        entropySource,
+        stateStore: {
+          load: sinon.stub().resolves(null),
+          save: sinon.stub().resolves(),
+          clear: sinon.stub().resolves(),
+        } as any,
+        persistenceSink: opts.persistenceSink,
+        submissionSink: opts.submissionSink,
+        submissionGate: opts.submissionGate as any,
+        nodeReleaseVersion: 'test-release',
+        nameAssessmentConcurrency: 1,
+        log: testLog,
+      });
+      // Minimal state so finalize doesn't trip the "not initialized" guard.
+      (observer as any).state = {
+        epochIndex: 7,
+        epochStartTimestamp,
+        epochEndTimestamp,
+        epochStartHeight,
+        windowStart: epochStartTimestamp,
+        windowEnd: epochEndTimestamp,
+        gatewayObservations: new Map(),
+        gatewayWallets: new Map(),
+        pendingObservations: [],
+        prescribedNames: [],
+        chosenNames: [],
+        reportSubmitted: false,
+        submissionDeadlineExceeded: false,
+      };
+      return observer;
+    }
+
+    function persistenceSinkStub(): { saveReport: sinon.SinonStub } {
+      return {
+        saveReport: sinon
+          .stub()
+          .callsFake(async (info: any) => ({ ...info, persistedLocally: true })),
+      };
+    }
+
+    function submissionSinkStub(reportTxId = 'arweave-mock-tx'): {
+      saveReport: sinon.SinonStub;
+    } {
+      return {
+        saveReport: sinon
+          .stub()
+          .callsFake(async (info: any) => ({ ...info, reportTxId })),
+      };
+    }
+
+    afterEach(() => sinon.restore());
+
+    it('persistence always runs; submission runs when gate proceeds', async function () {
+      const persistence = persistenceSinkStub();
+      const submission = submissionSinkStub();
+      const gate = sinon.stub().resolves({ proceed: true });
+      const observer = newObserver({
+        persistenceSink: persistence,
+        submissionSink: submission,
+        submissionGate: gate,
+      });
+
+      const submitted = await (observer as any).finalizeAndSubmitReport();
+
+      expect(submitted).to.equal(true);
+      expect(persistence.saveReport.calledOnce).to.be.true;
+      expect(gate.calledOnce).to.be.true;
+      expect(submission.saveReport.calledOnce).to.be.true;
+      // Submission must receive the persistence-augmented info object
+      // (so any sink-injected fields propagate downstream).
+      expect(submission.saveReport.firstCall.args[0]).to.have.property(
+        'persistedLocally',
+        true,
+      );
+    });
+
+    it('persistence runs but submission is SKIPPED when gate denies (not prescribed)', async function () {
+      const persistence = persistenceSinkStub();
+      const submission = submissionSinkStub();
+      const gate = sinon.stub().resolves({
+        proceed: false,
+        reason: 'observer not prescribed for this epoch',
+      });
+      const observer = newObserver({
+        persistenceSink: persistence,
+        submissionSink: submission,
+        submissionGate: gate,
+      });
+
+      const submitted = await (observer as any).finalizeAndSubmitReport();
+
+      // `true` so the caller flips reportSubmitted and won't retry —
+      // there's no on-chain pathway, retrying is pointless.
+      expect(submitted).to.equal(true);
+      expect(persistence.saveReport.calledOnce).to.be.true;
+      expect(gate.calledOnce).to.be.true;
+      expect(submission.saveReport.called).to.be.false;
+    });
+
+    it('gate threw → returns false (retry next cycle, do NOT submit)', async function () {
+      // The whole point of the split: if we can't determine
+      // prescription, don't burn credits on a Turbo upload we may not
+      // be able to back with an on-chain tx.
+      const persistence = persistenceSinkStub();
+      const submission = submissionSinkStub();
+      const gate = sinon.stub().rejects(new Error('RPC timeout'));
+      const observer = newObserver({
+        persistenceSink: persistence,
+        submissionSink: submission,
+        submissionGate: gate,
+      });
+
+      const submitted = await (observer as any).finalizeAndSubmitReport();
+
+      expect(submitted).to.equal(false);
+      expect(persistence.saveReport.calledOnce).to.be.true;
+      expect(submission.saveReport.called).to.be.false;
+    });
+
+    it('no submission pipeline wired → persistence runs, returns true (terminal)', async function () {
+      // Dev / dry-run setup with no Turbo + no contract submission.
+      const persistence = persistenceSinkStub();
+      const observer = newObserver({ persistenceSink: persistence });
+
+      const submitted = await (observer as any).finalizeAndSubmitReport();
+
+      expect(submitted).to.equal(true);
+      expect(persistence.saveReport.calledOnce).to.be.true;
+    });
+
+    it('no gate but submission wired → submission always runs (legacy behavior)', async function () {
+      // Back-compat path for setups that don't wire a Solana gate
+      // (e.g. older AO configs where the contract itself rejected
+      // non-prescribed submissions).
+      const persistence = persistenceSinkStub();
+      const submission = submissionSinkStub();
+      const observer = newObserver({
+        persistenceSink: persistence,
+        submissionSink: submission,
+      });
+
+      const submitted = await (observer as any).finalizeAndSubmitReport();
+
+      expect(submitted).to.equal(true);
+      expect(persistence.saveReport.calledOnce).to.be.true;
+      expect(submission.saveReport.calledOnce).to.be.true;
+    });
+
+    it('persistence sink threw → returns false (retry); submission must NOT run', async function () {
+      const persistence = {
+        saveReport: sinon.stub().rejects(new Error('disk full')),
+      };
+      const submission = submissionSinkStub();
+      const gate = sinon.stub().resolves({ proceed: true });
+      const observer = newObserver({
+        persistenceSink: persistence,
+        submissionSink: submission,
+        submissionGate: gate,
+      });
+
+      const submitted = await (observer as any).finalizeAndSubmitReport();
+
+      expect(submitted).to.equal(false);
+      expect(gate.called).to.be.false;
+      expect(submission.saveReport.called).to.be.false;
+    });
+
+    it('submission pipeline returned no reportTxId → returns false (retry)', async function () {
+      // E.g. PipelineReportSink's 80%-failure threshold dropped the
+      // report mid-submission, or a network blip swallowed in the
+      // Turbo sink's catch.
+      const persistence = persistenceSinkStub();
+      const submission = {
+        saveReport: sinon
+          .stub()
+          .callsFake(async (info: any) => info /* no reportTxId */),
+      };
+      const gate = sinon.stub().resolves({ proceed: true });
+      const observer = newObserver({
+        persistenceSink: persistence,
+        submissionSink: submission,
+        submissionGate: gate,
+      });
+
+      const submitted = await (observer as any).finalizeAndSubmitReport();
+
+      expect(submitted).to.equal(false);
+      expect(persistence.saveReport.calledOnce).to.be.true;
+      expect(submission.saveReport.calledOnce).to.be.true;
+    });
+
+    it('gate is called with the same report that submission sees', async function () {
+      const persistence = persistenceSinkStub();
+      const submission = submissionSinkStub();
+      const gate = sinon.stub().resolves({ proceed: true });
+      const observer = newObserver({
+        persistenceSink: persistence,
+        submissionSink: submission,
+        submissionGate: gate,
+      });
+
+      await (observer as any).finalizeAndSubmitReport();
+
+      const gateArg = gate.firstCall.args[0];
+      const submissionArg = submission.saveReport.firstCall.args[0];
+      // Both look at the same epoch + observer identity.
+      expect(gateArg.epochIndex).to.equal(submissionArg.report.epochIndex);
+      expect(gateArg.observerAddress).to.equal(
+        submissionArg.report.observerAddress,
+      );
+    });
+  });
+
+  describe('Prescribed-Name Lazy Load (prescribe_epoch race)', function () {
+    // Exercises the deferred name-load path. The cranker calls
+    // `prescribe_epoch` ~30-60s AFTER `create_epoch` (it has to wait
+    // on `tally_weights` to finish first). Eagerly reading prescribed
+    // names at epoch-detection time always returned []. The observer
+    // now retries each cycle until the cranker has run.
+
+    function newLazyLoadObserver(opts: {
+      prescribedNamesSource: { getNames: sinon.SinonStub };
+      chosenNamesSource: { getNames: sinon.SinonStub };
+      assessor?: any;
+    }): ContinuousObserver {
+      const observer = new ContinuousObserver({
+        observerAddress: 'observer-wallet',
+        referenceGateway: {
+          getArnsResolution: sinon.stub().rejects(new Error('unused')),
+          checkChunkAvailability: sinon.stub().rejects(new Error('unused')),
+          getChunkMetadata: sinon.stub().rejects(new Error('unused')),
+        },
+        epochSource: {
+          getEpochIndex: sinon.stub().resolves(1),
+          getEpochStartTimestamp: sinon.stub().resolves(epochStartTimestamp),
+          getEpochEndTimestamp: sinon.stub().resolves(epochEndTimestamp),
+          getEpochStartHeight: sinon.stub().resolves(epochStartHeight),
+          getEpochSettings: sinon.stub().resolves({
+            epochZeroStartTimestamp: 0,
+            durationMs: epochEndTimestamp - epochStartTimestamp,
+          }),
+        },
+        hostsSource: { getHosts: sinon.stub().resolves(gateways) },
+        prescribedNamesSource: opts.prescribedNamesSource,
+        chosenNamesSource: opts.chosenNamesSource,
+        entropySource,
+        stateStore: {
+          load: sinon.stub().resolves(null),
+          save: sinon.stub().resolves(),
+          clear: sinon.stub().resolves(),
+        } as any,
+        persistenceSink: { saveReport: sinon.stub().resolves({}) },
+        nodeReleaseVersion: 'test-release',
+        nameAssessmentConcurrency: 1,
+        log: testLog,
+      });
+      // Minimal state — past the epoch transition check but BEFORE the
+      // observation window opens, so the cycle exits after the lazy
+      // load attempt without trying to schedule any work.
+      (observer as any).state = {
+        epochIndex: 1,
+        epochStartTimestamp,
+        epochEndTimestamp,
+        epochStartHeight,
+        // Window in the future → `isBeforeWindow` returns true → cycle
+        // returns early after the load attempt, so we can assert
+        // purely on the prescribedNamesSource call count.
+        windowStart: Date.now() + 60_000,
+        windowEnd: Date.now() + 120_000,
+        gatewayObservations: new Map(),
+        gatewayWallets: new Map(),
+        pendingObservations: [],
+        prescribedNames: [],
+        chosenNames: [],
+        reportSubmitted: false,
+        submissionDeadlineExceeded: false,
+      };
+      // Keep the scheduler consistent with the injected state, mirroring
+      // initializeOrRestore in production. Without this the scheduler's
+      // window/deadline stay at construction defaults (in the past), so
+      // runObservationCycle's submission-deadline guard would treat
+      // epoch-start as past-deadline and short-circuit before the lazy load.
+      (observer as any).scheduler.restoreFromState((observer as any).state);
+      if (opts.assessor) (observer as any).assessor = opts.assessor;
+      return observer;
+    }
+
+    afterEach(() => sinon.restore());
+
+    it('does NOT load names at epoch construction (defers to cycle)', async function () {
+      const prescribedNamesSource = {
+        getNames: sinon.stub().resolves(['p1', 'p2']),
+      };
+      const chosenNamesSource = {
+        getNames: sinon.stub().resolves(['c1']),
+      };
+      newLazyLoadObserver({ prescribedNamesSource, chosenNamesSource });
+      // Construction alone must not have triggered a load — that was
+      // the eager path that raced the cranker.
+      expect(prescribedNamesSource.getNames.called).to.equal(false);
+      expect(chosenNamesSource.getNames.called).to.equal(false);
+    });
+
+    it('skips the cycle and re-tries when prescribed names is empty (pre-prescribe_epoch)', async function () {
+      const prescribedNamesSource = {
+        getNames: sinon.stub().resolves([]), // cranker hasn't run yet
+      };
+      const chosenNamesSource = {
+        getNames: sinon.stub().resolves(['c1', 'c2']),
+      };
+      const assessor = {
+        initializeForEpoch: sinon.stub(),
+        assessOwnership: sinon.stub(),
+        assessGatewayArns: sinon.stub(),
+        clearEpochState: sinon.stub(),
+      };
+      const observer = newLazyLoadObserver({
+        prescribedNamesSource,
+        chosenNamesSource,
+        assessor,
+      });
+
+      await (observer as any).runObservationCycle();
+      await (observer as any).runObservationCycle();
+      await (observer as any).runObservationCycle();
+
+      // Each cycle retries the prescribed read; chosen is never
+      // fetched while prescribed is empty (would otherwise burn a
+      // RandomArnsNamesSource entropy read on stale state).
+      expect(prescribedNamesSource.getNames.callCount).to.equal(3);
+      expect(chosenNamesSource.getNames.called).to.equal(false);
+      expect(assessor.initializeForEpoch.called).to.equal(false);
+      expect((observer as any).prescribedNamesReady).to.equal(false);
+    });
+
+    it('initializes assessor + flips ready once prescribed names land', async function () {
+      const prescribedNamesSource = {
+        getNames: sinon
+          .stub()
+          .onFirstCall()
+          .resolves([]) // pre-prescribe
+          .onSecondCall()
+          .resolves(['p1', 'p2']), // post-prescribe
+      };
+      const chosenNamesSource = {
+        getNames: sinon.stub().resolves(['c1', 'c2', 'c3']),
+      };
+      const assessor = {
+        initializeForEpoch: sinon.stub(),
+        assessOwnership: sinon.stub(),
+        assessGatewayArns: sinon.stub(),
+        clearEpochState: sinon.stub(),
+      };
+      const observer = newLazyLoadObserver({
+        prescribedNamesSource,
+        chosenNamesSource,
+        assessor,
+      });
+
+      await (observer as any).runObservationCycle();
+      expect((observer as any).prescribedNamesReady).to.equal(false);
+
+      await (observer as any).runObservationCycle();
+      expect((observer as any).prescribedNamesReady).to.equal(true);
+      expect((observer as any).prescribedNames).to.deep.equal(['p1', 'p2']);
+      expect((observer as any).chosenNames).to.deep.equal(['c1', 'c2', 'c3']);
+      expect(assessor.initializeForEpoch.calledOnce).to.equal(true);
+      // namesCount = prescribed + chosen
+      expect(
+        assessor.initializeForEpoch.firstCall.args[0].namesCount,
+      ).to.equal(5);
+
+      // Third cycle — flag is already set, no re-fetch.
+      await (observer as any).runObservationCycle();
+      expect(prescribedNamesSource.getNames.callCount).to.equal(2);
+      expect(assessor.initializeForEpoch.callCount).to.equal(1);
+    });
+
+    it('closes the submission window once the deadline passes even if prescribe_epoch never lands', async function () {
+      // Cranker never runs prescribe_epoch → names stay empty forever.
+      const prescribedNamesSource = {
+        getNames: sinon.stub().resolves([]),
+      };
+      const chosenNamesSource = {
+        getNames: sinon.stub().resolves(['c1']),
+      };
+      const observer = newLazyLoadObserver({
+        prescribedNamesSource,
+        chosenNamesSource,
+      });
+
+      // Move the window far into the past so the cycle is firmly past the
+      // submission deadline (windowEnd + submissionBufferMs) regardless of
+      // the configured buffer.
+      const dayMs = 24 * 60 * 60 * 1000;
+      (observer as any).state.windowStart = Date.now() - 2 * dayMs;
+      (observer as any).state.windowEnd = Date.now() - dayMs;
+      (observer as any).scheduler.restoreFromState((observer as any).state);
+
+      await (observer as any).runObservationCycle();
+
+      // Window must close (regression: previously the empty-names early
+      // return ran first, so the deadline branch was never reached and
+      // the epoch state lingered until rollover).
+      expect((observer as any).state.submissionDeadlineExceeded).to.equal(true);
+      // ...and we must stop retrying the name load once closed.
+      expect((observer as any).prescribedNamesReady).to.equal(false);
+      const callsAfterClose = prescribedNamesSource.getNames.callCount;
+      await (observer as any).runObservationCycle();
+      expect(prescribedNamesSource.getNames.callCount).to.equal(
+        callsAfterClose,
+      );
     });
   });
 });

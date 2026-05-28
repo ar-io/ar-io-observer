@@ -9,8 +9,7 @@
     "url": "https://github.com/ar-io/ar-io-observer"
   },
   "dependencies": {
-    "@ar.io/sdk": "4.0.0-solana.7",
-    "@solana/kit": "^2.1.0",
+    "@ar.io/sdk": "^4.0.0-solana.14",
     "@ardrive/ardrive-promise-cache": "^1.1.4",
     "@ardrive/turbo-sdk": "^1.23.1",
     "@dha-team/arbundles": "^1.0.1",
@@ -22,7 +21,9 @@
     "@opentelemetry/sdk-node": "^0.57.2",
     "@opentelemetry/sdk-trace-node": "^1.30.1",
     "@opentelemetry/winston-transport": "^0.10.0",
+    "@solana/kit": "^6.8.0",
     "arweave": "1.15.5",
+    "bs58": "^6.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",

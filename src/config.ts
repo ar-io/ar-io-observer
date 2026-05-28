@@ -101,9 +101,15 @@ export const ARNS_NAMES = env
   .split(',')
   .filter((h) => h.length > 0);
 
+// Whitepaper v3.0.0 §10.3: "eight (8) 'chosen names' selected
+// independently by each observer". The default lived at `1` since the
+// constant was introduced in AO days, predating the v3 spec — never
+// updated. Operators who haven't set the env explicitly were silently
+// running a 1-name-per-gateway protocol and making pass/fail
+// determinations off a single timeout-prone HTTP fetch.
 export const NUM_ARNS_NAMES_TO_OBSERVE_PER_GROUP = +env.varOrDefault(
   'NUM_ARNS_NAMES_TO_OBSERVE_PER_GROUP',
-  '1',
+  '8',
 );
 
 export const PORT = +env.varOrDefault('PORT', '5050');

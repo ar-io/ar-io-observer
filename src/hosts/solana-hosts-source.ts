@@ -13,7 +13,7 @@
  */
 import type winston from 'winston';
 
-import type { SolanaARIOReadable } from '@ar.io/sdk/solana';
+import type { SolanaARIOReadable } from '@ar.io/sdk';
 import type { GatewayHost, GatewayHostsSource } from '../types.js';
 
 export interface SolanaHostsSourceConfig {

@@ -17,7 +17,7 @@
  */
 import './tracing.js';
 
-import { SolanaARIOWriteable } from '@ar.io/sdk/solana';
+import { SolanaARIOWriteable } from '@ar.io/sdk';
 import {
   type KeyPairSigner,
   createKeyPairSignerFromBytes,
@@ -76,6 +76,7 @@ import {
 import { TurboReportSink } from './store/turbo-report-sink.js';
 import { ContinuousObserver } from './continuous/continuous-observer.js';
 import { FsObservationStateStore } from './continuous/observation-state-store.js';
+import type { ObserverReport } from './types.js';
 
 const REPORT_CACHE_TTL_SECONDS = 60 * 60 * 2.5; // 2.5 hours
 
@@ -181,10 +182,8 @@ const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
   const solanaSigner = wallets.operator as KeyPairSigner;
   const observerSigner = wallets.observer as KeyPairSigner;
   networkContract = new SolanaARIOWriteable({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rpc: solanaRpc as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rpcSubscriptions: solanaRpcSubscriptions as any,
+    rpc: solanaRpc,
+    rpcSubscriptions: solanaRpcSubscriptions,
     signer: solanaSigner,
     ...(config.ARIO_CORE_PROGRAM_ID
       ? { coreProgramId: config.ARIO_CORE_PROGRAM_ID as any }
@@ -208,10 +207,8 @@ const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
   // the cranker's send pipeline doesn't accidentally consume them
   // interchangeably.
   solanaObserverContract = new SolanaARIOWriteable({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rpc: solanaRpc as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rpcSubscriptions: solanaRpcSubscriptions as any,
+    rpc: solanaRpc,
+    rpcSubscriptions: solanaRpcSubscriptions,
     signer: observerSigner,
     ...(config.ARIO_CORE_PROGRAM_ID
       ? { coreProgramId: config.ARIO_CORE_PROGRAM_ID as any }
@@ -327,10 +324,8 @@ const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
       config.ARIO_ARNS_PROGRAM_ID as any,
     );
     const cranker = new EpochCranker({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      contract: networkContract as unknown as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      rpc: solanaRpc as any,
+      contract: networkContract,
+      rpc: solanaRpc,
       signer: solanaSigner,
       pollIntervalMs: config.CRANK_POLL_INTERVAL_MS,
       batchSize: config.CRANK_BATCH_SIZE,
@@ -477,12 +472,7 @@ const networkGatewaySource =
   config.REFERENCE_GATEWAY_NETWORK_FALLBACK ||
   config.REFERENCE_GATEWAY_NETWORK_ONLY
     ? new CachedNetworkGatewaySource({
-        // Solana readable is structurally compatible with the AoARIORead
-        // surface used here (getGateways, etc.) — the only nominal
-        // mismatch is the AO-only `process: AOProcess` field which this
-        // class never reads.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        contract: networkContract as any,
+        contract: networkContract,
         config: {
           minPassRate: config.REFERENCE_GATEWAY_MIN_PASS_RATE,
           minConsecutivePasses: config.REFERENCE_GATEWAY_MIN_CONSECUTIVE_PASSES,
@@ -604,19 +594,21 @@ const arweaveReportSink = new ArweaveReportSink({
   walletJwk,
 });
 
-const stores: ReportSinkEntry[] = [];
+// ============================================================
+// Report pipelines — split into persistence (always runs) and
+// submission (gated on prescription). The observer owns the
+// decision between them via `submissionGate` below.
+// ============================================================
 
-// Add the log report sink if enabled
+// --- Persistence: local-only sinks. ALWAYS run so we have a local
+//     record + can restart-restore even when we don't submit. ---
+const persistenceStores: ReportSinkEntry[] = [];
+
 if (config.ENABLE_LOG_REPORT_SINK) {
-  const logReportSink = new LogReportSink({
-    log,
-  });
-
-  stores.push({
+  persistenceStores.push({
     name: 'LogReportSink',
-    sink: logReportSink,
+    sink: new LogReportSink({ log }),
   });
-
   log.verbose(
     'LogReportSink enabled - detailed assessment logs will be shown at info level',
   );
@@ -626,23 +618,30 @@ if (config.ENABLE_LOG_REPORT_SINK) {
   );
 }
 
-stores.push({
-  name: 'FsReportStore',
-  sink: fsReportStore,
+persistenceStores.push({ name: 'FsReportStore', sink: fsReportStore });
+
+export const persistenceReportSink = new PipelineReportSink({
+  log: log.child({ pipeline: 'persistence' }),
+  sinks: persistenceStores,
+  maxGatewayFailureThreshold: config.OBSERVER_MAX_GATEWAY_FAILURE_THRESHOLD,
 });
+
+// --- Submission: external-cost sinks. Run only when the observer's
+//     `submissionGate` proceeds (i.e. we're prescribed for this epoch
+//     and haven't already submitted). The 80% failure-rate safety
+//     still applies here — a bad-looking report shouldn't ship even
+//     if we ARE prescribed. ---
+const submissionStores: ReportSinkEntry[] = [];
 
 if (config.REPORT_DATA_SINK === 'turbo') {
   if (turboReportSink !== undefined) {
-    stores.push({
-      name: 'TurboReportSink',
-      sink: turboReportSink,
-    });
+    submissionStores.push({ name: 'TurboReportSink', sink: turboReportSink });
   } else {
     log.warn('TurboReportSink not configured - report data will not be saved');
   }
 } else if (config.REPORT_DATA_SINK === 'arweave') {
   if (walletJwk !== undefined) {
-    stores.push({
+    submissionStores.push({
       name: 'ArweaveReportSink',
       sink: arweaveReportSink,
     });
@@ -673,17 +672,55 @@ if (!config.SUBMIT_CONTRACT_INTERACTIONS) {
     'SUBMIT_CONTRACT_INTERACTIONS is false - contract interactions will not be saved',
   );
 } else {
-  stores.push({
+  submissionStores.push({
     name: 'SolanaContractReportSink',
     sink: contractReportSink,
   });
 }
 
-export const reportSink = new PipelineReportSink({
-  log,
-  sinks: stores,
-  maxGatewayFailureThreshold: config.OBSERVER_MAX_GATEWAY_FAILURE_THRESHOLD,
-});
+// If no external-submission sinks are configured at all (Turbo
+// missing AND SUBMIT_CONTRACT_INTERACTIONS=false), skip wiring the
+// pipeline + gate entirely. The observer will run as a pure
+// persistence loop — useful for dev / dry-run / sniffing.
+export const submissionReportSink =
+  submissionStores.length > 0
+    ? new PipelineReportSink({
+        log: log.child({ pipeline: 'submission' }),
+        sinks: submissionStores,
+        maxGatewayFailureThreshold:
+          config.OBSERVER_MAX_GATEWAY_FAILURE_THRESHOLD,
+      })
+    : undefined;
+
+// Prescription gate — one RPC read per submission attempt. Returns
+// `proceed: false` when there's no protocol pathway for this report
+// (we weren't prescribed, or we already submitted), in which case the
+// observer skips the whole submission pipeline (no Turbo upload, no
+// on-chain tx). The defensive copy inside SolanaContractReportSink
+// stays for tests / direct callers that bypass the observer.
+export const submissionGate =
+  submissionReportSink !== undefined
+    ? async (report: ObserverReport) => {
+        const status = await solanaObserverContract.getEpochObservationStatus(
+          report.epochIndex,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          solanaObserverAddress as any,
+        );
+        if (!status.prescribed) {
+          return {
+            proceed: false,
+            reason: 'observer not prescribed for this epoch',
+          };
+        }
+        if (status.alreadyObserved) {
+          return {
+            proceed: false,
+            reason: 'observation already submitted for this epoch',
+          };
+        }
+        return { proceed: true };
+      }
+    : undefined;
 
 // Continuous observation state store
 export const observationStateStore = new FsObservationStateStore({
@@ -704,7 +741,9 @@ export function createContinuousObserver(): ContinuousObserver {
     chosenNamesSource,
     entropySource: compositeEntropySource,
     stateStore: observationStateStore,
-    reportSink,
+    persistenceSink: persistenceReportSink,
+    submissionSink: submissionReportSink,
+    submissionGate,
     nodeReleaseVersion: config.AR_IO_NODE_RELEASE,
     nameAssessmentConcurrency: config.NAME_ASSESSMENT_CONCURRENCY,
     config: {
