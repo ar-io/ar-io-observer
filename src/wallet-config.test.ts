@@ -416,6 +416,7 @@ describe('wallet-config', () => {
             },
             undefined,
             loader,
+            unusedBytesLoader,
             makeLog(),
           );
         } catch (e: any) {
@@ -588,10 +589,13 @@ describe('wallet-config', () => {
     /** Minimal WalletEnv with everything off. Spread overrides per test. */
     const baseEnv: WalletEnv = {
       SOLANA_KEYPAIR_PATH: undefined,
+      SOLANA_PRIVATE_KEY: undefined,
       OBSERVER_KEYPAIR_PATH: undefined,
+      OBSERVER_PRIVATE_KEY: undefined,
       ARWEAVE_UPLOAD_KEY_FILE: undefined,
       ARWEAVE_UPLOAD_JWK: undefined,
       SOLANA_UPLOAD_KEYPAIR_PATH: undefined,
+      SOLANA_UPLOAD_PRIVATE_KEY: undefined,
       ETHEREUM_UPLOAD_PRIVATE_KEY_FILE: undefined,
       ETHEREUM_UPLOAD_PRIVATE_KEY: undefined,
     };
@@ -751,7 +755,7 @@ describe('wallet-config', () => {
           makeLog(),
         );
         expect(id.mode).to.equal('solana');
-        if (id.mode === 'solana') {
+        if (id.mode === 'solana' && id.source === 'file') {
           expect(id.secretKey).to.have.length(64);
           expect(id.path).to.equal('/keys/solana.json');
         }
@@ -765,7 +769,7 @@ describe('wallet-config', () => {
           '/keys/operator.json',
         );
         expect(id.mode).to.equal('solana');
-        if (id.mode === 'solana') {
+        if (id.mode === 'solana' && id.source === 'file') {
           expect(id.path).to.equal('/keys/operator.json');
         }
       });
@@ -901,8 +905,42 @@ describe('wallet-config', () => {
           '/keys/fallback.json',
         );
         expect(id.mode).to.equal('solana');
-        if (id.mode === 'solana') {
+        if (id.mode === 'solana' && id.source === 'file') {
           expect(id.path).to.equal('/keys/explicit.json');
+        }
+      });
+
+      it('loads secretKey from SOLANA_UPLOAD_PRIVATE_KEY env (no file read)', () => {
+        const id = resolveUploadIdentity(
+          { ...baseEnv, SOLANA_UPLOAD_PRIVATE_KEY: mkBase58Secret(0x42) },
+          makeLoaders({}),
+          makeLog(),
+        );
+        expect(id.mode).to.equal('solana');
+        if (id.mode === 'solana') {
+          expect(id.source).to.equal('env');
+          expect(id.secretKey).to.have.length(64);
+        }
+      });
+
+      it('rejects setting both SOLANA_UPLOAD_KEYPAIR_PATH and SOLANA_UPLOAD_PRIVATE_KEY', () => {
+        try {
+          resolveUploadIdentity(
+            {
+              ...baseEnv,
+              SOLANA_UPLOAD_KEYPAIR_PATH: '/keys/upload.json',
+              SOLANA_UPLOAD_PRIVATE_KEY: mkBase58Secret(0xaa),
+            },
+            makeLoaders({ '/keys/upload.json': solanaKeypairJson }),
+            makeLog(),
+          );
+          expect.fail('expected throw');
+        } catch (e: any) {
+          expect(e.message).to.match(
+            /Upload-wallet Solana config is ambiguous/,
+          );
+          expect(e.message).to.match(/SOLANA_UPLOAD_KEYPAIR_PATH/);
+          expect(e.message).to.match(/SOLANA_UPLOAD_PRIVATE_KEY/);
         }
       });
     });

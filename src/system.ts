@@ -152,12 +152,9 @@ let observerAddress: string = config.OBSERVER_WALLET;
 if (!config.SOLANA_RPC_URL) {
   throw new Error('SOLANA_RPC_URL is required');
 }
-if (
-  config.SOLANA_KEYPAIR_PATH === undefined ||
-  config.SOLANA_KEYPAIR_PATH === ''
-) {
-  throw new Error('SOLANA_KEYPAIR_PATH is required');
-}
+// Operator-key validation happens inside resolveSolanaWallets, which now
+// accepts either SOLANA_KEYPAIR_PATH or SOLANA_PRIVATE_KEY. A separate
+// pre-check here would only re-implement (or contradict) that logic.
 const solanaRpc = createSolanaRpc(config.SOLANA_RPC_URL);
 // Derive WS URL from HTTP URL (same pattern as the SDK CLI).
 const wsUrl = config.SOLANA_RPC_URL.replace(/^http/, 'ws');

@@ -331,6 +331,11 @@ export type UploadIdentity =
       secretKey: Uint8Array;
     }
   | {
+      mode: 'solana';
+      source: 'env';
+      secretKey: Uint8Array;
+    }
+  | {
       mode: 'ethereum';
       source: 'file' | 'env';
       privateKey: Uint8Array;
@@ -483,7 +488,13 @@ export function resolveUploadIdentity(
   ].filter(Boolean) as string[];
   const solanaEnvs = [
     Boolean(env.SOLANA_UPLOAD_KEYPAIR_PATH) && 'SOLANA_UPLOAD_KEYPAIR_PATH',
+    Boolean(env.SOLANA_UPLOAD_PRIVATE_KEY) && 'SOLANA_UPLOAD_PRIVATE_KEY',
   ].filter(Boolean) as string[];
+  if (solanaEnvs.length > 1) {
+    throw new Error(
+      `Upload-wallet Solana config is ambiguous: set exactly one of ${solanaEnvs.join(', ')}.`,
+    );
+  }
 
   const groups = [
     arweaveEnvs.length > 0 && 'arweave',
@@ -541,7 +552,20 @@ export function resolveUploadIdentity(
     return { mode: 'ethereum', source, privateKey };
   }
 
-  // Solana explicit
+  // Solana explicit (env-string PRIVATE_KEY takes priority over file path)
+  if (
+    env.SOLANA_UPLOAD_PRIVATE_KEY !== undefined &&
+    env.SOLANA_UPLOAD_PRIVATE_KEY !== ''
+  ) {
+    const secretKey = decodeBase58SolanaSecretKey(
+      env.SOLANA_UPLOAD_PRIVATE_KEY,
+      'SOLANA_UPLOAD_PRIVATE_KEY',
+    );
+    log.info(
+      'Upload identity: Solana keypair (from SOLANA_UPLOAD_PRIVATE_KEY env)',
+    );
+    return { mode: 'solana', source: 'env', secretKey };
+  }
   if (env.SOLANA_UPLOAD_KEYPAIR_PATH !== undefined) {
     const raw = loaders.readFile(env.SOLANA_UPLOAD_KEYPAIR_PATH);
     const secretKey = parseSolanaKeypair(raw, env.SOLANA_UPLOAD_KEYPAIR_PATH);
