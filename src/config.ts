@@ -353,6 +353,13 @@ export const SOLANA_RPC_URL = env.varOrDefault(
 // separate keys are provided.
 export const SOLANA_KEYPAIR_PATH = env.varOrUndefined('SOLANA_KEYPAIR_PATH');
 
+// Alternative to SOLANA_KEYPAIR_PATH: a base58-encoded 64-byte Solana
+// secret key (the format Phantom and other browser wallets export). Convenient
+// for operators who don't already have a keypair JSON on disk. Exactly one of
+// SOLANA_KEYPAIR_PATH and SOLANA_PRIVATE_KEY must be set; setting both is an
+// error (ambiguous source of truth).
+export const SOLANA_PRIVATE_KEY = env.varOrUndefined('SOLANA_PRIVATE_KEY');
+
 // Observer keypair — signs `save_observations` ix. Optional. When set,
 // must match the on-chain `Gateway.observer_address` (set at join_network
 // via --observer-address, or later via update_observer_address). Falls
@@ -360,6 +367,10 @@ export const SOLANA_KEYPAIR_PATH = env.varOrUndefined('SOLANA_KEYPAIR_PATH');
 export const OBSERVER_KEYPAIR_PATH = env.varOrUndefined(
   'OBSERVER_KEYPAIR_PATH',
 );
+
+// Same shape as SOLANA_PRIVATE_KEY but for the observer role. Setting both
+// OBSERVER_PRIVATE_KEY and OBSERVER_KEYPAIR_PATH is an error.
+export const OBSERVER_PRIVATE_KEY = env.varOrUndefined('OBSERVER_PRIVATE_KEY');
 
 // Report-upload identity. Three modes, resolved in priority order:
 //   1. ARWEAVE_UPLOAD_KEY_FILE (path) → load Arweave JWK from disk.
@@ -376,6 +387,12 @@ export const ARWEAVE_UPLOAD_KEY_FILE = env.varOrUndefined(
 export const ARWEAVE_UPLOAD_JWK = env.varOrUndefined('ARWEAVE_UPLOAD_JWK');
 export const SOLANA_UPLOAD_KEYPAIR_PATH = env.varOrUndefined(
   'SOLANA_UPLOAD_KEYPAIR_PATH',
+);
+
+// Same shape as SOLANA_PRIVATE_KEY but for the upload role. Setting both
+// SOLANA_UPLOAD_PRIVATE_KEY and SOLANA_UPLOAD_KEYPAIR_PATH is an error.
+export const SOLANA_UPLOAD_PRIVATE_KEY = env.varOrUndefined(
+  'SOLANA_UPLOAD_PRIVATE_KEY',
 );
 
 // Ethereum upload identity. Hex-encoded 32-byte private key, either as a
