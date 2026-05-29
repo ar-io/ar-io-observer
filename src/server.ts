@@ -80,8 +80,18 @@ app.get('/ar-io/observer/healthcheck', async (_req, res) => {
 });
 
 app.get('/ar-io/observer/info', (_req, res) => {
+  // Mirrors the ar-io-node `/ar-io/info` shape so operators can
+  // cross-check that the gateway and its observer are pointed at the
+  // same Solana network. Undefined IDs are omitted by JSON.stringify,
+  // so unset fields drop out of the response automatically.
   res.status(200).send({
     wallet: walletAddress,
+    programIds: {
+      core: config.ARIO_CORE_PROGRAM_ID,
+      gar: config.ARIO_GAR_PROGRAM_ID,
+      arns: config.ARIO_ARNS_PROGRAM_ID,
+      ant: config.ARIO_ANT_PROGRAM_ID,
+    },
     reportSink: config.REPORT_DATA_SINK,
   });
 });

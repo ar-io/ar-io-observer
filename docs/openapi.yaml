@@ -18,6 +18,18 @@ components:
     ReportSink:
       type: string
       nullable: true
+    SolanaProgramId:
+      type: string
+      nullable: true
+      description: Base58-encoded Solana program ID (32-44 chars). `null`/omitted when the corresponding ARIO_*_PROGRAM_ID env is unset.
+    SolanaProgramIds:
+      type: object
+      description: Identifiers of the four ARIO Solana programs this observer is configured against. Mirrors `programIds` exposed by `ar-io-node`'s `/ar-io/info`. Unset fields are omitted from the response.
+      properties:
+        core: { '$ref': '#/components/schemas/SolanaProgramId' }
+        gar:  { '$ref': '#/components/schemas/SolanaProgramId' }
+        arns: { '$ref': '#/components/schemas/SolanaProgramId' }
+        ant:  { '$ref': '#/components/schemas/SolanaProgramId' }
     DataHash:
       type: string
       nullable: true
@@ -36,9 +48,9 @@ components:
        message: { type: string }
     Info:
      type: object
-     properties: 
+     properties:
        wallet: { '$ref': '#/components/schemas/ArweaveWallet' }
-       processId: { '$ref': '#/components/schemas/ArweaveId' }
+       programIds: { '$ref': '#/components/schemas/SolanaProgramIds' }
        reportSink: { '$ref': '#/components/schemas/ReportSink' }
     OwnershipAssessment:
       type: object
