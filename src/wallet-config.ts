@@ -464,7 +464,11 @@ function parseArweaveJwk(raw: string, origin: string): JWKInterface {
  *
  *   1. Arweave: ARWEAVE_UPLOAD_KEY_FILE > ARWEAVE_UPLOAD_JWK
  *   2. Ethereum: ETHEREUM_UPLOAD_PRIVATE_KEY_FILE > ETHEREUM_UPLOAD_PRIVATE_KEY
- *   3. Solana (explicit): SOLANA_UPLOAD_KEYPAIR_PATH
+ *   3. Solana (explicit): SOLANA_UPLOAD_PRIVATE_KEY > SOLANA_UPLOAD_KEYPAIR_PATH
+ *      When SOLANA_UPLOAD_PRIVATE_KEY (base58 secret key) is set the result
+ *      is `{ mode: 'solana', source: 'env', secretKey }` and no file is read.
+ *      Setting both SOLANA_UPLOAD_PRIVATE_KEY and SOLANA_UPLOAD_KEYPAIR_PATH
+ *      is rejected as same-role ambiguity.
  *   4. Solana (implicit fallback): OBSERVER_KEYPAIR_PATH ?? SOLANA_KEYPAIR_PATH
  *
  * **Conflict policy:** if envs from MORE THAN ONE chain group are set,
