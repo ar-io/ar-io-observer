@@ -6,7 +6,11 @@
  */
 import { expect } from 'chai';
 
-import { classifyError, parseAnchorErrorCode } from './errors.js';
+import {
+  classifyError,
+  isInvalidGatewayAccountError,
+  parseAnchorErrorCode,
+} from './errors.js';
 
 describe('cranker error classification', () => {
   describe('parseAnchorErrorCode', () => {
@@ -205,6 +209,37 @@ describe('cranker error classification', () => {
       expect(
         classifyError(new Error('completely unexpected program error')),
       ).to.equal('real');
+    });
+  });
+
+  describe('isInvalidGatewayAccountError', () => {
+    it('matches the Anchor error name in program logs', () => {
+      const err = Object.assign(new Error('Transaction simulation failed'), {
+        cause: {
+          context: {
+            logs: [
+              'Program log: AnchorError occurred. Error Code: InvalidGatewayAccount. Error Number: 6049. Error Message: Invalid gateway account.',
+            ],
+          },
+        },
+      });
+      expect(isInvalidGatewayAccountError(err)).to.equal(true);
+    });
+
+    it('matches the error message text', () => {
+      expect(
+        isInvalidGatewayAccountError(new Error('Invalid gateway account')),
+      ).to.equal(true);
+    });
+
+    it('does not match unrelated errors', () => {
+      expect(
+        isInvalidGatewayAccountError(new Error('Invalid name registry')),
+      ).to.equal(false);
+      expect(
+        isInvalidGatewayAccountError(new Error('custom program error: 0x1771')),
+      ).to.equal(false);
+      expect(isInvalidGatewayAccountError(null)).to.equal(false);
     });
   });
 });

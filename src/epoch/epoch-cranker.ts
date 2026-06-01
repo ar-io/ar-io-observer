@@ -20,7 +20,11 @@ import type {
   TransactionSigner,
 } from '@solana/kit';
 import type { SolanaARIOWriteable } from '@ar.io/sdk';
-import { classifyError, type ErrorCategory } from './errors.js';
+import {
+  classifyError,
+  type ErrorCategory,
+  isInvalidGatewayAccountError,
+} from './errors.js';
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
@@ -230,15 +234,16 @@ export class EpochCranker {
     }
 
     // 5. Prescribe epoch
+    //
+    // prescribe_epoch selects observers INTERNALLY from the registry and uses
+    // remaining_accounts only as a lookup table for the ~50 SELECTED observers
+    // (+ NameRegistry). Supplying the whole registry (getAllRegistryGatewayPDAs)
+    // trips Solana's MAX_TX_ACCOUNT_LOCKS = 64 on large registries, so we mirror
+    // the on-chain selection off-chain and pass only the predicted PDAs.
     if (epoch.prescriptionsDone === 0) {
       log.verbose('Prescribing epoch', { epochIndex: targetEpochIndex });
       try {
-        const allGatewayPDAs = await ario.getAllRegistryGatewayPDAs();
-        await ario.prescribeEpoch({
-          epochIndex: targetEpochIndex,
-          gatewayAccounts: allGatewayPDAs,
-          nameRegistryAccount: this.config.nameRegistryAccount,
-        });
+        await this.prescribeWithPrediction(ario, targetEpochIndex);
         log.info('Epoch prescribed', { epochIndex: targetEpochIndex });
       } catch (err) {
         this.handleError(err, 'prescribe_epoch');
@@ -323,6 +328,43 @@ export class EpochCranker {
           this.handleError(err, 'cleanup');
         }
       }
+    }
+  }
+
+  /**
+   * Prescribe an epoch by predicting the on-chain observer selection and
+   * passing ONLY the selected Gateway PDAs (≤ `prescribed_observer_count`, ≤50)
+   * — never the full registry. Supplying every gateway trips Solana's
+   * `MAX_TX_ACCOUNT_LOCKS = 64` on large registries, which is what caused
+   * `prescribe_epoch` to fail pre-flight on staging-devnet.
+   *
+   * `getPredictedObserverPDAs` mirrors the deterministic on-chain roulette
+   * (stable once `weights_tallied == 1`). If a selected gateway leaves between
+   * the prediction read and the tx landing, the program returns
+   * `InvalidGatewayAccount`; we re-predict and retry exactly once before
+   * letting the error propagate to `handleError`.
+   */
+  private async prescribeWithPrediction(
+    ario: SolanaARIOWriteable,
+    epochIndex: number,
+  ): Promise<void> {
+    const submit = async (): Promise<void> => {
+      const selectedPDAs = await ario.getPredictedObserverPDAs(epochIndex);
+      await ario.prescribeEpoch({
+        epochIndex,
+        gatewayAccounts: selectedPDAs,
+        nameRegistryAccount: this.config.nameRegistryAccount,
+      });
+    };
+
+    try {
+      await submit();
+    } catch (err) {
+      if (!isInvalidGatewayAccountError(err)) throw err;
+      this.config.log.warn(
+        '[crank:prescribe_epoch] observer-PDA prediction stale (gateway race?); retrying once with fresh state',
+      );
+      await submit();
     }
   }
 
