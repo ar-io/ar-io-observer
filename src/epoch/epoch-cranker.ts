@@ -61,6 +61,13 @@ export interface EpochCrankerConfig {
    */
   cleanupFailureThreshold?: number;
   /**
+   * Recent signatures to scan when reclaiming leaked prescribe Address Lookup
+   * Tables (Phase 7). The ALT program can't be enumerated via
+   * getProgramAccounts, so discovery walks the signer's tx history.
+   * Default: 200. Env: ALT_RECLAIM_SCAN_LIMIT. Set 0 to disable.
+   */
+  altReclaimScanLimit?: number;
+  /**
    * Skip cleanup if it last ran within this many ms (default: 300_000ms /
    * 5min). Prevents per-tick scanning of getProgramAccounts when the
    * pipeline is in a quiescent state.
@@ -434,6 +441,37 @@ export class EpochCranker {
         }
       } catch (err) {
         this.handleError(err, 'cleanup_expired_requests_scan');
+      }
+    }
+
+    // Phase 7: Reclaim leaked prescribe Address Lookup Tables. Each
+    // prescribe_epoch via the ephemeral-ALT path leaves a single-use table
+    // allocated (~0.0126 SOL rent); reclaiming needs deactivate → ~513-slot
+    // cooldown → close, so it lives here rather than inline. Discovery walks the
+    // signer's tx history (the ALT program can't be enumerated via
+    // getProgramAccounts) and only touches tables whose entries are all
+    // GAR/ArNS-owned (the prescribe fingerprint). Each deactivate/close is one
+    // submission, charged to the same budget.
+    const altScanLimit = this.config.altReclaimScanLimit ?? 200;
+    if (budget.remaining > 0 && altScanLimit > 0) {
+      try {
+        // Optional-chained: older @ar.io/sdk builds lack this method (added
+        // alongside the ephemeral-ALT prescribe path). Absent → no-op, no error.
+        const r = await ario.reclaimLookupTableRent?.({
+          maxTables: budget.remaining,
+          scanLimit: altScanLimit,
+        });
+        const submitted = (r?.deactivated ?? 0) + (r?.closed ?? 0);
+        budget.remaining -= submitted;
+        if (submitted > 0) {
+          log.info('Reclaimed prescribe ALTs', {
+            deactivated: r.deactivated,
+            closed: r.closed,
+            candidates: r.candidates,
+          });
+        }
+      } catch (err) {
+        this.handleError(err, 'cleanup_reclaim_lookup_tables');
       }
     }
 

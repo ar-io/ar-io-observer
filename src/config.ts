@@ -300,6 +300,16 @@ function parsePositiveIntEnv(name: string, defaultValue: string): number {
   }
   return value;
 }
+function parseNonNegativeIntEnv(name: string, defaultValue: string): number {
+  const raw = env.varOrDefault(name, defaultValue);
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(
+      `Invalid configuration: ${name}='${raw}' must be a non-negative integer.`,
+    );
+  }
+  return value;
+}
 function parseNonNegativeFloatEnv(name: string, defaultValue: string): number {
   const raw = env.varOrDefault(name, defaultValue);
   const value = Number.parseFloat(raw);
@@ -458,4 +468,8 @@ export const CLEANUP_FAILURE_THRESHOLD = parsePositiveIntEnv(
 export const CLEANUP_MIN_INTERVAL_MS = parsePositiveIntEnv(
   'CLEANUP_MIN_INTERVAL_MS',
   '300000',
+);
+export const ALT_RECLAIM_SCAN_LIMIT = parseNonNegativeIntEnv(
+  'ALT_RECLAIM_SCAN_LIMIT',
+  '200',
 );
