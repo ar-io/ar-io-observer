@@ -302,13 +302,14 @@ function parsePositiveIntEnv(name: string, defaultValue: string): number {
 }
 function parseNonNegativeIntEnv(name: string, defaultValue: string): number {
   const raw = env.varOrDefault(name, defaultValue);
-  const value = Number.parseInt(raw, 10);
-  if (!Number.isInteger(value) || value < 0) {
+  // Reject anything that isn't strictly digits — Number.parseInt would silently
+  // accept '1.5'->1, '10abc'->10, '1e2'->1, masking a misconfigured limit.
+  if (!/^\d+$/.test(raw.trim())) {
     throw new Error(
       `Invalid configuration: ${name}='${raw}' must be a non-negative integer.`,
     );
   }
-  return value;
+  return Number.parseInt(raw.trim(), 10);
 }
 function parseNonNegativeFloatEnv(name: string, defaultValue: string): number {
   const raw = env.varOrDefault(name, defaultValue);
