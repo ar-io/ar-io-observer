@@ -300,6 +300,17 @@ function parsePositiveIntEnv(name: string, defaultValue: string): number {
   }
   return value;
 }
+function parseNonNegativeIntEnv(name: string, defaultValue: string): number {
+  const raw = env.varOrDefault(name, defaultValue);
+  // Reject anything that isn't strictly digits — Number.parseInt would silently
+  // accept '1.5'->1, '10abc'->10, '1e2'->1, masking a misconfigured limit.
+  if (!/^\d+$/.test(raw.trim())) {
+    throw new Error(
+      `Invalid configuration: ${name}='${raw}' must be a non-negative integer.`,
+    );
+  }
+  return Number.parseInt(raw.trim(), 10);
+}
 function parseNonNegativeFloatEnv(name: string, defaultValue: string): number {
   const raw = env.varOrDefault(name, defaultValue);
   const value = Number.parseFloat(raw);
@@ -458,4 +469,8 @@ export const CLEANUP_FAILURE_THRESHOLD = parsePositiveIntEnv(
 export const CLEANUP_MIN_INTERVAL_MS = parsePositiveIntEnv(
   'CLEANUP_MIN_INTERVAL_MS',
   '300000',
+);
+export const ALT_RECLAIM_SCAN_LIMIT = parseNonNegativeIntEnv(
+  'ALT_RECLAIM_SCAN_LIMIT',
+  '200',
 );
