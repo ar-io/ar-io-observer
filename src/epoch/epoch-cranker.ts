@@ -20,11 +20,7 @@ import type {
   TransactionSigner,
 } from '@solana/kit';
 import type { SolanaARIOWriteable } from '@ar.io/sdk';
-import {
-  classifyError,
-  type ErrorCategory,
-  isInvalidGatewayAccountError,
-} from './errors.js';
+import { classifyError, type ErrorCategory } from './errors.js';
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
@@ -159,17 +155,17 @@ export class EpochCranker {
   }
 
   private async runCycle(): Promise<void> {
-    const { contract, log, batchSize, closeEpochs } = this.config;
-    const ario = contract as any; // SDK methods may not be on the interface type
+    const { contract, log } = this.config;
+    // SDK methods may not be on the published interface type yet.
+    const ario = contract as any;
 
-    // 1. Read epoch settings
+    // 1. Read epoch settings (enabled gate + cleanup target). crankEpochStep
+    //    reads settings again internally to drive the lifecycle.
     let settings;
     try {
       settings = await this.config.getEpochSettings();
     } catch (err) {
-      // Route through error classifier — most failures here are transient
-      // RPC issues (fetch failed, blockhash not found) that should NOT count
-      // as real errors.
+      // Transient RPC issues classify as not_ready, not real errors.
       this.handleError(err, 'read_epoch_settings');
       return;
     }
@@ -180,144 +176,38 @@ export class EpochCranker {
     }
 
     const currentIndex = settings.currentEpochIndex;
-    const targetEpochIndex = currentIndex > 0 ? currentIndex - 1 : 0;
-    const now = Math.floor(Date.now() / 1000);
-    const nextEpochStart =
-      settings.genesisTimestamp + currentIndex * settings.epochDuration;
 
-    // 2. Bootstrap: no epochs exist yet, create epoch 0 if genesis time passed
-    if (currentIndex === 0) {
-      if (now >= nextEpochStart) {
-        log.verbose('Creating epoch', { epochIndex: 0 });
-        try {
-          const result = await ario.createEpoch();
-          log.info('Epoch created', { epochIndex: 0, tx: result.id });
-        } catch (err) {
-          this.handleError(err, 'create_epoch');
-        }
-      }
-      return;
-    }
-
-    // 3. Read current epoch state
-    // IMPORTANT: Always complete the previous epoch's lifecycle
-    // (tally → prescribe → wait → distribute → close) BEFORE creating a new
-    // epoch. Otherwise rewards for the previous epoch never get distributed.
-    const epoch = await ario.getEpochRaw(targetEpochIndex);
-    if (!epoch) {
-      log.debug('No epoch account found', { epochIndex: targetEpochIndex });
-      return;
-    }
-
-    // 4. Tally weights
-    // Edge case: when activeGatewayCount === 0, we still must call
-    // tallyWeights once with empty remaining_accounts so the contract sets
-    // weights_tallied=1, otherwise we loop forever.
-    if (epoch.weightsTallied === 0) {
-      log.verbose('Tallying weights', {
-        epochIndex: targetEpochIndex,
-        progress: `${epoch.tallyIndex}/${epoch.activeGatewayCount}`,
+    // 2. Advance the epoch lifecycle by ONE step. crankEpochStep (in @ar.io/sdk)
+    //    owns create → tally → prescribe → distribute → close, including the
+    //    size-safe prescribe prediction (≤50 Gateway PDAs, never the whole
+    //    registry — the MAX_TX_ACCOUNT_LOCKS fix) and the InvalidGatewayAccount
+    //    re-predict-and-retry. We only log + classify any thrown error.
+    let action: string | undefined;
+    try {
+      const result = await ario.crankEpochStep({
+        batchSize: this.config.batchSize,
+        enableClose: this.config.closeEpochs,
+        epochRetention: this.config.epochRetention ?? 7,
+        nameRegistryAccount: this.config.nameRegistryAccount,
       });
-      try {
-        const gatewayPDAs =
-          epoch.activeGatewayCount > 0
-            ? await ario.getRegistryGatewayPDAs(epoch.tallyIndex, batchSize)
-            : [];
-        await ario.tallyWeights({
-          epochIndex: targetEpochIndex,
-          gatewayAccounts: gatewayPDAs,
+      action = result.action;
+      if (result.action === 'idle') {
+        log.debug('Epoch idle', { reason: result.reason });
+      } else {
+        log.info(`Epoch ${result.action}`, {
+          epochIndex: result.epochIndex,
+          tx: result.txId,
+          progress: result.progress,
         });
-      } catch (err) {
-        this.handleError(err, 'tally_weights');
       }
-      return;
+    } catch (err) {
+      this.handleError(err, 'crank_epoch');
     }
 
-    // 5. Prescribe epoch
-    //
-    // prescribe_epoch selects observers INTERNALLY from the registry and uses
-    // remaining_accounts only as a lookup table for the ~50 SELECTED observers
-    // (+ NameRegistry). Supplying the whole registry (getAllRegistryGatewayPDAs)
-    // trips Solana's MAX_TX_ACCOUNT_LOCKS = 64 on large registries, so we mirror
-    // the on-chain selection off-chain and pass only the predicted PDAs.
-    if (epoch.prescriptionsDone === 0) {
-      log.verbose('Prescribing epoch', { epochIndex: targetEpochIndex });
-      try {
-        await this.prescribeWithPrediction(ario, targetEpochIndex);
-        log.info('Epoch prescribed', { epochIndex: targetEpochIndex });
-      } catch (err) {
-        this.handleError(err, 'prescribe_epoch');
-      }
-      return;
-    }
-
-    // 6. Wait for epoch end
-    if (now < epoch.endTimestamp) {
-      return; // Observers submit observations during this time
-    }
-
-    // 7. Distribute rewards
-    // Edge case: when activeGatewayCount === 0, call distributeEpoch with an
-    // empty array so the contract sets rewards_distributed=1.
-    if (epoch.rewardsDistributed === 0) {
-      log.verbose('Distributing epoch', {
-        epochIndex: targetEpochIndex,
-        progress: `${epoch.distributionIndex}/${epoch.activeGatewayCount}`,
-      });
-      try {
-        const gatewayPDAs =
-          epoch.activeGatewayCount > 0
-            ? await ario.getRegistryGatewayPDAs(
-                epoch.distributionIndex,
-                batchSize,
-              )
-            : [];
-        await ario.distributeEpoch({
-          epochIndex: targetEpochIndex,
-          gatewayAccounts: gatewayPDAs,
-        });
-      } catch (err) {
-        this.handleError(err, 'distribute_epoch');
-      }
-      return;
-    }
-
-    // 8. Close old epochs (GAR-006 retention)
-    const retention = this.config.epochRetention ?? 7;
-    if (closeEpochs && targetEpochIndex >= retention) {
-      const closeTarget = targetEpochIndex - retention;
-      try {
-        const oldEpoch = await ario.getEpochRaw(closeTarget);
-        if (oldEpoch && oldEpoch.rewardsDistributed === 1) {
-          await ario.closeEpoch({ epochIndex: closeTarget });
-          log.info('Old epoch closed', { epochIndex: closeTarget });
-        }
-      } catch (err) {
-        // close_epoch has stricter preconditions than other steps — errors here
-        // are expected during normal operation and counted via handleError.
-        this.handleError(err, 'close_epoch');
-      }
-    }
-
-    // 9. Current epoch fully processed. Create the next epoch if due.
-    // MUST come after distribute above, otherwise rewards for the current
-    // epoch would be skipped (the cranker would create the next epoch first
-    // and lose track of the previous one).
-    if (now >= nextEpochStart) {
-      log.verbose('Creating epoch', { epochIndex: currentIndex });
-      try {
-        const result = await ario.createEpoch();
-        log.info('Epoch created', { epochIndex: currentIndex, tx: result.id });
-      } catch (err) {
-        this.handleError(err, 'create_epoch');
-      }
-    }
-
-    // 10. Permissionless prune / cleanup (best-effort, throttled).
-    // Runs only after the pipeline reaches its quiescent tail; never blocks
-    // an epoch step. Errors here are isolated — handleError logs but the
-    // outer tick() exits cleanly.
-    if (this.config.enableCleanup !== false) {
+    // 3. Permissionless prune / cleanup (best-effort, throttled). Gated on the
+    //    quiescent tail (action === 'idle') so it never competes with a pending
+    //    lifecycle step. Errors here are isolated — the outer tick() exits clean.
+    if (action === 'idle' && this.config.enableCleanup !== false) {
       const minInterval = this.config.cleanupMinIntervalMs ?? 300_000;
       const elapsed = Date.now() - this.lastCleanupRunMs;
       if (elapsed >= minInterval) {
@@ -328,43 +218,6 @@ export class EpochCranker {
           this.handleError(err, 'cleanup');
         }
       }
-    }
-  }
-
-  /**
-   * Prescribe an epoch by predicting the on-chain observer selection and
-   * passing ONLY the selected Gateway PDAs (≤ `prescribed_observer_count`, ≤50)
-   * — never the full registry. Supplying every gateway trips Solana's
-   * `MAX_TX_ACCOUNT_LOCKS = 64` on large registries, which is what caused
-   * `prescribe_epoch` to fail pre-flight on staging-devnet.
-   *
-   * `getPredictedObserverPDAs` mirrors the deterministic on-chain roulette
-   * (stable once `weights_tallied == 1`). If a selected gateway leaves between
-   * the prediction read and the tx landing, the program returns
-   * `InvalidGatewayAccount`; we re-predict and retry exactly once before
-   * letting the error propagate to `handleError`.
-   */
-  private async prescribeWithPrediction(
-    ario: SolanaARIOWriteable,
-    epochIndex: number,
-  ): Promise<void> {
-    const submit = async (): Promise<void> => {
-      const selectedPDAs = await ario.getPredictedObserverPDAs(epochIndex);
-      await ario.prescribeEpoch({
-        epochIndex,
-        gatewayAccounts: selectedPDAs,
-        nameRegistryAccount: this.config.nameRegistryAccount,
-      });
-    };
-
-    try {
-      await submit();
-    } catch (err) {
-      if (!isInvalidGatewayAccountError(err)) throw err;
-      this.config.log.warn(
-        '[crank:prescribe_epoch] observer-PDA prediction stale (gateway race?); retrying once with fresh state',
-      );
-      await submit();
     }
   }
 

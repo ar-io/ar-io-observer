@@ -170,26 +170,3 @@ export function classifyError(error: unknown): ErrorCategory {
 
   return 'real';
 }
-
-/**
- * Detect the GAR `InvalidGatewayAccount` error.
- *
- * `prescribe_epoch` raises this when a supplied observer Gateway PDA is
- * missing or spoofed — in practice, when a predicted observer left the
- * registry (`leave_network` / `prune_gateway`) between the cranker reading
- * state and the tx landing, so the off-chain selection no longer matches the
- * on-chain selection. The cranker reacts by re-predicting and retrying once.
- *
- * Matches by Anchor error NAME / message rather than numeric code on purpose:
- * Anchor codes are `6000 + enum-index` and shift whenever a variant is
- * inserted (the local IDL currently puts this at 6049, but the deployed
- * binary's index may differ), whereas the error name and message are stable
- * across program versions.
- */
-export function isInvalidGatewayAccountError(error: unknown): boolean {
-  const text = collectErrorText(error);
-  return (
-    text.includes('InvalidGatewayAccount') ||
-    text.includes('Invalid gateway account')
-  );
-}
