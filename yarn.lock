@@ -23,10 +23,10 @@
     "@types/json-schema" "^7.0.15"
     js-yaml "^4.1.0"
 
-"@ar.io/sdk@4.0.0-solana.26":
-  version "4.0.0-solana.26"
-  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-4.0.0-solana.26.tgz#7699e87ee6f060364332a39bbfb24862959552c2"
-  integrity sha512-15MaIRpv0ShlQE3BYh0hV+Fl6BqCuXX4EJiH0AqCjNd5MXX9RJBPJUO0Jth6VxaJrWltkpmRPh0L4zlwRcpoRA==
+"@ar.io/sdk@4.0.0-solana.29":
+  version "4.0.0-solana.29"
+  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-4.0.0-solana.29.tgz#86d9d832c3ad9c614474644395a3a1b46ac39885"
+  integrity sha512-EOtbjFtnEO7gR8qkXM+1sSc+nexgjrWkvWvEkzPnBtZ7lmP1I4mtgHtuajx1XyfUzNyTqeHeg5KkFGyiYFv1YQ==
   dependencies:
     "@ar.io/solana-contracts" "0.5.0-staging.15"
     "@solana-program/address-lookup-table" "^0.11.0"
