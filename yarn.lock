@@ -23,12 +23,12 @@
     "@types/json-schema" "^7.0.15"
     js-yaml "^4.1.0"
 
-"@ar.io/sdk@4.0.0-solana.29":
-  version "4.0.0-solana.29"
-  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-4.0.0-solana.29.tgz#86d9d832c3ad9c614474644395a3a1b46ac39885"
-  integrity sha512-EOtbjFtnEO7gR8qkXM+1sSc+nexgjrWkvWvEkzPnBtZ7lmP1I4mtgHtuajx1XyfUzNyTqeHeg5KkFGyiYFv1YQ==
+"@ar.io/sdk@^4.0.0-solana.33":
+  version "4.0.0-solana.33"
+  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-4.0.0-solana.33.tgz#8de648e2dbce9646a477f2fcb77ecfb7ccfad982"
+  integrity sha512-CMLgrtcjgSA4ANbpsiHTLspWj/W1qrfm15XYvXQLrk2BbTnXJjMeo6EepjkMFITvP5RG0CMFCJeSVQ+P1gPRZw==
   dependencies:
-    "@ar.io/solana-contracts" "0.5.0-staging.15"
+    "@ar.io/solana-contracts" "0.7.0-staging.17"
     "@solana-program/address-lookup-table" "^0.11.0"
     "@solana-program/compute-budget" "^0.15.0"
     "@solana-program/token" "^0.13.0"
@@ -39,10 +39,10 @@
     prompts "^2.4.2"
     zod "^3.25.76"
 
-"@ar.io/solana-contracts@0.5.0-staging.15":
-  version "0.5.0-staging.15"
-  resolved "https://registry.yarnpkg.com/@ar.io/solana-contracts/-/solana-contracts-0.5.0-staging.15.tgz#42dbf0e5703598eb8b8c02affdc5731e914fdd0c"
-  integrity sha512-8sgIr+9e+L08PXTOoNXMzRJLfiERP/fycEP3tVmZYESbGdA85VUHpmiCuUr86m3ZEhwNM035/9g4bkcg6pCKlw==
+"@ar.io/solana-contracts@0.7.0-staging.17":
+  version "0.7.0-staging.17"
+  resolved "https://registry.yarnpkg.com/@ar.io/solana-contracts/-/solana-contracts-0.7.0-staging.17.tgz#fc81ae45e345e699188bdf6a147f180db3fc1c39"
+  integrity sha512-sdgwGiZ8rKLfp3nj6VYhByeVs791UVVdy5uyXRjmHPWOhshsCejNd9ibYIYb7IV3DLNJNudW/ZQn9lhn2s6PTA==
   dependencies:
     "@noble/hashes" "^1.5.0"
     bs58 "^6.0.0"
