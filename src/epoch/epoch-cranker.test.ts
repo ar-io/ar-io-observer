@@ -16,7 +16,7 @@ import { EpochCranker, type EpochCrankerConfig } from './epoch-cranker.js';
  * Solana. The cleanup loop used to fire `close_observation` at
  * `currentEpochIndex - retention - 1` — which lands in that never-existed
  * range — for every registry observer, producing N guaranteed
- * AccountNotInitialized (3007) misses per cycle (the RPC-429 noise floor).
+ * AccountOwnedByWrongProgram (3007) misses per cycle (the RPC-429 noise floor).
  *
  * These tests prove the floor: cleanup never attempts close_observation at
  * an epoch index below the lowest epoch that actually exists, and it

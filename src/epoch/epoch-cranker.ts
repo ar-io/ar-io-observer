@@ -113,7 +113,8 @@ export class EpochCranker {
    * close-observation target with `getEpochRaw`) and cached so we never
    * walk the registry firing `close_observation` at epochs that can't
    * hold any Observation PDA — every such call is a guaranteed
-   * AccountNotInitialized (3007) miss, and at registry scale that's
+   * AccountOwnedByWrongProgram (3007) miss (the never-created PDA is still
+   * SystemProgram-owned), and at registry scale that's
    * hundreds of wasted RPC tx-simulations per cycle (the 3007 noise
    * floor that trips RPC 429s). `null` = not yet discovered.
    */
@@ -374,7 +375,7 @@ export class EpochCranker {
     // jumped straight to ~454 with NO epochs 0..453 on-chain. closeTarget
     // (`currentEpochIndex - retention - 1`) lands in that never-existed range
     // for a long time, so firing `close_observation` at it for every registry
-    // observer is N guaranteed AccountNotInitialized (3007) misses per cycle —
+    // observer is N guaranteed AccountOwnedByWrongProgram (3007) misses per cycle —
     // the noise floor that trips RPC 429s. We floor closeTarget to the lowest
     // epoch that actually exists: skip the whole loop (no RPC) when closeTarget
     // is below a discovered floor, and discover that floor with ONE cheap
