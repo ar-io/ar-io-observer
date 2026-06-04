@@ -103,6 +103,22 @@ export class EpochCranker {
    * minutes-to-hours timescale, polling more often is wasted RPC.
    */
   private lastCleanupRunMs = 0;
+  /**
+   * Lowest epoch index that has ever existed on-chain (the AO→Solana
+   * continuity floor). Epochs below this were NEVER created on Solana:
+   * at enablement `admin_set_current_epoch_index` jumped the counter
+   * straight to the AO-continuity value (~454) and the SDK cold start
+   * created `epoch[currentIndex]` — epochs 0..currentIndex-1 have no
+   * account on-chain. Discovered lazily by `runCleanup` (probe the
+   * close-observation target with `getEpochRaw`) and cached so we never
+   * walk the registry firing `close_observation` at epochs that can't
+   * hold any Observation PDA — every such call is a guaranteed
+   * AccountOwnedByWrongProgram (3007) miss (the never-created PDA is still
+   * SystemProgram-owned), and at registry scale that's
+   * hundreds of wasted RPC tx-simulations per cycle (the 3007 noise
+   * floor that trips RPC 429s). `null` = not yet discovered.
+   */
+  private firstExistingEpochIndex: number | null = null;
 
   constructor(config: EpochCrankerConfig) {
     this.config = config;
@@ -354,27 +370,83 @@ export class EpochCranker {
     // Anyone NOT in the current registry won't be found, but observers are
     // gateways so coverage should be reasonable. closeObservation no-ops on
     // missing PDAs (Anchor returns AccountNotInitialized).
+    //
+    // CONTINUITY FLOOR: after the AO→Solana cutover, `current_epoch_index`
+    // jumped straight to ~454 with NO epochs 0..453 on-chain. closeTarget
+    // (`currentEpochIndex - retention - 1`) lands in that never-existed range
+    // for a long time, so firing `close_observation` at it for every registry
+    // observer is N guaranteed AccountOwnedByWrongProgram (3007) misses per cycle —
+    // the noise floor that trips RPC 429s. We floor closeTarget to the lowest
+    // epoch that actually exists: skip the whole loop (no RPC) when closeTarget
+    // is below a discovered floor, and discover that floor with ONE cheap
+    // `getEpochRaw` read (replacing N wasted closeObservation tx-simulations).
     const retention = this.config.epochRetention ?? 7;
     if (budget.remaining > 0 && currentEpochIndex >= retention + 1) {
       try {
-        const observerAddrs = await ario.getRegistryGatewayAddresses?.();
         // Walk the prior `retention` window (older epochs are candidates,
         // newer ones may still be referenced). One epoch per cycle keeps the
         // search bounded.
         const closeTarget = currentEpochIndex - retention - 1;
-        if (Array.isArray(observerAddrs)) {
-          for (const observer of observerAddrs) {
-            if (budget.remaining <= 0) break;
-            try {
-              await ario.closeObservation({
-                epochIndex: closeTarget,
-                observer,
-              });
-              budget.remaining--;
-            } catch (err) {
-              // Most calls miss (no obs PDA for that observer/epoch). Don't spam.
-              const cat = this.handleError(err, 'close_observation');
-              if (cat === 'real') break;
+
+        // Floor check 1 (no RPC): a previously-discovered floor already tells
+        // us closeTarget never existed on-chain. Skip without touching the RPC.
+        if (
+          this.firstExistingEpochIndex !== null &&
+          closeTarget < this.firstExistingEpochIndex
+        ) {
+          log.debug('Skipping close_observation below continuity floor', {
+            closeTarget,
+            firstExistingEpochIndex: this.firstExistingEpochIndex,
+          });
+        } else {
+          // Floor check 2 (one cheap account read): does the close-target
+          // epoch account even exist? `getEpochRaw` returns null for epochs
+          // that were never created (the continuity gap). No epoch account ⇒
+          // no Observation PDAs keyed on it ⇒ nothing to close. Record the
+          // floor so subsequent cycles short-circuit at check 1 above.
+          const targetEpoch = await ario.getEpochRaw?.(closeTarget);
+          if (targetEpoch === null || targetEpoch === undefined) {
+            // closeTarget never existed. The real floor is somewhere above it;
+            // remember closeTarget+1 as a conservative lower bound so we stop
+            // re-probing this index every cycle while currentEpochIndex creeps
+            // up. (Once enough epochs accrue that closeTarget >= the genuine
+            // first epoch, this read will succeed and we proceed below.)
+            this.firstExistingEpochIndex = Math.max(
+              this.firstExistingEpochIndex ?? 0,
+              closeTarget + 1,
+            );
+            log.debug(
+              'close_observation target epoch never existed; skipping',
+              {
+                closeTarget,
+                firstExistingEpochIndex: this.firstExistingEpochIndex,
+              },
+            );
+          } else {
+            // closeTarget exists → it's at or above the continuity floor.
+            // Pin the floor here so we never probe below it again.
+            if (
+              this.firstExistingEpochIndex === null ||
+              closeTarget < this.firstExistingEpochIndex
+            ) {
+              this.firstExistingEpochIndex = closeTarget;
+            }
+            const observerAddrs = await ario.getRegistryGatewayAddresses?.();
+            if (Array.isArray(observerAddrs)) {
+              for (const observer of observerAddrs) {
+                if (budget.remaining <= 0) break;
+                try {
+                  await ario.closeObservation({
+                    epochIndex: closeTarget,
+                    observer,
+                  });
+                  budget.remaining--;
+                } catch (err) {
+                  // Most calls miss (no obs PDA for that observer/epoch). Don't spam.
+                  const cat = this.handleError(err, 'close_observation');
+                  if (cat === 'real') break;
+                }
+              }
             }
           }
         }
