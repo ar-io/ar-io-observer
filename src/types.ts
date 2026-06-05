@@ -93,12 +93,54 @@ export interface GatewayHostsSource {
 }
 
 //
+// Reference gateway
+//
+
+export interface ArnsResolution {
+  statusCode: number;
+  resolvedId: string | null;
+  ttlSeconds: string | null;
+  contentLength: string | null;
+  contentType: string | null;
+  dataHashDigest: string | null;
+  timings: any | null;
+}
+
+export interface ChunkHeaderMetadata {
+  txId: string;
+  txStartOffset: bigint;
+  txDataSize: bigint;
+  dataRoot: string;
+  dataPath: string;
+  txPath: string;
+  chunkStartOffset: bigint;
+  chunkRelativeStartOffset: bigint;
+}
+
+export interface ReferenceGatewaySource {
+  getArnsResolution(params: {
+    arnsName: string;
+    entropy: Buffer;
+    referenceContentLength?: string | null;
+  }): Promise<{ host: string; resolution: ArnsResolution }>;
+
+  checkChunkAvailability(params: {
+    offset: number;
+  }): Promise<{ host: string; available: boolean }>;
+
+  getChunkMetadata(params: {
+    offset: number;
+  }): Promise<{ host: string; metadata: ChunkHeaderMetadata | null }>;
+}
+
+//
 // Observer report
 //
 
 export interface OwnershipAssessment {
   expectedWallets: string[];
   observedWallet: string | null;
+  observedRelease?: string;
   failureReason?: string;
   pass: boolean;
 }
@@ -134,10 +176,26 @@ export interface GatewayArnsAssessments {
   pass: boolean;
 }
 
+export interface OffsetSamplingAssessment {
+  assessedAt: number;
+  offset: number;
+  pass: boolean;
+  failureReason?: string;
+  referenceGatewayAvailable?: boolean;
+}
+
+export interface GatewayOffsetAssessments {
+  plannedOffsets: number[];
+  assessments: OffsetSamplingAssessment[];
+  validatedOffset?: number;
+  pass: boolean;
+}
+
 export interface GatewayAssessments {
   [gatewayHost: string]: {
     ownershipAssessment: OwnershipAssessment;
     arnsAssessments: GatewayArnsAssessments;
+    offsetAssessments?: GatewayOffsetAssessments;
     pass: boolean;
   };
 }
@@ -167,8 +225,76 @@ export interface ReportSink {
   saveReport(reportInfo: ReportInfo): Promise<ReportInfo>;
 }
 
+/**
+ * Predicate evaluated by {@link ContinuousObserver} before the
+ * submission pipeline runs. Returns `{ proceed: false, reason }` to
+ * short-circuit the external-submission pipeline (Turbo upload +
+ * on-chain `save_observations`) while still running the persistence
+ * pipeline. The canonical Solana implementation reads the Epoch
+ * account once per cycle and decides based on prescription /
+ * already-observed status.
+ *
+ * Throws are propagated and treated by the observer as "indeterminate
+ * — retry next cycle." That's the right call when the gate's RPC
+ * fails: a transient blip shouldn't permanently mark an epoch
+ * un-submittable, but also shouldn't fail-open and upload to Arweave
+ * for a report we can't on-chain anyway.
+ */
+export type SubmissionGate = (
+  report: ObserverReport,
+) => Promise<{ proceed: boolean; reason?: string }>;
+
 export interface ReportStore {
   saveReport(reportInfo: ReportInfo): Promise<ReportInfo>;
-  getReport(epochStartHeight: number): Promise<ObserverReport | null>;
+  /**
+   * Fetch a persisted report by its unique epoch index. Keying by
+   * epochIndex (not epochStartHeight) keeps the store correct on
+   * Solana, where `epochStartHeight` is a 0 sentinel for every epoch.
+   */
+  getReport(epochIndex: number): Promise<ObserverReport | null>;
   latestReport(): Promise<ObserverReport | null>;
+}
+
+//
+// Network gateway fallback
+//
+
+export interface NetworkGateway {
+  fqdn: string;
+  protocol: string;
+  port: number;
+  gatewayAddress: string;
+  passRate: number;
+  passedConsecutiveEpochs: number;
+}
+
+export interface NetworkGatewaySelectionConfig {
+  minPassRate: number;
+  minConsecutivePasses: number;
+  minEpochCount: number;
+  maxCount: number;
+  cacheTtlSeconds: number;
+}
+
+export interface NetworkGatewaySource {
+  getEligibleGateways(params: {
+    excludeFqdns?: string[];
+    maxCount?: number;
+  }): Promise<NetworkGateway[]>;
+
+  markUnresponsive(fqdn: string): void;
+}
+
+export interface ArnsConsensusResolver {
+  resolveWithConsensus(params: {
+    arnsName: string;
+    entropy: Buffer;
+    excludeFqdns?: string[];
+    referenceContentLength?: string | null;
+  }): Promise<{ host: string; resolution: ArnsResolution }>;
+}
+
+export interface CompositeReferenceGatewaySource
+  extends ReferenceGatewaySource {
+  setObservedGateway(fqdn: string | null): void;
 }

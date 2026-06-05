@@ -1,0 +1,4 @@
+# Repository manager configuration for ar-io-observer related repositories
+
+[repos/ar-io-observer]
+checkout = git clone https://github.com/ar-io/ar-io-observer

@@ -3,7 +3,7 @@
     "target": "es2021",
     "module": "node16",
     "moduleResolution": "node16",
-    "declaration": true,
+    "declaration": false,
     "outDir": "./dist",
     "strict": true,
     "esModuleInterop": true,

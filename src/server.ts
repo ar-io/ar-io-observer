@@ -23,6 +23,7 @@ import swaggerUi from 'swagger-ui-express';
 import YAML from 'yaml';
 
 import * as config from './config.js';
+import * as metrics from './metrics.js';
 import { reportCache, walletAddress } from './system.js';
 
 // HTTP server
@@ -79,9 +80,19 @@ app.get('/ar-io/observer/healthcheck', async (_req, res) => {
 });
 
 app.get('/ar-io/observer/info', (_req, res) => {
+  // Mirrors the ar-io-node `/ar-io/info` shape so operators can
+  // cross-check that the gateway and its observer are pointed at the
+  // same Solana network. Undefined IDs are omitted by JSON.stringify,
+  // so unset fields drop out of the response automatically.
   res.status(200).send({
     wallet: walletAddress,
-    processId: config.IO_PROCESS_ID,
+    programIds: {
+      core: config.ARIO_CORE_PROGRAM_ID,
+      gar: config.ARIO_GAR_PROGRAM_ID,
+      arns: config.ARIO_ARNS_PROGRAM_ID,
+      ant: config.ARIO_ANT_PROGRAM_ID,
+    },
+    reportSink: config.REPORT_DATA_SINK,
   });
 });
 
@@ -94,6 +105,15 @@ app.get('/ar-io/observer/reports/current', async (_req, res) => {
     } else {
       res.json(report);
     }
+  } catch (error: any) {
+    res.status(500).send(error?.message);
+  }
+});
+
+app.get('/ar-io/observer/metrics', async (_req, res) => {
+  try {
+    res.set('Content-Type', metrics.register.contentType);
+    res.end(await metrics.register.metrics());
   } catch (error: any) {
     res.status(500).send(error?.message);
   }
