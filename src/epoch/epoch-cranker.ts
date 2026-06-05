@@ -212,6 +212,11 @@ export class EpochCranker {
         enableClose: this.config.closeEpochs,
         epochRetention: this.config.epochRetention ?? 7,
         nameRegistryAccount: this.config.nameRegistryAccount,
+        // Returned-name pruning is folded into the epoch step (solana.36+):
+        // tie it to the same cleanup config the runCleanup phases use.
+        enablePrune: this.config.enableCleanup !== false,
+        pruneBatchSize: this.config.cleanupBatchSize,
+        pruneScanIntervalMs: this.config.cleanupMinIntervalMs,
       });
       action = result.action;
       if (result.action === 'idle') {
@@ -297,33 +302,11 @@ export class EpochCranker {
       }
     }
 
-    // Phase 2: ArNS expired returned names — gated on `next_returned_names_prune_timestamp`.
-    if (budget.remaining > 0) {
-      try {
-        const cfg = await ario.getArnsConfigRaw();
-        if (cfg && Number(cfg.nextReturnedNamesPruneTimestamp) <= now) {
-          const expired = await ario.getExpiredReturnedNames(now);
-          while (expired.length > 0 && budget.remaining > 0) {
-            const batch = expired
-              .splice(0, batchSize)
-              .map((r: any) => r.pubkey);
-            try {
-              await ario.pruneReturnedNames({
-                maxNames: batch.length,
-                returnedNames: batch,
-              });
-              budget.remaining--;
-              log.info('Pruned expired ReturnedNames', { count: batch.length });
-            } catch (err) {
-              this.handleError(err, 'prune_returned_names');
-              break;
-            }
-          }
-        }
-      } catch (err) {
-        this.handleError(err, 'cleanup_returned_names_scan');
-      }
-    }
+    // Phase 2: ArNS expired returned names — now owned by `crankEpochStep`
+    // (@ar.io/sdk ≥ solana.36). It scans the ReturnedName PDAs directly in the
+    // epoch step's idle exits, WITHOUT the stale `next_returned_names_prune_timestamp`
+    // gate that stranded imported returned names. Removed from runCleanup so
+    // there's a single source of truth — see the crankEpochStep call in runCycle.
 
     // Phase 3: Deficient gateways → prune_gateway, plus Gone gateways → finalize_gone.
     if (budget.remaining > 0) {
