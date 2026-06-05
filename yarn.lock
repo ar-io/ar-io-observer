@@ -23,12 +23,13 @@
     "@types/json-schema" "^7.0.15"
     js-yaml "^4.1.0"
 
-"@ar.io/sdk@^4.0.0-solana.33":
-  version "4.0.0-solana.33"
-  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-4.0.0-solana.33.tgz#8de648e2dbce9646a477f2fcb77ecfb7ccfad982"
-  integrity sha512-CMLgrtcjgSA4ANbpsiHTLspWj/W1qrfm15XYvXQLrk2BbTnXJjMeo6EepjkMFITvP5RG0CMFCJeSVQ+P1gPRZw==
+"@ar.io/sdk@^4.0.0-solana.37":
+  version "4.0.0-solana.38"
+  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-4.0.0-solana.38.tgz#5251996acc911c855d7077e438d90187cdd5fb8e"
+  integrity sha512-bJ376RwgX/qZkVEQ3gP7Q0kg5Uo0+ieWAttsaW+rMLMFqXikSW2+t2ghpSrKeRsZv6jATyDO6AoAeZ5luqy+xQ==
   dependencies:
     "@ar.io/solana-contracts" "0.7.0-staging.17"
+    "@noble/hashes" "^1.8.0"
     "@solana-program/address-lookup-table" "^0.11.0"
     "@solana-program/compute-budget" "^0.15.0"
     "@solana-program/token" "^0.13.0"
@@ -996,7 +997,7 @@
   resolved "https://registry.yarnpkg.com/@noble/hashes/-/hashes-1.7.1.tgz#5738f6d765710921e7a751e00c20ae091ed8db0f"
   integrity sha512-B8XBPsn4vT/KJAGqDzbwztd+6Yte3P4V7iafm24bxgDe/mlRuK6xmWPuCNrKt2vDafZ8MfJLlchDG/vYafQEjQ==
 
-"@noble/hashes@^1.5.0":
+"@noble/hashes@^1.5.0", "@noble/hashes@^1.8.0":
   version "1.8.0"
   resolved "https://registry.yarnpkg.com/@noble/hashes/-/hashes-1.8.0.tgz#cee43d801fcef9644b11b8194857695acd5f815a"
   integrity sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==
