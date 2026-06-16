@@ -62,6 +62,7 @@ function makeCranker(opts: {
     // Phase 3
     getDeficientGateways: async () => [],
     getGoneGateways: async () => [],
+    getFinalizableGoneGateways: async () => [],
     // Phase 4 — the unit under test.
     getEpochRaw: async (epochIndex: number) => {
       counters.getEpochRawCalls.push(epochIndex);

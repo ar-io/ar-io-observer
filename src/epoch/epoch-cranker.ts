@@ -331,7 +331,14 @@ export class EpochCranker {
     }
     if (budget.remaining > 0) {
       try {
-        const gone = await ario.getGoneGateways();
+        // Only gateways whose leave window has elapsed AND have no remaining
+        // delegated stake are actually finalize_gone-able. getGoneGateways()
+        // over-returns every Leaving gateway, so finalizing per result reverts
+        // (LeaveWindowNotExpired / 6079) on every not-yet-eligible one each
+        // cycle — pure noise. getFinalizableGoneGateways(now) pre-filters to the
+        // on-chain eligibility conditions. Requires @ar.io/sdk with
+        // ar-io/ar-io-sdk#685.
+        const gone = await ario.getFinalizableGoneGateways(now);
         for (const g of gone) {
           if (budget.remaining <= 0) break;
           try {
