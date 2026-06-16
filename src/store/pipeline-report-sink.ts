@@ -19,7 +19,12 @@ import * as winston from 'winston';
 
 import { ReportInfo, ReportSink } from '../types.js';
 
-const DEFAULT_MAX_GATEWAY_FAILURE_THRESHOLD = 0.8;
+// 0.95: only block a near-total-failure report (~95%+), the signature of a real
+// observer misconfig. Early on a fresh network the long tail of registered
+// gateways legitimately fails assessment (5xx/TLS/conn-refused) while the
+// operator's own gateways pass, so a lower gate (e.g. 0.8) would suppress honest
+// high-but-legitimate reports. Override via OBSERVER_MAX_GATEWAY_FAILURE_THRESHOLD.
+const DEFAULT_MAX_GATEWAY_FAILURE_THRESHOLD = 0.95;
 
 export interface ReportSinkEntry {
   name: string;

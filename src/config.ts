@@ -350,7 +350,7 @@ function parseFractionEnv(name: string, defaultValue: string): number {
  */
 export const OBSERVER_MAX_GATEWAY_FAILURE_THRESHOLD = parseFractionEnv(
   'OBSERVER_MAX_GATEWAY_FAILURE_THRESHOLD',
-  '0.8',
+  '0.95',
 );
 
 export const SOLANA_RPC_URL = env.varOrDefault(

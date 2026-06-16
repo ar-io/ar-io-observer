@@ -138,7 +138,7 @@ describe('PipelineReportSink', function () {
   });
 
   describe('saveReport - threshold logic', function () {
-    it('should process all sinks when less than 80% of gateways fail', async function () {
+    it('should process all sinks when failure is below the default threshold', async function () {
       const sinks: ReportSinkEntry[] = [
         { name: 'sink1', sink: mockSink1 },
         { name: 'sink2', sink: mockSink2 },
@@ -162,19 +162,21 @@ describe('PipelineReportSink', function () {
       expect(result).to.have.property('sink2Processed', true);
     });
 
-    it('should process all sinks when exactly 80% of gateways fail', async function () {
+    it('should process all sinks at exactly the default 95% threshold', async function () {
       const sinks: ReportSinkEntry[] = [
         { name: 'sink1', sink: mockSink1 },
         { name: 'sink2', sink: mockSink2 },
       ];
 
+      // No explicit threshold → exercises the 0.95 default. `>` semantics mean
+      // exactly-at-threshold still forwards.
       pipelineReportSink = new PipelineReportSink({
         log: logStub,
         sinks,
       });
 
-      // 80% failure rate (8 out of 10)
-      const report = createMockReport(10, 8);
+      // 95% failure rate (19 out of 20) — exactly the default, so it forwards.
+      const report = createMockReport(20, 19);
       const reportInfo: ReportInfo = { report };
 
       const result = await pipelineReportSink.saveReport(reportInfo);
@@ -186,19 +188,20 @@ describe('PipelineReportSink', function () {
       expect(result).to.have.property('sink2Processed', true);
     });
 
-    it('should skip all sinks when more than 80% of gateways fail', async function () {
+    it('should skip all sinks when failure exceeds the default 95% threshold', async function () {
       const sinks: ReportSinkEntry[] = [
         { name: 'sink1', sink: mockSink1 },
         { name: 'sink2', sink: mockSink2 },
       ];
 
+      // No explicit threshold → exercises the 0.95 default.
       pipelineReportSink = new PipelineReportSink({
         log: logStub,
         sinks,
       });
 
-      // 90% failure rate (9 out of 10)
-      const report = createMockReport(10, 9);
+      // 96% failure rate (96 out of 100) — above the 0.95 default.
+      const report = createMockReport(100, 96);
       const reportInfo: ReportInfo = { report };
 
       const result = await pipelineReportSink.saveReport(reportInfo);
@@ -208,15 +211,15 @@ describe('PipelineReportSink', function () {
       expect((logStub.error as sinon.SinonStub).calledOnce).to.be.true;
 
       const errorCall = (logStub.error as sinon.SinonStub).firstCall;
-      expect(errorCall.args[0]).to.include('More than 80% of gateways failed');
+      expect(errorCall.args[0]).to.include('More than 95% of gateways failed');
       expect(errorCall.args[0]).to.include(
         'Please check your observer configuration',
       );
       expect(errorCall.args[1]).to.deep.include({
-        totalGateways: 10,
-        failedGateways: 9,
-        failurePercentage: '90.00%',
-        threshold: '80%',
+        totalGateways: 100,
+        failedGateways: 96,
+        failurePercentage: '96.00%',
+        threshold: '95%',
       });
 
       expect(result).to.equal(reportInfo);
