@@ -19,7 +19,12 @@ import * as winston from 'winston';
 
 import { ReportInfo, ReportSink } from '../types.js';
 
-const DEFAULT_MAX_GATEWAY_FAILURE_THRESHOLD = 0.8;
+// 0.95: only block a near-total-failure report (~95%+), the signature of a real
+// observer misconfig. Early on a fresh network the long tail of registered
+// gateways legitimately fails assessment (5xx/TLS/conn-refused) while the
+// operator's own gateways pass, so a lower gate (e.g. 0.8) would suppress honest
+// high-but-legitimate reports. Override via OBSERVER_MAX_GATEWAY_FAILURE_THRESHOLD.
+const DEFAULT_MAX_GATEWAY_FAILURE_THRESHOLD = 0.95;
 
 export interface ReportSinkEntry {
   name: string;
@@ -42,7 +47,8 @@ export class PipelineReportSink implements ReportSink {
     /**
      * Fraction in `[0, 1]`. If the share of gateways reported as failed
      * exceeds this value, the pipeline drops the report instead of
-     * forwarding to downstream sinks. Defaults to 0.8 (production safe).
+     * forwarding to downstream sinks. Defaults to 0.95 (suppresses only a
+     * near-total-failure report — the real observer-misconfig signature).
      * On environments where a high real failure rate is expected
      * (e.g. devnet with stub gateways), raise to 1.0 to disable the
      * gate — the `>` comparison means a threshold of 1.0 can never
