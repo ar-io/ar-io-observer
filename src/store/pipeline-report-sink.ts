@@ -47,7 +47,8 @@ export class PipelineReportSink implements ReportSink {
     /**
      * Fraction in `[0, 1]`. If the share of gateways reported as failed
      * exceeds this value, the pipeline drops the report instead of
-     * forwarding to downstream sinks. Defaults to 0.8 (production safe).
+     * forwarding to downstream sinks. Defaults to 0.95 (suppresses only a
+     * near-total-failure report — the real observer-misconfig signature).
      * On environments where a high real failure rate is expected
      * (e.g. devnet with stub gateways), raise to 1.0 to disable the
      * gate — the `>` comparison means a threshold of 1.0 can never
