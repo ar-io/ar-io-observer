@@ -341,16 +341,19 @@ function parseFractionEnv(name: string, defaultValue: string): number {
  * blasting the network with false negatives — if everything looks
  * broken, assume the observer is the problem and refuse to ship.
  *
- * Production default `0.8` is correct on a healthy network. On devnet
- * (where most gateways are intentional stubs that don't serve HTTP),
- * 100% failure is the honest answer and the gate falsely suppresses
- * legitimate reports — set to `1.0` there so only the literal "every
- * gateway failed including ourselves" case is filtered (which can't
- * happen with `>` semantics, so 1.0 effectively disables the gate).
+ * Default `0.95`: only a near-total-failure report (~95%+) is suppressed —
+ * the signature of a real observer misconfig. Early on a fresh network the
+ * long tail of registered gateways legitimately fails assessment (5xx / TLS /
+ * conn-refused) while the operator's own gateways pass, so a lower gate (e.g.
+ * `0.8`) would suppress honest, high-but-legitimate reports. On devnet (where
+ * most gateways are intentional stubs that don't serve HTTP), 100% failure is
+ * the honest answer — set to `1.0` there so only the literal "every gateway
+ * failed including ourselves" case is filtered (which can't happen with `>`
+ * semantics, so 1.0 effectively disables the gate).
  */
 export const OBSERVER_MAX_GATEWAY_FAILURE_THRESHOLD = parseFractionEnv(
   'OBSERVER_MAX_GATEWAY_FAILURE_THRESHOLD',
-  '0.8',
+  '0.95',
 );
 
 export const SOLANA_RPC_URL = env.varOrDefault(
