@@ -34,6 +34,9 @@ const noopLog: EpochCrankerConfig['log'] = {
 interface MockCounters {
   getEpochRawCalls: number[];
   closeObservationCalls: Array<{ epochIndex: number; observer: string }>;
+  getEpochObserversCalls: number[];
+  // Phase 4 must NEVER brute-force the whole registry anymore (the firehose).
+  registryGatewayCalls: number;
 }
 
 /**
@@ -49,6 +52,8 @@ function makeCranker(opts: {
   const counters: MockCounters = {
     getEpochRawCalls: [],
     closeObservationCalls: [],
+    getEpochObserversCalls: [],
+    registryGatewayCalls: 0,
   };
 
   const contract: any = {
@@ -69,7 +74,17 @@ function makeCranker(opts: {
         ? { rewardsDistributed: 1 }
         : null;
     },
-    getRegistryGatewayAddresses: async () => opts.observerAddrs,
+    // The fixed Phase 4 enumerates the epoch's real observers, not the whole
+    // registry. getEpochObservers returns only the submitters with a live PDA.
+    getEpochObservers: async (epochIndex: number) => {
+      counters.getEpochObserversCalls.push(epochIndex);
+      return opts.observerAddrs;
+    },
+    // Kept so we can assert Phase 4 NEVER calls it (the old brute-force path).
+    getRegistryGatewayAddresses: async () => {
+      counters.registryGatewayCalls++;
+      return opts.observerAddrs;
+    },
     closeObservation: async (p: { epochIndex: number; observer: string }) => {
       counters.closeObservationCalls.push({
         epochIndex: p.epochIndex,
@@ -171,6 +186,44 @@ describe('EpochCranker cleanup continuity floor', () => {
       { epochIndex: 462, observer: 'obsB' },
       { epochIndex: 462, observer: 'obsC' },
     ]);
+    // The observers came from getEpochObservers(closeTarget), NOT a brute-force
+    // walk of the whole gateway registry.
+    expect(counters.getEpochObserversCalls).to.deep.equal([462]);
+    expect(counters.registryGatewayCalls).to.equal(0);
+  });
+
+  it('closes ONLY the epoch observers and NEVER walks the gateway registry (firehose fix)', async () => {
+    // Old Phase 4 fired close_observation at every registry gateway (~643),
+    // ~98% of which had no PDA → AccountNotInitialized firehose. The fix
+    // enumerates the epoch's real observers instead.
+    const { cranker, counters } = makeCranker({
+      existingEpochs: new Set([462]),
+      observerAddrs: ['obsA', 'obsB'], // the only two that actually observed
+    });
+
+    await runCleanup(cranker, 470);
+
+    expect(counters.closeObservationCalls).to.deep.equal([
+      { epochIndex: 462, observer: 'obsA' },
+      { epochIndex: 462, observer: 'obsB' },
+    ]);
+    expect(counters.registryGatewayCalls).to.equal(0);
+  });
+
+  it('fires ZERO close_observation when an existing epoch has no live observers (the 643→0 case)', async () => {
+    // Exactly the production case proven on mainnet: epoch 460 exists and is
+    // distributed, but getEpochObservers returns [] (all already closed) — the
+    // old code still fired at all 643 registry gateways. The fix does nothing.
+    const { cranker, counters } = makeCranker({
+      existingEpochs: new Set([462]),
+      observerAddrs: [], // no live Observation PDAs for this epoch
+    });
+
+    await runCleanup(cranker, 470);
+
+    expect(counters.getEpochObserversCalls).to.deep.equal([462]);
+    expect(counters.closeObservationCalls).to.have.length(0);
+    expect(counters.registryGatewayCalls).to.equal(0);
   });
 
   it('skips Phase 4 entirely when currentEpochIndex is within the retention window', async () => {

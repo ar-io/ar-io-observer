@@ -355,11 +355,20 @@ export class EpochCranker {
     }
 
     // Phase 4: Old observations from epochs older than `currentEpochIndex - retention`.
-    // The Observation PDA seed is `(epochIndex, observer)`. We need the
-    // observer addresses — easiest source is the active GatewayRegistry.
-    // Anyone NOT in the current registry won't be found, but observers are
-    // gateways so coverage should be reasonable. closeObservation no-ops on
-    // missing PDAs (Anchor returns AccountNotInitialized).
+    // The Observation PDA seed is `(epochIndex, observer)`. We close exactly the
+    // observers that actually submitted — `getEpochObservers` enumerates the
+    // real Observation PDAs for the epoch (one getProgramAccounts scan) and
+    // returns ~the submitting observers (tens), NOT the whole GatewayRegistry.
+    //
+    // This previously walked `getRegistryGatewayAddresses()` (the ENTIRE active
+    // registry, ~643 gateways) and fired close_observation at every one, relying
+    // on closeObservation to no-op (Anchor `AccountNotInitialized`/3012) for the
+    // ~98% that never observed. With `budget.remaining` only decrementing on
+    // SUCCESS, those hundreds of guaranteed-failing tx-simulations did not
+    // throttle the loop, so each cleanup cycle emitted hundreds of failures and
+    // hammered the RPC into 429s (the close_observation firehose). Enumerating
+    // the real observers turns ~643 mostly-failing attempts into ~tens that all
+    // succeed.
     //
     // CONTINUITY FLOOR: after the AO→Solana cutover, `current_epoch_index`
     // jumped straight to ~454 with NO epochs 0..453 on-chain. closeTarget
@@ -421,7 +430,7 @@ export class EpochCranker {
             ) {
               this.firstExistingEpochIndex = closeTarget;
             }
-            const observerAddrs = await ario.getRegistryGatewayAddresses?.();
+            const observerAddrs = await ario.getEpochObservers?.(closeTarget);
             if (Array.isArray(observerAddrs)) {
               for (const observer of observerAddrs) {
                 if (budget.remaining <= 0) break;
