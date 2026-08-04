@@ -14,8 +14,10 @@ import { ObserverReport } from '../types.js';
  * A gateway is identified by its registered wallet(s) (`expectedWallets`).
  * For each assessed host:
  *   - The wallet that actually controls the host (the one matching
- *     `observedWallet`) is failed if EITHER its ownership OR its ArNS
- *     assessment failed.
+ *     `observedWallet`) is failed iff the gateway's overall assessment
+ *     failed — the report's composite `pass` (ownership AND ArNS AND
+ *     offset, majority-voted), so the summary can never diverge from the
+ *     per-gateway `pass` the report carries.
  *   - Any other expected wallet is failed: it claims the host but a
  *     different wallet responded, so it does not control it.
  *   - If no wallet responded at all, every expected wallet is failed.
@@ -34,20 +36,19 @@ export function getFailedGatewaySummaryFromReport(
   const failedGatewaySummary = new Set<string>();
   Object.values(observerReport.gatewayAssessments).forEach(
     (gatewayAssessment) => {
-      const {
-        expectedWallets,
-        observedWallet,
-        pass: ownershipPass,
-      } = gatewayAssessment.ownershipAssessment;
-      const arnsPass = gatewayAssessment.arnsAssessments.pass;
+      const { expectedWallets, observedWallet } =
+        gatewayAssessment.ownershipAssessment;
 
       if (observedWallet !== null) {
         for (const wallet of expectedWallets) {
           if (wallet === observedWallet) {
-            // This wallet controls the host; it fails if EITHER ownership
-            // or ArNS resolution failed (the report's overall pass folds
-            // both in, but they are tracked separately here).
-            if (!ownershipPass || !arnsPass) {
+            // This wallet controls the host; it fails iff the gateway's
+            // overall assessment failed. Use the report's composite `pass`
+            // (ownership AND ArNS AND offset, majority-voted across
+            // observations) as the single source of truth so the on-chain
+            // bitmap always matches the report — rather than re-deriving it
+            // from a subset of the assessment dimensions.
+            if (!gatewayAssessment.pass) {
               failedGatewaySummary.add(wallet);
             }
           } else {

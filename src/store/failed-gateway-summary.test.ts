@@ -25,11 +25,16 @@ function assessment({
   observedWallet,
   ownershipPass,
   arnsPass,
+  pass,
 }: {
   expectedWallets: string[];
   observedWallet: string | null;
   ownershipPass: boolean;
   arnsPass: boolean;
+  // Composite gateway `pass`. Defaults to `ownershipPass && arnsPass`, but can
+  // be set independently to model dimensions the report folds in beyond those
+  // two (offset enforcement, majority vote) — the summary must track it.
+  pass?: boolean;
 }): GatewayAssessments[string] {
   return {
     ownershipAssessment: {
@@ -42,7 +47,7 @@ function assessment({
       chosenNames: {},
       pass: arnsPass,
     },
-    pass: ownershipPass && arnsPass,
+    pass: pass ?? (ownershipPass && arnsPass),
   };
 }
 
@@ -79,6 +84,24 @@ describe('getFailedGatewaySummaryFromReport', () => {
         observedWallet: WALLET_A,
         ownershipPass: true,
         arnsPass: false,
+      }),
+    });
+    expect(getFailedGatewaySummaryFromReport(report)).to.deep.equal([WALLET_A]);
+  });
+
+  it('fails the controlling wallet when composite pass is false despite ownership + ArNS passing', () => {
+    // The report's per-gateway `pass` also folds in offset enforcement and a
+    // majority vote across observations, so a gateway can pass ownership AND
+    // ArNS yet still be `pass: false` overall. The summary must track the
+    // composite `pass` (single source of truth), otherwise the on-chain
+    // bitmap diverges from the report.
+    const report = reportOf({
+      'gw.example': assessment({
+        expectedWallets: [WALLET_A],
+        observedWallet: WALLET_A,
+        ownershipPass: true,
+        arnsPass: true,
+        pass: false, // e.g. offset assessment failed under enforcement
       }),
     });
     expect(getFailedGatewaySummaryFromReport(report)).to.deep.equal([WALLET_A]);
