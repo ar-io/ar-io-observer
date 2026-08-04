@@ -54,12 +54,3 @@ jobs:
           tags: |
             ghcr.io/ar-io/ar-io-observer:${{ github.sha }}
             ghcr.io/ar-io/ar-io-observer:latest
-  trigger:
-    needs: [push]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Trigger ar-io-observer deployment
-        uses: benc-uk/workflow-dispatch@v1
-        with:
-          workflow: deploy-observer-image.yml
-          inputs: '{"image_sha": "${{ github.sha }}"}'
