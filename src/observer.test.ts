@@ -688,6 +688,55 @@ describe('Observer', function () {
         expect(failureRate).to.equal(0);
       });
 
+      it('excludes neutral names from the failure rate (numerator and denominator)', function () {
+        // ownership passes; one name is NEUTRAL and one FAILS. Neutral must be
+        // dropped from both counts: graded = ownership + failing = 2, failed = 1
+        // => 0.5. If neutral were (wrongly) counted as a failure it would be
+        // 2/3 ≈ 0.667.
+        const report: ObserverReport = createReport({
+          gatewayAssessments: {
+            'gw.com': {
+              ownershipAssessment: {
+                expectedWallets: ['w'],
+                observedWallet: 'w',
+                pass: true,
+              },
+              arnsAssessments: {
+                prescribedNames: {
+                  ipfsNeutral: {
+                    pass: false,
+                    outcome: 'neutral',
+                    assessedAt: 100,
+                    expectedId: 'bafyCID',
+                    resolvedId: null,
+                    expectedDataHash: null,
+                    resolvedDataHash: null,
+                    protocol: 'ipfs',
+                    failureReason: 'neutral: gateway does not support IPFS',
+                  },
+                  arweaveFail: {
+                    pass: false,
+                    outcome: 'fail',
+                    assessedAt: 100,
+                    expectedId: 'id1',
+                    resolvedId: 'id2',
+                    expectedDataHash: null,
+                    resolvedDataHash: null,
+                    failureReason: 'resolvedId mismatch',
+                  },
+                },
+                chosenNames: {},
+                pass: false,
+              },
+              pass: false,
+            },
+          },
+        });
+
+        const failureRate = (observer as any).calculateFailureRate(report);
+        expect(failureRate).to.equal(0.5);
+      });
+
       it('should calculate correct failure rate for single gateway', function () {
         const report: ObserverReport = createReport({
           gatewayAssessments: {

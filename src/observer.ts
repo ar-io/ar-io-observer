@@ -354,6 +354,17 @@ export async function getIpfsRawBlock({
   });
 }
 
+// Tri-state outcome for an ArNS name assessment. NEUTRAL names (e.g. an
+// IPFS-protocol name on a gateway that does not yet advertise IPFS support) are
+// excluded from every pass/fail denominator — namesPass, the ArNS metrics, and
+// the failure rate that selects which observation is reported. Falls back to
+// pass/fail for assessments produced before `outcome` existed.
+export function arnsNameOutcome(
+  a: ArnsNameAssessment,
+): 'pass' | 'fail' | 'neutral' {
+  return a.outcome ?? (a.pass ? 'pass' : 'fail');
+}
+
 export async function assessOwnership({
   host,
   expectedWallets,
@@ -2402,11 +2413,12 @@ export class Observer {
                 })(),
           ]);
 
-        // Track ArNS assessment metrics
+        // Track ArNS assessment metrics. Neutral names are reported under their
+        // own status so they never inflate the pass/fail counts.
         Object.values(prescribedAssessments).forEach((assessment) => {
           metrics.arnsAssessmentsCounter.inc({
             type: 'prescribed',
-            status: assessment.pass ? 'pass' : 'fail',
+            status: arnsNameOutcome(assessment),
             enforced: 'true',
           });
         });
@@ -2414,7 +2426,7 @@ export class Observer {
         Object.values(chosenAssessments).forEach((assessment) => {
           metrics.arnsAssessmentsCounter.inc({
             type: 'chosen',
-            status: assessment.pass ? 'pass' : 'fail',
+            status: arnsNameOutcome(assessment),
             enforced: 'true',
           });
         });
@@ -2458,13 +2470,11 @@ export class Observer {
         // pass/fail denominator during the adoption ramp — they can neither pass
         // nor fail the gateway. `outcome` falls back to pass/fail for any
         // assessment produced before this field existed.
-        const outcomeOf = (a: (typeof nameAssessmentList)[number]) =>
-          a.outcome ?? (a.pass ? 'pass' : 'fail');
         const namePassCount = nameAssessmentList.filter(
-          (a) => outcomeOf(a) === 'pass',
+          (a) => arnsNameOutcome(a) === 'pass',
         ).length;
         const nameGradedCount = nameAssessmentList.filter(
-          (a) => outcomeOf(a) !== 'neutral',
+          (a) => arnsNameOutcome(a) !== 'neutral',
         ).length;
         // If every sampled name was neutral there is nothing to grade — don't
         // fail the gateway on absence of evidence.
@@ -2535,24 +2545,21 @@ export class Observer {
         failedAssessments++;
       }
 
-      // Count prescribed name assessments
+      // Count prescribed + chosen name assessments, EXCLUDING neutral names from
+      // both the numerator and the denominator — otherwise a neutral name would
+      // inflate the failure rate and could change which observation is selected
+      // for the on-chain report.
+      const countName = (assessment: ArnsNameAssessment) => {
+        const outcome = arnsNameOutcome(assessment);
+        if (outcome === 'neutral') return;
+        totalAssessments++;
+        if (outcome === 'fail') failedAssessments++;
+      };
       Object.values(gatewayAssessment.arnsAssessments.prescribedNames).forEach(
-        (assessment) => {
-          totalAssessments++;
-          if (!assessment.pass) {
-            failedAssessments++;
-          }
-        },
+        countName,
       );
-
-      // Count chosen name assessments
       Object.values(gatewayAssessment.arnsAssessments.chosenNames).forEach(
-        (assessment) => {
-          totalAssessments++;
-          if (!assessment.pass) {
-            failedAssessments++;
-          }
-        },
+        countName,
       );
     });
 
