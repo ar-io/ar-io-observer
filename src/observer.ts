@@ -31,6 +31,7 @@ import {
   anchorChunkMetadata,
 } from './lib/chunk-metadata-anchor.js';
 import { customHashPRNG } from './lib/prng.js';
+import { verifyBytesAgainstCid } from './lib/ipfs-cid.js';
 import {
   parseTxPath,
   safeBigIntToNumber,
@@ -263,6 +264,94 @@ export async function getArnsResolution({
   }
 
   return getHashWithinFirstMiB();
+}
+
+// A single IPFS block is bounded (~1-2 MiB by protocol); cap the read so a
+// misbehaving gateway can't stream an unbounded body into memory.
+export const MAX_IPFS_RAW_BLOCK_BYTES = 4 * 1024 * 1024; // 4 MiB
+
+/**
+ * Fetch the raw IPLD block for an ArNS name from a gateway's trustless endpoint
+ * (`?format=raw`) so it can be verified against the CID. Streams with a hard byte
+ * cap. Returns `bytes: null` when the gateway did not serve a 200 block (or it
+ * exceeded the cap); `statusCode`/`resolvedId` are surfaced for diagnostics.
+ */
+export async function getIpfsRawBlock({
+  url,
+  got,
+}: {
+  url: string;
+  got: Got;
+}): Promise<{
+  statusCode: number;
+  resolvedId: string | null;
+  bytes: Buffer | null;
+}> {
+  return new Promise((resolve, reject) => {
+    const stream = got.stream.get(url, {
+      headers: {
+        'Accept-Encoding': 'identity',
+        Accept: 'application/vnd.ipld.raw',
+      },
+    });
+
+    const chunks: Buffer[] = [];
+    let total = 0;
+    let statusCode = 0;
+    let resolvedId: string | null = null;
+    let settled = false;
+    const done = (v: {
+      statusCode: number;
+      resolvedId: string | null;
+      bytes: Buffer | null;
+    }) => {
+      if (!settled) {
+        settled = true;
+        resolve(v);
+      }
+    };
+
+    stream.on('response', (resp) => {
+      statusCode = resp.statusCode;
+      resolvedId =
+        (resp.headers['x-arns-resolved-id'] as string | undefined) ?? null;
+      if (statusCode !== 200) {
+        stream.destroy();
+        done({ statusCode, resolvedId, bytes: null });
+      }
+    });
+
+    stream.on('data', (chunk: Buffer) => {
+      total += chunk.length;
+      if (total > MAX_IPFS_RAW_BLOCK_BYTES) {
+        stream.destroy();
+        done({ statusCode, resolvedId, bytes: null });
+        return;
+      }
+      chunks.push(chunk);
+    });
+
+    stream.on('end', () => {
+      done({ statusCode, resolvedId, bytes: Buffer.concat(chunks) });
+    });
+
+    stream.on('error', (error: RequestError) => {
+      const rs = error.response?.statusCode;
+      if (rs !== undefined) {
+        done({
+          statusCode: rs,
+          resolvedId:
+            (error.response?.headers?.['x-arns-resolved-id'] as
+              | string
+              | undefined) ?? resolvedId,
+          bytes: null,
+        });
+      } else if (!settled) {
+        settled = true;
+        reject(error);
+      }
+    });
+  });
 }
 
 export async function assessOwnership({
@@ -1887,6 +1976,97 @@ export class Observer {
     }
   }
 
+  // Trustlessly assess an IPFS-protocol ArNS name: fetch the gateway's raw block
+  // (`?format=raw`) and verify it against the CID the name resolves to (the
+  // reference binding). No reference-gateway byte trust; the CID is the proof.
+  private async assessIpfsNameTrustlessly({
+    host,
+    arnsName,
+    referenceResolution,
+  }: {
+    host: string;
+    arnsName: string;
+    referenceResolution: ArnsResolution;
+  }): Promise<ArnsNameAssessment> {
+    const assessedAt = +(Date.now() / 1000).toFixed(0);
+    const expectedId = referenceResolution.resolvedId ?? null;
+
+    // Without a reference binding (which CID the name should resolve to) there is
+    // nothing to verify against — neutral rather than blaming the gateway.
+    if (expectedId === null) {
+      return {
+        assessedAt,
+        expectedStatusCode: referenceResolution.statusCode,
+        expectedId: null,
+        resolvedId: null,
+        expectedDataHash: referenceResolution.dataHashDigest ?? null,
+        resolvedDataHash: null,
+        protocol: 'ipfs',
+        outcome: 'neutral',
+        pass: false,
+        failureReason:
+          'neutral: reference resolution unavailable for IPFS name',
+      };
+    }
+
+    const timer = metrics.arnsResolutionHistogram.startTimer();
+    const { statusCode, resolvedId, bytes } = await getIpfsRawBlock({
+      url: `https://${arnsName}.${host}/?format=raw`,
+      got: this.gotClient,
+    });
+    timer();
+
+    const base = {
+      assessedAt,
+      expectedStatusCode: referenceResolution.statusCode,
+      resolvedStatusCode: statusCode,
+      expectedId,
+      resolvedId,
+      expectedDataHash: referenceResolution.dataHashDigest ?? null,
+      protocol: 'ipfs' as const,
+    };
+
+    if (bytes === null) {
+      // A supporting gateway failed to serve the verifiable block.
+      return {
+        ...base,
+        resolvedDataHash: null,
+        outcome: 'fail',
+        pass: false,
+        failureReason: `gateway did not serve a raw block (status ${statusCode})`,
+      };
+    }
+
+    const resolvedDataHash = crypto
+      .createHash('sha256')
+      .update(bytes)
+      .digest('base64url');
+    const verification = await verifyBytesAgainstCid(expectedId, bytes);
+
+    if (verification === 'unsupported') {
+      // The CID uses a multihash we can't verify (not sha2-256) — neutral.
+      return {
+        ...base,
+        resolvedDataHash,
+        outcome: 'neutral',
+        pass: false,
+        failureReason: `neutral: CID not trustlessly verifiable (${expectedId})`,
+      };
+    }
+
+    if (verification === 'pass') {
+      return { ...base, resolvedDataHash, outcome: 'pass', pass: true };
+    }
+
+    return {
+      ...base,
+      resolvedDataHash,
+      outcome: 'fail',
+      pass: false,
+      failureReason: `IPFS content verification failed: served bytes do not match CID ${expectedId}`,
+    };
+  }
+
   async assessArnsName({
     host,
     arnsName,
@@ -1926,6 +2106,17 @@ export class Observer {
         failureReason:
           'neutral: gateway does not advertise IPFS support (adoption ramp)',
       };
+    }
+
+    // Trustless IPFS verification (Phase 2): the resolvedId IS a content hash, so
+    // verify the served bytes against the CID directly instead of comparing a
+    // sampled digest to a reference gateway. Stronger than the Arweave path.
+    if (protocol === 'ipfs') {
+      return this.assessIpfsNameTrustlessly({
+        host,
+        arnsName,
+        referenceResolution,
+      });
     }
 
     const arnsResolutionTimer = metrics.arnsResolutionHistogram.startTimer();

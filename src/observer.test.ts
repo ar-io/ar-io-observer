@@ -20,6 +20,9 @@ import got from 'got';
 import nock from 'nock';
 import crypto from 'node:crypto';
 import sinon from 'sinon';
+import { CID } from 'multiformats/cid';
+import { sha256 } from 'multiformats/hashes/sha2';
+import * as rawCodec from 'multiformats/codecs/raw';
 
 import { customHashPRNG } from './lib/prng.js';
 import * as metrics from './metrics.js';
@@ -578,6 +581,100 @@ describe('Observer', function () {
         expect(result.protocol).to.equal('ipfs');
         expect(result.pass).to.equal(false);
         expect(result.resolvedId).to.equal(null);
+      });
+    });
+
+    describe('IPFS trustless verification (Phase 2)', function () {
+      const entropy = Buffer.from('e');
+      const host = 'gw.example.com';
+      const arnsName = 'ipfsname';
+
+      const setReferenceCid = (cid: string | null) => {
+        (observer as any).referenceGatewayResolutionCache = {
+          get: async () => ({
+            statusCode: 200,
+            resolvedId: cid,
+            ttlSeconds: '900',
+            contentLength: '10',
+            contentType: 'application/octet-stream',
+            dataHashDigest: null,
+            protocol: 'ipfs',
+            timings: null,
+          }),
+        };
+      };
+
+      const rawCidFor = async (bytes: Uint8Array) =>
+        CID.create(1, rawCodec.code, await sha256.digest(bytes)).toString();
+
+      it('PASSES when the gateway serves a raw block that verifies against the CID', async function () {
+        const bytes = Buffer.from('trustless ipfs bytes');
+        const cid = await rawCidFor(bytes);
+        setReferenceCid(cid);
+        nock(`https://${arnsName}.${host}`)
+          .get('/?format=raw')
+          .reply(200, bytes, { 'x-arns-resolved-id': cid });
+
+        const result = await observer.assessArnsName({
+          host,
+          arnsName,
+          entropy,
+          supportsIpfs: true,
+        });
+
+        expect(result.outcome).to.equal('pass');
+        expect(result.pass).to.equal(true);
+        expect(result.protocol).to.equal('ipfs');
+      });
+
+      it('FAILS when the gateway serves bytes that do not match the CID', async function () {
+        const cid = await rawCidFor(Buffer.from('the real content'));
+        setReferenceCid(cid);
+        nock(`https://${arnsName}.${host}`)
+          .get('/?format=raw')
+          .reply(200, Buffer.from('tampered content'), {
+            'x-arns-resolved-id': cid,
+          });
+
+        const result = await observer.assessArnsName({
+          host,
+          arnsName,
+          entropy,
+          supportsIpfs: true,
+        });
+
+        expect(result.outcome).to.equal('fail');
+        expect(result.pass).to.equal(false);
+      });
+
+      it('FAILS when a supporting gateway does not serve the block', async function () {
+        const cid = await rawCidFor(Buffer.from('x'));
+        setReferenceCid(cid);
+        nock(`https://${arnsName}.${host}`).get('/?format=raw').reply(404);
+
+        const result = await observer.assessArnsName({
+          host,
+          arnsName,
+          entropy,
+          supportsIpfs: true,
+        });
+
+        expect(result.outcome).to.equal('fail');
+        expect(result.resolvedStatusCode).to.equal(404);
+      });
+
+      it('scores NEUTRAL when the reference binding is unavailable', async function () {
+        setReferenceCid(null);
+        // No nock: the gateway must not be probed when there is no binding.
+        const result = await observer.assessArnsName({
+          host,
+          arnsName,
+          entropy,
+          supportsIpfs: true,
+        });
+
+        expect(result.outcome).to.equal('neutral');
+        expect(result.pass).to.equal(false);
       });
     });
 
