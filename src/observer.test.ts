@@ -30,6 +30,7 @@ import {
   assessOwnership,
   generateRandomRanges,
   getArnsResolution,
+  getIpfsRawBlock,
   Observer,
 } from './observer.js';
 import { ReferenceGatewaySource } from './types.js';
@@ -528,8 +529,6 @@ describe('Observer', function () {
     });
 
     describe('IPFS protocol awareness (Phase 1)', function () {
-      const entropy = Buffer.from('e');
-
       it('assessOwnership reports supportsIpfs=true from /ar-io/info', async function () {
         nock('https://gw-ipfs.example.com')
           .get('/ar-io/info')
@@ -551,36 +550,6 @@ describe('Observer', function () {
           expectedWallets: ['WALLET'],
         });
         expect(result.supportsIpfs).to.equal(false);
-      });
-
-      it('scores an IPFS name NEUTRAL on a gateway without IPFS support, without probing it', async function () {
-        // Reference says the name resolves via IPFS. The gateway does NOT support
-        // IPFS, so the name must be neutral — and no request should be made to the
-        // gateway (no nock is registered for it; a probe would error).
-        (observer as any).referenceGatewayResolutionCache = {
-          get: async () => ({
-            statusCode: 200,
-            resolvedId: 'bafyCID',
-            ttlSeconds: '900',
-            contentLength: '10',
-            contentType: 'image/jpeg',
-            dataHashDigest: 'h',
-            protocol: 'ipfs',
-            timings: null,
-          }),
-        };
-
-        const result = await observer.assessArnsName({
-          host: 'gw-without-ipfs.example.com',
-          arnsName: 'ipfsname',
-          entropy,
-          supportsIpfs: false,
-        });
-
-        expect(result.outcome).to.equal('neutral');
-        expect(result.protocol).to.equal('ipfs');
-        expect(result.pass).to.equal(false);
-        expect(result.resolvedId).to.equal(null);
       });
     });
 
@@ -619,7 +588,6 @@ describe('Observer', function () {
           host,
           arnsName,
           entropy,
-          supportsIpfs: true,
         });
 
         expect(result.outcome).to.equal('pass');
@@ -627,27 +595,28 @@ describe('Observer', function () {
         expect(result.protocol).to.equal('ipfs');
       });
 
-      it('FAILS when the gateway serves bytes that do not match the CID', async function () {
+      it('FAILS when the gateway agrees on the CID but serves non-matching bytes', async function () {
         const cid = await rawCidFor(Buffer.from('the real content'));
         setReferenceCid(cid);
         nock(`https://${arnsName}.${host}`)
           .get('/?format=raw')
           .reply(200, Buffer.from('tampered content'), {
-            'x-arns-resolved-id': cid,
+            'x-arns-resolved-id': cid, // gateway agrees on the binding
           });
 
         const result = await observer.assessArnsName({
           host,
           arnsName,
           entropy,
-          supportsIpfs: true,
         });
 
         expect(result.outcome).to.equal('fail');
         expect(result.pass).to.equal(false);
       });
 
-      it('FAILS when a supporting gateway does not serve the block', async function () {
+      it('scores NEUTRAL (not fail) when the gateway does not serve the block', async function () {
+        // A non-IPFS gateway routes the CID down its Arweave path and 404s —
+        // availability is not proof of misbehaviour, so it is neutral.
         const cid = await rawCidFor(Buffer.from('x'));
         setReferenceCid(cid);
         nock(`https://${arnsName}.${host}`).get('/?format=raw').reply(404);
@@ -656,11 +625,32 @@ describe('Observer', function () {
           host,
           arnsName,
           entropy,
-          supportsIpfs: true,
         });
 
-        expect(result.outcome).to.equal('fail');
+        expect(result.outcome).to.equal('neutral');
         expect(result.resolvedStatusCode).to.equal(404);
+      });
+
+      it('scores NEUTRAL on a binding disagreement (stale reference vs mid-epoch repoint)', async function () {
+        // Reference still points at cidOld; the gateway serves cidNew's block and
+        // reports cidNew. Bytes do not match cidOld, but the gateway agrees with
+        // ITSELF — a stale-cache binding race, not corrupt bytes. => neutral.
+        const cidOld = await rawCidFor(Buffer.from('old content'));
+        const newBytes = Buffer.from('new content');
+        const cidNew = await rawCidFor(newBytes);
+        setReferenceCid(cidOld);
+        nock(`https://${arnsName}.${host}`)
+          .get('/?format=raw')
+          .reply(200, newBytes, { 'x-arns-resolved-id': cidNew });
+
+        const result = await observer.assessArnsName({
+          host,
+          arnsName,
+          entropy,
+        });
+
+        expect(result.outcome).to.equal('neutral');
+        expect(result.pass).to.equal(false);
       });
 
       it('scores NEUTRAL when the reference binding is unavailable', async function () {
@@ -670,11 +660,25 @@ describe('Observer', function () {
           host,
           arnsName,
           entropy,
-          supportsIpfs: true,
         });
 
         expect(result.outcome).to.equal('neutral');
         expect(result.pass).to.equal(false);
+      });
+
+      it('getIpfsRawBlock returns bytes:null on timeout instead of hanging', async function () {
+        nock('https://slow.example.com')
+          .get('/?format=raw')
+          .delay(300)
+          .reply(200, Buffer.from('too late'));
+
+        const result = await getIpfsRawBlock({
+          url: 'https://slow.example.com/?format=raw',
+          got,
+          timeoutMs: 50,
+        });
+
+        expect(result.bytes).to.equal(null);
       });
     });
 

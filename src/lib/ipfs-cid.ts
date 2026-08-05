@@ -21,13 +21,19 @@ import { sha256 } from 'multiformats/hashes/sha2';
 export type CidVerification = 'pass' | 'fail' | 'unsupported';
 
 /**
- * Trustlessly verify that `bytes` are the block named by `cidString`.
+ * Trustlessly verify that `bytes` are the block the CID directly addresses — i.e.
+ * what an IPFS trustless gateway returns for `?format=raw`. The CID's multihash is
+ * the hash of exactly those bytes, so a match proves the gateway holds and served
+ * the authentic addressed block, with no reference-gateway trust.
  *
- * The bytes MUST be the raw block the CID directly addresses — i.e. what an IPFS
- * trustless gateway returns for `?format=raw`. For a raw-codec CID that block is
- * the file itself; for a UnixFS/dag-pb CID it is the DAG's root block. In both
- * cases the CID's multihash is the hash of exactly those bytes, so a match proves
- * the gateway served the authentic block — no reference gateway required.
+ * SCOPE (important): this proves possession of the ADDRESSED BLOCK only.
+ *  - raw-codec CID (0x55): the block IS the whole content — verification is
+ *    complete.
+ *  - dag-pb/UnixFS CID (0x70): the block is the DAG ROOT only. A match proves the
+ *    gateway holds the authentic root manifest, but NOT that it holds/serves the
+ *    leaf blocks, nor that its assembled (`GET /`) response returns the same
+ *    bytes. Full-DAG / leaf verification and the assembled-path check are the
+ *    deferred Phase 3 (IPFS block sampling, the analog of Arweave offset proofs).
  *
  * Returns:
  *  - 'pass'        the bytes hash to the CID's multihash
