@@ -27,6 +27,7 @@ import * as rawCodec from 'multiformats/codecs/raw';
 import { customHashPRNG } from './lib/prng.js';
 import * as metrics from './metrics.js';
 import {
+  assessIpfsNameTrustless,
   assessOwnership,
   generateRandomRanges,
   getArnsResolution,
@@ -718,6 +719,105 @@ describe('Observer', function () {
         });
 
         expect(result.bytes).to.equal(null);
+      });
+
+      // ---- Holding-probe ramp (X-Ar-Io-Local-Only) ----
+      const rawUrl = `https://${arnsName}.${host}/?format=raw`;
+
+      it('getIpfsRawBlock sends X-Ar-Io-Local-Only:true when localOnly is set', async function () {
+        // matchHeader means the interceptor only matches if the header is sent;
+        // a returned block therefore proves the probe carried the header.
+        nock(`https://${arnsName}.${host}`)
+          .matchHeader('x-ar-io-local-only', 'true')
+          .get('/?format=raw')
+          .reply(200, Buffer.from('held locally'), {
+            'content-type': 'application/vnd.ipld.raw',
+          });
+
+        const result = await getIpfsRawBlock({
+          url: rawUrl,
+          got,
+          timeoutMs: 5000,
+          localOnly: true,
+        });
+        expect(result.statusCode).to.equal(200);
+        expect(result.bytes).to.not.equal(null);
+      });
+
+      it('getIpfsRawBlock omits the local-only header by default', async function () {
+        nock(`https://${arnsName}.${host}`)
+          .matchHeader('x-ar-io-local-only', (v) => v === undefined)
+          .get('/?format=raw')
+          .reply(200, Buffer.from('served'), {
+            'content-type': 'application/vnd.ipld.raw',
+          });
+
+        const result = await getIpfsRawBlock({ url: rawUrl, got, timeoutMs: 5000 });
+        expect(result.bytes).to.not.equal(null);
+      });
+
+      it('assessIpfsNameTrustless(localOnly): a non-holding gateway is NEUTRAL, not FAIL', async function () {
+        const cid = await rawCidFor(Buffer.from('named content'));
+        // A proxy holds nothing locally -> 404s the local-only probe.
+        nock(`https://${arnsName}.${host}`)
+          .matchHeader('x-ar-io-local-only', 'true')
+          .get('/?format=raw')
+          .reply(404);
+
+        const result = await assessIpfsNameTrustless({
+          host,
+          arnsName,
+          referenceResolution: {
+            statusCode: 200,
+            resolvedId: cid,
+            ttlSeconds: null,
+            contentLength: null,
+            contentType: null,
+            dataHashDigest: null,
+            protocol: 'ipfs',
+            timings: null,
+          },
+          got,
+          timeoutMs: 5000,
+          localOnly: true,
+        });
+
+        expect(result.outcome).to.equal('neutral');
+        expect(result.pass).to.equal(false);
+        expect(result.failureReason).to.match(/hold/i);
+      });
+
+      it('assessIpfsNameTrustless(localOnly): a holding gateway that serves the verifying block PASSES', async function () {
+        const bytes = Buffer.from('the held block');
+        const cid = await rawCidFor(bytes);
+        nock(`https://${arnsName}.${host}`)
+          .matchHeader('x-ar-io-local-only', 'true')
+          .get('/?format=raw')
+          .reply(200, bytes, {
+            'content-type': 'application/vnd.ipld.raw',
+            'x-arns-resolved-id': cid,
+          });
+
+        const result = await assessIpfsNameTrustless({
+          host,
+          arnsName,
+          referenceResolution: {
+            statusCode: 200,
+            resolvedId: cid,
+            ttlSeconds: null,
+            contentLength: null,
+            contentType: null,
+            dataHashDigest: null,
+            protocol: 'ipfs',
+            timings: null,
+          },
+          got,
+          timeoutMs: 5000,
+          localOnly: true,
+        });
+
+        expect(result.outcome).to.equal('pass');
+        expect(result.pass).to.equal(true);
       });
     });
 

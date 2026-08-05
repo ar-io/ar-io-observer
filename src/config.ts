@@ -236,6 +236,17 @@ export const IPFS_ASSESSMENT_TIMEOUT_MS = +env.varOrDefault(
   '35000',
 );
 
+// Holding-probe ramp: when true, the trustless IPFS raw-block probe sends
+// `X-Ar-Io-Local-Only: true`, so a PASS proves the gateway HOLDS the content
+// locally (not merely proxies it from public IPFS — a proxy 404s in local-only
+// mode and scores NEUTRAL, never FAIL). This is the serving->holding lever: it
+// rewards holding without ever penalising a not-yet-holding gateway. Ships dark
+// (default false = today's "serves correctly" behavior). Flipping it on is a
+// governance/ramp decision and requires the gateway fleet to support local-only
+// serve (ar-io-node IPFS peer-fetch layer). Default: false
+export const IPFS_ASSESSMENT_LOCAL_ONLY =
+  env.varOrDefault('IPFS_ASSESSMENT_LOCAL_ONLY', 'false') === 'true';
+
 if (REFERENCE_GATEWAY_CONSENSUS_SIZE < 1) {
   throw new Error(
     `Invalid configuration: REFERENCE_GATEWAY_CONSENSUS_SIZE (${REFERENCE_GATEWAY_CONSENSUS_SIZE}) must be at least 1.`,

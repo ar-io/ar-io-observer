@@ -280,10 +280,15 @@ export async function getIpfsRawBlock({
   url,
   got,
   timeoutMs,
+  localOnly = false,
 }: {
   url: string;
   got: Got;
   timeoutMs: number;
+  // Holding probe: send `X-Ar-Io-Local-Only: true` so the gateway serves ONLY
+  // from its local blockstore. A proxying gateway 404s (bytes:null -> neutral);
+  // a holding gateway serves the verifiable block. See IPFS_ASSESSMENT_LOCAL_ONLY.
+  localOnly?: boolean;
 }): Promise<{
   statusCode: number;
   resolvedId: string | null;
@@ -300,6 +305,9 @@ export async function getIpfsRawBlock({
       headers: {
         'Accept-Encoding': 'identity',
         Accept: 'application/vnd.ipld.raw',
+        // Holding probe: serve only from the gateway's local blockstore. A proxy
+        // 404s here (-> neutral); a holder serves the verifiable block (-> pass).
+        ...(localOnly ? { 'X-Ar-Io-Local-Only': 'true' } : {}),
       },
     });
 
@@ -399,12 +407,17 @@ export async function assessIpfsNameTrustless({
   referenceResolution,
   got,
   timeoutMs,
+  localOnly = false,
 }: {
   host: string;
   arnsName: string;
   referenceResolution: ArnsResolution;
   got: Got;
   timeoutMs: number;
+  // When true, probe local-only so a PASS proves HOLDING, not just serving. A
+  // not-holding gateway 404s -> neutral (never failed). See
+  // IPFS_ASSESSMENT_LOCAL_ONLY.
+  localOnly?: boolean;
 }): Promise<ArnsNameAssessment> {
   const assessedAt = +(Date.now() / 1000).toFixed(0);
   const expectedId = referenceResolution.resolvedId ?? null;
@@ -431,6 +444,7 @@ export async function assessIpfsNameTrustless({
     url: `https://${arnsName}.${host}/?format=raw`,
     got,
     timeoutMs,
+    localOnly,
   });
   timer();
 
@@ -452,7 +466,9 @@ export async function assessIpfsNameTrustless({
       resolvedDataHash: null,
       outcome: 'neutral',
       pass: false,
-      failureReason: `neutral: gateway did not serve a raw block (status ${statusCode})`,
+      failureReason: localOnly
+        ? `neutral: gateway does not hold the content locally (local-only probe, status ${statusCode})`
+        : `neutral: gateway did not serve a raw block (status ${statusCode})`,
     };
   }
 
@@ -2178,6 +2194,7 @@ export class Observer {
         referenceResolution,
         got: this.gotClient,
         timeoutMs: config.IPFS_ASSESSMENT_TIMEOUT_MS,
+        localOnly: config.IPFS_ASSESSMENT_LOCAL_ONLY,
       });
     }
 
