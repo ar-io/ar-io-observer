@@ -21,9 +21,15 @@ import { Got } from 'got';
 import pMap from 'p-map';
 import { Logger } from 'winston';
 
+import * as config from '../config.js';
 import { createGatewayHttpClient } from '../lib/http-client.js';
 import * as metrics from '../metrics.js';
-import { assessOwnership, getArnsResolution } from '../observer.js';
+import {
+  arnsNameOutcome,
+  assessIpfsNameTrustless,
+  assessOwnership,
+  getArnsResolution,
+} from '../observer.js';
 import {
   ArnsNameAssessment,
   ArnsNameAssessments,
@@ -156,6 +162,21 @@ export class GatewayAssessor {
 
     const referenceResolution =
       await this.referenceResolutionCache.get(arnsName);
+    const protocol = referenceResolution.protocol ?? 'arweave';
+
+    // IPFS-protocol names are verified trustlessly against the CID (shared with
+    // the Observer path so scoring can't diverge). A gateway that doesn't serve
+    // the name scores NEUTRAL (excluded from the denominator); only a gateway that
+    // serves provably-wrong bytes scores FAIL.
+    if (protocol === 'ipfs') {
+      return assessIpfsNameTrustless({
+        host,
+        arnsName,
+        referenceResolution,
+        got: this.gotClient,
+        timeoutMs: config.IPFS_ASSESSMENT_TIMEOUT_MS,
+      });
+    }
 
     const arnsResolutionTimer = metrics.arnsResolutionHistogram.startTimer();
     const gatewayResolution = await getArnsResolution({
@@ -192,6 +213,8 @@ export class GatewayAssessor {
       resolvedId: gatewayResolution.resolvedId ?? null,
       expectedDataHash: referenceResolution.dataHashDigest ?? null,
       resolvedDataHash: gatewayResolution.dataHashDigest ?? null,
+      protocol,
+      outcome: pass ? 'pass' : 'fail',
       failureReason,
       pass,
       timings: gatewayResolution?.timings?.phases,
@@ -227,6 +250,7 @@ export class GatewayAssessor {
             resolvedId: null,
             expectedDataHash: null,
             resolvedDataHash: null,
+            outcome: 'fail' as const,
             failureReason: errorMessage?.slice(0, 512),
             pass: false,
           };
@@ -258,14 +282,22 @@ export class GatewayAssessor {
       this.assessArnsNames({ host, names: chosenNames }),
     ]);
 
-    // Calculate pass rate
+    // Calculate pass rate. NEUTRAL names (e.g. an IPFS name a gateway doesn't
+    // serve, or content unavailable network-wide) are EXCLUDED from both the
+    // numerator and the denominator so they can neither pass nor fail the gateway.
+    // If every graded name is neutral there is nothing to grade -> pass (don't
+    // fail a gateway on absence of evidence).
     const allAssessments = [
       ...Object.values(prescribedAssessments),
       ...Object.values(chosenAssessments),
     ];
-    const totalNames = allAssessments.length;
-    const passingNames = allAssessments.filter((a) => a.pass).length;
-    const passRate = totalNames > 0 ? passingNames / totalNames : 0;
+    const gradedNames = allAssessments.filter(
+      (a) => arnsNameOutcome(a) !== 'neutral',
+    ).length;
+    const passingNames = allAssessments.filter(
+      (a) => arnsNameOutcome(a) === 'pass',
+    ).length;
+    const passRate = gradedNames > 0 ? passingNames / gradedNames : 1;
 
     return {
       prescribedNames: prescribedAssessments,

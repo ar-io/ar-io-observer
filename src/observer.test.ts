@@ -582,7 +582,10 @@ describe('Observer', function () {
         setReferenceCid(cid);
         nock(`https://${arnsName}.${host}`)
           .get('/?format=raw')
-          .reply(200, bytes, { 'x-arns-resolved-id': cid });
+          .reply(200, bytes, {
+            'content-type': 'application/vnd.ipld.raw',
+            'x-arns-resolved-id': cid,
+          });
 
         const result = await observer.assessArnsName({
           host,
@@ -601,6 +604,7 @@ describe('Observer', function () {
         nock(`https://${arnsName}.${host}`)
           .get('/?format=raw')
           .reply(200, Buffer.from('tampered content'), {
+            'content-type': 'application/vnd.ipld.raw',
             'x-arns-resolved-id': cid, // gateway agrees on the binding
           });
 
@@ -641,7 +645,10 @@ describe('Observer', function () {
         setReferenceCid(cidOld);
         nock(`https://${arnsName}.${host}`)
           .get('/?format=raw')
-          .reply(200, newBytes, { 'x-arns-resolved-id': cidNew });
+          .reply(200, newBytes, {
+            'content-type': 'application/vnd.ipld.raw',
+            'x-arns-resolved-id': cidNew,
+          });
 
         const result = await observer.assessArnsName({
           host,

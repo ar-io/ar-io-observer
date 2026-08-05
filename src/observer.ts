@@ -31,7 +31,7 @@ import {
   anchorChunkMetadata,
 } from './lib/chunk-metadata-anchor.js';
 import { customHashPRNG } from './lib/prng.js';
-import { verifyBytesAgainstCid } from './lib/ipfs-cid.js';
+import { verifyBytesAgainstCid, isValidCid } from './lib/ipfs-cid.js';
 import {
   parseTxPath,
   safeBigIntToNumber,
@@ -291,11 +291,12 @@ export async function getIpfsRawBlock({
 }> {
   return new Promise((resolve) => {
     const stream = got.stream.get(url, {
-      // An explicit request deadline sized for cold IPFS retrieval (the base
-      // client's socket-idle timeout is tuned for fast Arweave calls and would
-      // misclassify slow-but-valid content). Also bounds a slow-drip gateway so
-      // report generation can't hang.
-      timeout: { request: timeoutMs },
+      // Explicit deadlines sized for cold IPFS retrieval. BOTH request and socket
+      // are overridden: the base client's short socket-idle timeout (tuned for
+      // fast Arweave calls) would otherwise fire first and abort slow-but-valid
+      // cold-DHT retrieval. `request` also bounds a slow-drip gateway so report
+      // generation can't hang.
+      timeout: { request: timeoutMs, socket: timeoutMs },
       headers: {
         'Accept-Encoding': 'identity',
         Accept: 'application/vnd.ipld.raw',
@@ -322,7 +323,17 @@ export async function getIpfsRawBlock({
       statusCode = resp.statusCode;
       resolvedId =
         (resp.headers['x-arns-resolved-id'] as string | undefined) ?? null;
-      if (statusCode !== 200) {
+      const contentType = (
+        (resp.headers['content-type'] as string | undefined) ?? ''
+      ).toLowerCase();
+      // Only a genuine trustless raw block is verifiable. A non-200, or a 200
+      // that is NOT application/vnd.ipld.raw (an HTML error page, or a gateway
+      // that ignored ?format=raw), is treated as not-served (bytes: null ->
+      // neutral) so it can never be scored as a proven-wrong block.
+      if (
+        statusCode !== 200 ||
+        !contentType.includes('application/vnd.ipld.raw')
+      ) {
         stream.destroy();
         done({ statusCode, resolvedId, bytes: null });
       }
@@ -339,7 +350,13 @@ export async function getIpfsRawBlock({
     });
 
     stream.on('end', () => {
-      done({ statusCode, resolvedId, bytes: Buffer.concat(chunks) });
+      // A 200 with an empty body is not a served block — treat as not-served
+      // (neutral), consistent with "availability is never a fail".
+      done({
+        statusCode,
+        resolvedId,
+        bytes: total > 0 ? Buffer.concat(chunks) : null,
+      });
     });
 
     // Any error — connection refused, timeout, TLS, or a mid-body read error
@@ -358,6 +375,137 @@ export async function getIpfsRawBlock({
       });
     });
   });
+}
+
+/**
+ * Trustlessly assess an IPFS-protocol ArNS name: fetch the gateway's raw block
+ * (`?format=raw`) and verify it against the CID the name resolves to (the
+ * reference binding). No reference-gateway byte trust; the CID is the proof.
+ * Shared by the one-shot Observer and the live ContinuousObserver/GatewayAssessor
+ * paths so their scoring can never diverge.
+ *
+ * Scoring: FAIL only on a PROVEN-WRONG answer — the gateway serves 200 bytes that
+ * hash to NEITHER the reference CID nor the CID the gateway itself claims. A clean
+ * hash-match against the reference CID is PASS. Everything else is NEUTRAL
+ * (excluded from the denominator): not-served / non-200 / timeout, a CID we can't
+ * verify, or a genuine binding disagreement the gateway PROVES (its bytes hash to
+ * the different CID it claims — a stale-cache vs mid-epoch-repoint race). So a
+ * gateway is never failed for availability, yet a liar serving garbage cannot
+ * dodge FAIL by echoing a bogus resolvedId.
+ */
+export async function assessIpfsNameTrustless({
+  host,
+  arnsName,
+  referenceResolution,
+  got,
+  timeoutMs,
+}: {
+  host: string;
+  arnsName: string;
+  referenceResolution: ArnsResolution;
+  got: Got;
+  timeoutMs: number;
+}): Promise<ArnsNameAssessment> {
+  const assessedAt = +(Date.now() / 1000).toFixed(0);
+  const expectedId = referenceResolution.resolvedId ?? null;
+  const expectedDataHash = referenceResolution.dataHashDigest ?? null;
+
+  if (expectedId === null) {
+    // No reference binding to verify against — neutral, not the gateway's fault.
+    return {
+      assessedAt,
+      expectedStatusCode: referenceResolution.statusCode,
+      expectedId: null,
+      resolvedId: null,
+      expectedDataHash,
+      resolvedDataHash: null,
+      protocol: 'ipfs',
+      outcome: 'neutral',
+      pass: false,
+      failureReason: 'neutral: reference resolution unavailable for IPFS name',
+    };
+  }
+
+  const timer = metrics.arnsResolutionHistogram.startTimer();
+  const { statusCode, resolvedId, bytes } = await getIpfsRawBlock({
+    url: `https://${arnsName}.${host}/?format=raw`,
+    got,
+    timeoutMs,
+  });
+  timer();
+
+  const base = {
+    assessedAt,
+    expectedStatusCode: referenceResolution.statusCode,
+    resolvedStatusCode: statusCode,
+    expectedId,
+    resolvedId,
+    expectedDataHash,
+    protocol: 'ipfs' as const,
+  };
+
+  if (bytes === null) {
+    // Not served (non-IPFS gateway 404s its Arweave path, no live provider, or a
+    // timeout). None of these prove the gateway served wrong content.
+    return {
+      ...base,
+      resolvedDataHash: null,
+      outcome: 'neutral',
+      pass: false,
+      failureReason: `neutral: gateway did not serve a raw block (status ${statusCode})`,
+    };
+  }
+
+  const resolvedDataHash = crypto
+    .createHash('sha256')
+    .update(bytes)
+    .digest('base64url');
+  const verification = await verifyBytesAgainstCid(expectedId, bytes);
+
+  if (verification === 'pass') {
+    return { ...base, resolvedDataHash, outcome: 'pass', pass: true };
+  }
+
+  if (verification === 'unsupported') {
+    // The reference CID uses a multihash we can't verify (not sha2-256) — neutral.
+    return {
+      ...base,
+      resolvedDataHash,
+      outcome: 'neutral',
+      pass: false,
+      failureReason: `neutral: CID not trustlessly verifiable (${expectedId})`,
+    };
+  }
+
+  // verification === 'fail': the bytes don't hash to the reference CID. Give the
+  // benefit of the doubt for a stale-cache / mid-epoch-repoint race ONLY when the
+  // gateway PROVES it is serving authentic content for the DIFFERENT CID it claims
+  // (bytes hash to the gateway's own resolvedId). A liar serving garbage with a
+  // bogus resolvedId fails this proof and is scored FAIL — the fail/neutral
+  // decision never depends on an unverified, attacker-controlled header.
+  if (
+    resolvedId !== null &&
+    resolvedId !== expectedId &&
+    isValidCid(resolvedId) &&
+    (await verifyBytesAgainstCid(resolvedId, bytes)) === 'pass'
+  ) {
+    return {
+      ...base,
+      resolvedDataHash,
+      outcome: 'neutral',
+      pass: false,
+      failureReason: `neutral: binding disagreement (gateway serves ${resolvedId} vs reference ${expectedId})`,
+    };
+  }
+
+  // Bytes match neither the reference CID nor the gateway's own claimed CID.
+  return {
+    ...base,
+    resolvedDataHash,
+    outcome: 'fail',
+    pass: false,
+    failureReason: `IPFS content verification failed: served bytes do not match CID ${expectedId}`,
+  };
 }
 
 // Tri-state outcome for an ArNS name assessment. NEUTRAL names (e.g. an
@@ -1993,122 +2141,6 @@ export class Observer {
     }
   }
 
-  // Trustlessly assess an IPFS-protocol ArNS name: fetch the gateway's raw block
-  // (`?format=raw`) and verify it against the CID the name resolves to (the
-  // reference binding). No reference-gateway byte trust; the CID is the proof.
-  private async assessIpfsNameTrustlessly({
-    host,
-    arnsName,
-    referenceResolution,
-  }: {
-    host: string;
-    arnsName: string;
-    referenceResolution: ArnsResolution;
-  }): Promise<ArnsNameAssessment> {
-    const assessedAt = +(Date.now() / 1000).toFixed(0);
-    const expectedId = referenceResolution.resolvedId ?? null;
-
-    // Without a reference binding (which CID the name should resolve to) there is
-    // nothing to verify against — neutral rather than blaming the gateway.
-    if (expectedId === null) {
-      return {
-        assessedAt,
-        expectedStatusCode: referenceResolution.statusCode,
-        expectedId: null,
-        resolvedId: null,
-        expectedDataHash: referenceResolution.dataHashDigest ?? null,
-        resolvedDataHash: null,
-        protocol: 'ipfs',
-        outcome: 'neutral',
-        pass: false,
-        failureReason:
-          'neutral: reference resolution unavailable for IPFS name',
-      };
-    }
-
-    const timer = metrics.arnsResolutionHistogram.startTimer();
-    const { statusCode, resolvedId, bytes } = await getIpfsRawBlock({
-      url: `https://${arnsName}.${host}/?format=raw`,
-      got: this.gotClient,
-      timeoutMs: config.IPFS_ASSESSMENT_TIMEOUT_MS,
-    });
-    timer();
-
-    const base = {
-      assessedAt,
-      expectedStatusCode: referenceResolution.statusCode,
-      resolvedStatusCode: statusCode,
-      expectedId,
-      resolvedId,
-      expectedDataHash: referenceResolution.dataHashDigest ?? null,
-      protocol: 'ipfs' as const,
-    };
-
-    // Scoring rule: FAIL only on a proven-wrong answer — the gateway agrees on
-    // the CID (its resolvedId matches the reference binding) yet serves bytes
-    // that do not hash to it. Everything else that isn't a clean PASS is NEUTRAL
-    // (excluded from the denominator): content unavailability (no live provider),
-    // timeouts, a CID we can't verify, or a binding disagreement that may just be
-    // a stale reference cache vs a mid-epoch repoint. This makes participating in
-    // IPFS never *riskier* than abstaining, and can't be griefed by availability.
-
-    if (bytes === null) {
-      // Not served: a non-IPFS gateway routes the CID to its Arweave path and
-      // 404s, or the content has no live provider network-wide, or the fetch
-      // timed out. None of these prove the gateway served wrong content.
-      return {
-        ...base,
-        resolvedDataHash: null,
-        outcome: 'neutral',
-        pass: false,
-        failureReason: `neutral: gateway did not serve a raw block (status ${statusCode})`,
-      };
-    }
-
-    const resolvedDataHash = crypto
-      .createHash('sha256')
-      .update(bytes)
-      .digest('base64url');
-    const verification = await verifyBytesAgainstCid(expectedId, bytes);
-
-    if (verification === 'pass') {
-      return { ...base, resolvedDataHash, outcome: 'pass', pass: true };
-    }
-
-    if (verification === 'unsupported') {
-      // The CID uses a multihash we can't verify (not sha2-256) — neutral.
-      return {
-        ...base,
-        resolvedDataHash,
-        outcome: 'neutral',
-        pass: false,
-        failureReason: `neutral: CID not trustlessly verifiable (${expectedId})`,
-      };
-    }
-
-    // verification === 'fail'. If the gateway resolved the name to a DIFFERENT
-    // CID than the reference, the disagreement may be a stale reference cache
-    // (5-min TTL) racing a mid-epoch ArNS repoint — not proof of wrong bytes.
-    if (resolvedId !== null && resolvedId !== expectedId) {
-      return {
-        ...base,
-        resolvedDataHash,
-        outcome: 'neutral',
-        pass: false,
-        failureReason: `neutral: binding disagreement (gateway ${resolvedId} vs reference ${expectedId})`,
-      };
-    }
-
-    // The gateway agrees on the CID but served bytes that don't hash to it.
-    return {
-      ...base,
-      resolvedDataHash,
-      outcome: 'fail',
-      pass: false,
-      failureReason: `IPFS content verification failed: served bytes do not match CID ${expectedId}`,
-    };
-  }
-
   async assessArnsName({
     host,
     arnsName,
@@ -2137,10 +2169,12 @@ export class Observer {
     // NEUTRAL; a gateway that serves wrong bytes scores FAIL. So a non-IPFS
     // gateway is never failed, and a liar serving corrupt bytes can't hide.
     if (protocol === 'ipfs') {
-      return this.assessIpfsNameTrustlessly({
+      return assessIpfsNameTrustless({
         host,
         arnsName,
         referenceResolution,
+        got: this.gotClient,
+        timeoutMs: config.IPFS_ASSESSMENT_TIMEOUT_MS,
       });
     }
 
