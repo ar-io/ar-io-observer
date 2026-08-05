@@ -2580,26 +2580,26 @@ export class Observer {
     return report;
   }
 
-  private calculateFailureRate(report: ObserverReport): number {
-    let totalAssessments = 0;
-    let failedAssessments = 0;
+  // Tally graded (non-neutral) assessments across a report. Neutral names are
+  // excluded from BOTH counts so they can't inflate the failure rate.
+  private tallyGradedAssessments(report: ObserverReport): {
+    failed: number;
+    graded: number;
+  } {
+    let graded = 0;
+    let failed = 0;
 
     Object.values(report.gatewayAssessments).forEach((gatewayAssessment) => {
-      // Count ownership assessment
-      totalAssessments++;
+      graded++; // ownership always counts
       if (!gatewayAssessment.ownershipAssessment.pass) {
-        failedAssessments++;
+        failed++;
       }
 
-      // Count prescribed + chosen name assessments, EXCLUDING neutral names from
-      // both the numerator and the denominator — otherwise a neutral name would
-      // inflate the failure rate and could change which observation is selected
-      // for the on-chain report.
       const countName = (assessment: ArnsNameAssessment) => {
         const outcome = arnsNameOutcome(assessment);
         if (outcome === 'neutral') return;
-        totalAssessments++;
-        if (outcome === 'fail') failedAssessments++;
+        graded++;
+        if (outcome === 'fail') failed++;
       };
       Object.values(gatewayAssessment.arnsAssessments.prescribedNames).forEach(
         countName,
@@ -2609,7 +2609,12 @@ export class Observer {
       );
     });
 
-    return totalAssessments > 0 ? failedAssessments / totalAssessments : 0;
+    return { failed, graded };
+  }
+
+  private calculateFailureRate(report: ObserverReport): number {
+    const { failed, graded } = this.tallyGradedAssessments(report);
+    return graded > 0 ? failed / graded : 0;
   }
 
   async generateReport(): Promise<ObserverReport> {
@@ -2657,14 +2662,26 @@ export class Observer {
       observations.push(observation);
     }
 
-    // Calculate failure rates and select the observation with the lowest rate
+    // Select the observation with the lowest failure rate. Since neutral names
+    // are excluded from the rate's denominator, two observations can have
+    // different graded-name counts — so on a tie, prefer the observation that
+    // graded MORE names (more evidence). This stops a run where many names went
+    // neutral (a spuriously low or zero rate over few graded names) from being
+    // selected over a fuller, equally-clean run.
+    const scoreOf = (report: ObserverReport) => {
+      const { failed, graded } = this.tallyGradedAssessments(report);
+      return { rate: graded > 0 ? failed / graded : 0, graded };
+    };
     let bestObservation = observations[0];
-    let lowestFailureRate = this.calculateFailureRate(observations[0]);
+    let best = scoreOf(observations[0]);
 
     for (let i = 1; i < observations.length; i++) {
-      const failureRate = this.calculateFailureRate(observations[i]);
-      if (failureRate < lowestFailureRate) {
-        lowestFailureRate = failureRate;
+      const candidate = scoreOf(observations[i]);
+      if (
+        candidate.rate < best.rate ||
+        (candidate.rate === best.rate && candidate.graded > best.graded)
+      ) {
+        best = candidate;
         bestObservation = observations[i];
       }
     }

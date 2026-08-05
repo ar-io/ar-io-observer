@@ -34,7 +34,7 @@
     "got": "^14.4.6",
     "lru-cache": "^11.2.1",
     "middleware-async": "^1.3.5",
-    "multiformats": "^13",
+    "multiformats": "^13.4.2",
     "node-cache": "^5.1.2",
     "p-map": "^7.0.3",
     "prom-client": "^15.1.3",
