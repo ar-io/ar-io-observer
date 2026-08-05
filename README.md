@@ -64,6 +64,7 @@ Relevant configuration:
 | Variable | Default | Description |
 | --- | --- | --- |
 | `IPFS_ASSESSMENT_TIMEOUT_MS` | `35000` | Request/response deadline for the `?format=raw` fetch. Set `>=` the gateway's IPFS retrieval budget so slow-but-valid cold-IPFS content isn't misclassified. |
+| `IPFS_ASSESSMENT_LOCAL_ONLY` | `false` | Holding-probe ramp. When `true`, the `?format=raw` probe sends `X-Ar-Io-Local-Only: true`, so a PASS proves the gateway **holds** the content locally (a proxy 404s → NEUTRAL, never FAIL). This is the serving→holding lever — it rewards holding without penalising a not-yet-holding gateway. Requires the gateway fleet to support local-only serve (ar-io-node IPFS peer-fetch). Flipping it on is a governance/ramp decision; ships dark. |
 | `REFERENCE_GATEWAY_HOSTS` | `turbo-gateway.com,ar-io.net` | Gateways used to resolve the name→CID binding. **Recommended:** point this at your **own** co-located gateway configured to resolve ArNS **on-demand** (from chain) — then the binding is authoritative (chain-derived) and local rather than trusting external gateways. When deployed via the ar-io-node compose this defaults to the node's `ARNS_ROOT_HOST`. |
 
 Multi-block (UnixFS/dag-pb) CIDs are verified at the **DAG root block** today; full

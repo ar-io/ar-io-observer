@@ -176,6 +176,7 @@ export class GatewayAssessor {
         referenceResolution,
         got: this.gotClient,
         timeoutMs: config.IPFS_ASSESSMENT_TIMEOUT_MS,
+        localOnly: config.IPFS_ASSESSMENT_LOCAL_ONLY,
       });
     }
 
