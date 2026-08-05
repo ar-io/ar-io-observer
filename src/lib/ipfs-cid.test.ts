@@ -18,6 +18,7 @@
 import { expect } from 'chai';
 import { CID } from 'multiformats/cid';
 import { sha256 } from 'multiformats/hashes/sha2';
+import * as Digest from 'multiformats/hashes/digest';
 import * as raw from 'multiformats/codecs/raw';
 
 import { verifyBytesAgainstCid, isValidCid } from './ipfs-cid.js';
@@ -64,6 +65,16 @@ describe('ipfs-cid', () => {
       const arweaveId = 'zt6spBgLNvJ7cMxCVPtRbEnYr7A9zZ1YxtXmefGc7lk';
       expect(
         await verifyBytesAgainstCid(arweaveId, new Uint8Array([0])),
+      ).to.equal('unsupported');
+    });
+
+    it('returns unsupported (not fail) for a sha256-coded CID with a truncated digest', async () => {
+      // A malformed multihash: sha2-256 code (0x12) but a 16-byte digest. Must be
+      // 'unsupported' -> neutral, never 'fail' against an honest gateway.
+      const badDigest = Digest.create(sha256.code, new Uint8Array(16));
+      const cid = CID.createV1(raw.code, badDigest).toString();
+      expect(
+        await verifyBytesAgainstCid(cid, new Uint8Array([1, 2, 3])),
       ).to.equal('unsupported');
     });
   });

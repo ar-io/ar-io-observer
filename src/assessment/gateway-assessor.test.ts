@@ -115,17 +115,20 @@ describe('GatewayAssessor (live path) — IPFS', function () {
     expect(r.outcome).to.equal('fail');
   });
 
-  it('NEUTRAL: binding disagreement where the gateway serves its claimed CID authentically', async function () {
-    const cidOld = await rawCidFor(Buffer.from('old'));
-    const newBytes = Buffer.from('new');
-    const cidNew = await rawCidFor(newBytes);
-    currentRef = ipfsRef(cidOld);
+  it('FAIL: bytes not matching the reference CID cannot dodge via a self-minted resolvedId', async function () {
+    // The gateway serves bytes that don't hash to the reference CID and echoes a
+    // CID minted from those bytes. That self-consistent "proof" is worthless (the
+    // gateway controls both), so it is FAIL, not neutral.
+    const cidRef = await rawCidFor(Buffer.from('old'));
+    const served = Buffer.from('attacker');
+    const cidSelf = await rawCidFor(served);
+    currentRef = ipfsRef(cidRef);
     nock(`https://${name}.${host}`)
       .get('/?format=raw')
-      .reply(200, newBytes, { ...RAW_CT, 'x-arns-resolved-id': cidNew });
+      .reply(200, served, { ...RAW_CT, 'x-arns-resolved-id': cidSelf });
 
     const r = await assessor.assessArnsName({ host, arnsName: name });
-    expect(r.outcome).to.equal('neutral');
+    expect(r.outcome).to.equal('fail');
   });
 
   it('NEUTRAL: gateway does not serve the block (404 — e.g. a non-IPFS gateway)', async function () {

@@ -31,6 +31,7 @@ import {
   generateRandomRanges,
   getArnsResolution,
   getIpfsRawBlock,
+  isIpfsAssessable,
   Observer,
 } from './observer.js';
 import { ReferenceGatewaySource } from './types.js';
@@ -64,6 +65,46 @@ function createReport(
 }
 
 describe('Observer', function () {
+  describe('isIpfsAssessable', function () {
+    const base = {
+      statusCode: 200,
+      ttlSeconds: '900',
+      contentLength: '1',
+      contentType: 'x',
+      dataHashDigest: null,
+      timings: null,
+    };
+
+    it('true only when protocol=ipfs AND resolvedId is a valid CID', async function () {
+      const cid = 'bafkreie2b7epkp5fadjerwtagfme2ukirn7nhoflpe4s43yvnoxtddw4m4';
+      expect(
+        isIpfsAssessable({ ...base, protocol: 'ipfs', resolvedId: cid }),
+      ).to.equal(true);
+    });
+
+    it('false when protocol=ipfs but resolvedId is not a CID (poisoned reference)', async function () {
+      // A poisoned reference must not flip an Arweave name onto the neutral-capable
+      // IPFS path with a non-CID resolvedId.
+      expect(
+        isIpfsAssessable({
+          ...base,
+          protocol: 'ipfs',
+          resolvedId: 'zt6spBgLNvJ7cMxCVPtRbEnYr7A9zZ1YxtXmefGc7lk',
+        }),
+      ).to.equal(false);
+    });
+
+    it('false for an arweave-protocol name', async function () {
+      expect(
+        isIpfsAssessable({
+          ...base,
+          protocol: 'arweave',
+          resolvedId: 'anything',
+        }),
+      ).to.equal(false);
+    });
+  });
+
   describe('getArnsResolution', function () {
     const url = 'https://arnsname.gateway.com';
     const invalidUrl = 'http://invalidhost.invaliddomain';
@@ -635,19 +676,20 @@ describe('Observer', function () {
         expect(result.resolvedStatusCode).to.equal(404);
       });
 
-      it('scores NEUTRAL on a binding disagreement (stale reference vs mid-epoch repoint)', async function () {
-        // Reference still points at cidOld; the gateway serves cidNew's block and
-        // reports cidNew. Bytes do not match cidOld, but the gateway agrees with
-        // ITSELF — a stale-cache binding race, not corrupt bytes. => neutral.
-        const cidOld = await rawCidFor(Buffer.from('old content'));
-        const newBytes = Buffer.from('new content');
-        const cidNew = await rawCidFor(newBytes);
-        setReferenceCid(cidOld);
+      it('FAILS when served bytes do not match the reference CID, even if the gateway self-reports a matching CID', async function () {
+        // The gateway serves bytes that do not hash to the reference CID and echoes
+        // a CID it minted from those very bytes. That "self-consistent" proof means
+        // nothing (the gateway controls both), so it must be FAIL — trusting the
+        // gateway's own resolvedId would let any garbage dodge to neutral.
+        const cidRef = await rawCidFor(Buffer.from('old content'));
+        const servedBytes = Buffer.from('attacker content');
+        const cidSelf = await rawCidFor(servedBytes);
+        setReferenceCid(cidRef);
         nock(`https://${arnsName}.${host}`)
           .get('/?format=raw')
-          .reply(200, newBytes, {
+          .reply(200, servedBytes, {
             'content-type': 'application/vnd.ipld.raw',
-            'x-arns-resolved-id': cidNew,
+            'x-arns-resolved-id': cidSelf,
           });
 
         const result = await observer.assessArnsName({
@@ -656,20 +698,7 @@ describe('Observer', function () {
           entropy,
         });
 
-        expect(result.outcome).to.equal('neutral');
-        expect(result.pass).to.equal(false);
-      });
-
-      it('scores NEUTRAL when the reference binding is unavailable', async function () {
-        setReferenceCid(null);
-        // No nock: the gateway must not be probed when there is no binding.
-        const result = await observer.assessArnsName({
-          host,
-          arnsName,
-          entropy,
-        });
-
-        expect(result.outcome).to.equal('neutral');
+        expect(result.outcome).to.equal('fail');
         expect(result.pass).to.equal(false);
       });
 

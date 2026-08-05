@@ -29,6 +29,7 @@ import {
   assessIpfsNameTrustless,
   assessOwnership,
   getArnsResolution,
+  isIpfsAssessable,
 } from '../observer.js';
 import {
   ArnsNameAssessment,
@@ -168,7 +169,7 @@ export class GatewayAssessor {
     // the Observer path so scoring can't diverge). A gateway that doesn't serve
     // the name scores NEUTRAL (excluded from the denominator); only a gateway that
     // serves provably-wrong bytes scores FAIL.
-    if (protocol === 'ipfs') {
+    if (isIpfsAssessable(referenceResolution)) {
       return assessIpfsNameTrustless({
         host,
         arnsName,

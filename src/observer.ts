@@ -477,34 +477,24 @@ export async function assessIpfsNameTrustless({
     };
   }
 
-  // verification === 'fail': the bytes don't hash to the reference CID. Give the
-  // benefit of the doubt for a stale-cache / mid-epoch-repoint race ONLY when the
-  // gateway PROVES it is serving authentic content for the DIFFERENT CID it claims
-  // (bytes hash to the gateway's own resolvedId). A liar serving garbage with a
-  // bogus resolvedId fails this proof and is scored FAIL — the fail/neutral
-  // decision never depends on an unverified, attacker-controlled header.
-  if (
-    resolvedId !== null &&
-    resolvedId !== expectedId &&
-    isValidCid(resolvedId) &&
-    (await verifyBytesAgainstCid(resolvedId, bytes)) === 'pass'
-  ) {
-    return {
-      ...base,
-      resolvedDataHash,
-      outcome: 'neutral',
-      pass: false,
-      failureReason: `neutral: binding disagreement (gateway serves ${resolvedId} vs reference ${expectedId})`,
-    };
-  }
-
-  // Bytes match neither the reference CID nor the gateway's own claimed CID.
+  // verification === 'fail': the served bytes do not hash to the reference-bound
+  // CID. This is a proven-wrong answer -> FAIL, consistent with the Arweave path
+  // (which likewise fails a gateway whose resolvedId disagrees with the reference).
+  //
+  // We deliberately do NOT excuse this based on the gateway's self-reported
+  // resolvedId: a gateway controls both the bytes AND that header, and can mint a
+  // CID from its own garbage (cid = CID(sha256(bytes))) so that the bytes "verify"
+  // against it by construction — proving nothing about the name's true binding.
+  // The only trustworthy binding is the reference (expectedId). A genuine
+  // mid-epoch repoint that races the reference cache may cause a rare, single-name
+  // false FAIL; that is bounded by the >=80% names threshold, the 3-cycle majority
+  // vote, and self-corrects next epoch — the same trade-off the Arweave path makes.
   return {
     ...base,
     resolvedDataHash,
     outcome: 'fail',
     pass: false,
-    failureReason: `IPFS content verification failed: served bytes do not match CID ${expectedId}`,
+    failureReason: `IPFS content verification failed: served bytes do not match reference CID ${expectedId}`,
   };
 }
 
@@ -517,6 +507,19 @@ export function arnsNameOutcome(
   a: ArnsNameAssessment,
 ): 'pass' | 'fail' | 'neutral' {
   return a.outcome ?? (a.pass ? 'pass' : 'fail');
+}
+
+// Whether a name should be assessed via the trustless IPFS path. Requires the
+// (trusted) reference to BOTH report protocol 'ipfs' AND resolve to a valid CID.
+// This stops a poisoned/malformed reference from flipping an Arweave name onto the
+// neutral-capable IPFS path, where a colluding gateway's deserved FAIL would be
+// converted into an excluded NEUTRAL.
+export function isIpfsAssessable(r: ArnsResolution): boolean {
+  return (
+    (r.protocol ?? 'arweave') === 'ipfs' &&
+    r.resolvedId !== null &&
+    isValidCid(r.resolvedId)
+  );
 }
 
 export async function assessOwnership({
@@ -2168,7 +2171,7 @@ export class Observer {
     // doesn't serve the name (a non-IPFS gateway 404s its Arweave path) scores
     // NEUTRAL; a gateway that serves wrong bytes scores FAIL. So a non-IPFS
     // gateway is never failed, and a liar serving corrupt bytes can't hide.
-    if (protocol === 'ipfs') {
+    if (isIpfsAssessable(referenceResolution)) {
       return assessIpfsNameTrustless({
         host,
         arnsName,

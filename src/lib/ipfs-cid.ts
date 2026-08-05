@@ -53,7 +53,14 @@ export async function verifyBytesAgainstCid(
     return 'unsupported';
   }
 
-  if (cid.multihash.code !== sha256.code) {
+  // Require a full sha2-256 multihash (code + 32-byte digest). A truncated or
+  // otherwise malformed digest is 'unsupported' (-> neutral), not 'fail', so an
+  // honest gateway serving the correct block is never failed on our inability to
+  // verify the CID.
+  if (
+    cid.multihash.code !== sha256.code ||
+    cid.multihash.digest.length !== 32
+  ) {
     return 'unsupported';
   }
 
