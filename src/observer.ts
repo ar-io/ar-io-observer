@@ -58,7 +58,11 @@ import {
   ReferenceGatewaySource,
 } from './types.js';
 
-export const REPORT_FORMAT_VERSION = 2;
+// v3: adds `protocol` and a tri-state `outcome` (pass|fail|neutral) to ArNS name
+// assessments so IPFS-protocol names can be scored neutral (excluded from the
+// names denominator) on gateways that don't yet support IPFS. On-chain
+// submission is unchanged (still a per-gateway pass/fail bitmap).
+export const REPORT_FORMAT_VERSION = 3;
 
 const NAME_PASS_THRESHOLD = 0.8;
 
@@ -141,6 +145,8 @@ export async function getArnsResolution({
         ? null
         : (response.headers['content-length'] ?? null),
     dataHashDigest: dataHashDigest ?? null,
+    protocol:
+      (response.headers['x-arns-protocol'] as string | undefined) ?? null,
     timings: response.timings,
   });
 
@@ -273,12 +279,17 @@ export async function assessOwnership({
       resp?.release === undefined || resp?.release === null
         ? undefined
         : String(resp.release);
+    // Capability signal for the IPFS adoption ramp: the gateway self-reports
+    // whether it serves IPFS via /ar-io/info (ipfs.enabled). Read here because
+    // assessOwnership already fetches /ar-io/info — no extra request.
+    const supportsIpfs = resp?.ipfs?.enabled === true;
     if (resp?.wallet) {
       if (!expectedWallets.includes(resp.wallet)) {
         const result = {
           expectedWallets,
           observedWallet: resp.wallet,
           observedRelease,
+          supportsIpfs,
           failureReason: `Wallet mismatch: expected one of ${expectedWallets.join(
             ', ',
           )} but found ${resp.wallet}`,
@@ -294,6 +305,7 @@ export async function assessOwnership({
           expectedWallets,
           observedWallet: resp.wallet,
           observedRelease,
+          supportsIpfs,
           pass: true,
         };
         metrics.ownershipAssessmentsCounter.inc({
@@ -307,6 +319,7 @@ export async function assessOwnership({
       expectedWallets,
       observedWallet: null,
       observedRelease,
+      supportsIpfs,
       failureReason: `No wallet found`,
       pass: false,
     };
@@ -1878,10 +1891,12 @@ export class Observer {
     host,
     arnsName,
     entropy,
+    supportsIpfs = false,
   }: {
     host: string;
     arnsName: string;
     entropy: Buffer;
+    supportsIpfs?: boolean;
   }): Promise<ArnsNameAssessment> {
     // TODO instantiate cache in constructor
     // Currently not possible because we only have access to epochStartHeight in generateReport
@@ -1891,6 +1906,27 @@ export class Observer {
 
     const referenceResolution =
       await this.referenceGatewayResolutionCache.get(arnsName);
+    const protocol = referenceResolution.protocol ?? 'arweave';
+
+    // Capability gate (IPFS adoption ramp): an IPFS-protocol name assessed
+    // against a gateway that does not yet advertise IPFS support is NEUTRAL, not
+    // a failure — excluded from the names denominator so it can't sink a gateway
+    // that simply hasn't enabled IPFS. Skip probing the gateway entirely.
+    if (protocol === 'ipfs' && supportsIpfs !== true) {
+      return {
+        assessedAt: +(Date.now() / 1000).toFixed(0),
+        expectedStatusCode: referenceResolution.statusCode,
+        expectedId: referenceResolution.resolvedId ?? null,
+        resolvedId: null,
+        expectedDataHash: referenceResolution.dataHashDigest ?? null,
+        resolvedDataHash: null,
+        protocol,
+        outcome: 'neutral',
+        pass: false,
+        failureReason:
+          'neutral: gateway does not advertise IPFS support (adoption ramp)',
+      };
+    }
 
     const arnsResolutionTimer = metrics.arnsResolutionHistogram.startTimer();
     const gatewayResolution = await getArnsResolution({
@@ -1927,6 +1963,8 @@ export class Observer {
       resolvedId: gatewayResolution.resolvedId ?? null,
       expectedDataHash: referenceResolution.dataHashDigest ?? null,
       resolvedDataHash: gatewayResolution.dataHashDigest ?? null,
+      protocol,
+      outcome: pass ? 'pass' : 'fail',
       failureReason,
       pass,
       timings: gatewayResolution?.timings?.phases,
@@ -1938,10 +1976,12 @@ export class Observer {
     host,
     names,
     entropy,
+    supportsIpfs = false,
   }: {
     host: string;
     names: string[];
     entropy: Buffer;
+    supportsIpfs?: boolean;
   }): Promise<ArnsNameAssessments> {
     return pMap(
       names,
@@ -1951,6 +1991,7 @@ export class Observer {
             host,
             arnsName: name,
             entropy,
+            supportsIpfs,
           });
         } catch (err) {
           const errorMessage =
@@ -1966,6 +2007,7 @@ export class Observer {
             resolvedId: null,
             expectedDataHash: null,
             resolvedDataHash: null,
+            outcome: 'fail' as const,
             failureReason: errorMessage?.slice(0, 512),
             pass: false,
           };
@@ -2103,11 +2145,13 @@ export class Observer {
                 host: host.fqdn,
                 names: prescribedNames,
                 entropy,
+                supportsIpfs: ownershipAssessment.supportsIpfs,
               }),
               this.assessArnsNames({
                 host: host.fqdn,
                 names: chosenNames,
                 entropy,
+                supportsIpfs: ownershipAssessment.supportsIpfs,
               }),
             ]),
 
@@ -2214,15 +2258,28 @@ export class Observer {
           });
         }
 
-        const nameCount = new Set([...prescribedNames, ...chosenNames]).size;
-        const namePassCount = Object.values({
+        const nameAssessmentList = Object.values({
           ...prescribedAssessments,
           ...chosenAssessments,
-        }).reduce(
-          (count, assessment) => (assessment.pass ? count + 1 : count),
-          0,
-        );
-        const namesPass = namePassCount >= nameCount * NAME_PASS_THRESHOLD;
+        });
+        // Tri-state scoring. Neutral names (e.g. an IPFS-protocol name on a
+        // gateway that does not yet advertise IPFS support) are EXCLUDED from the
+        // pass/fail denominator during the adoption ramp — they can neither pass
+        // nor fail the gateway. `outcome` falls back to pass/fail for any
+        // assessment produced before this field existed.
+        const outcomeOf = (a: (typeof nameAssessmentList)[number]) =>
+          a.outcome ?? (a.pass ? 'pass' : 'fail');
+        const namePassCount = nameAssessmentList.filter(
+          (a) => outcomeOf(a) === 'pass',
+        ).length;
+        const nameGradedCount = nameAssessmentList.filter(
+          (a) => outcomeOf(a) !== 'neutral',
+        ).length;
+        // If every sampled name was neutral there is nothing to grade — don't
+        // fail the gateway on absence of evidence.
+        const namesPass =
+          nameGradedCount === 0 ||
+          namePassCount >= nameGradedCount * NAME_PASS_THRESHOLD;
 
         // Check if offset observation enforcement should affect pass status
         const offsetPass =

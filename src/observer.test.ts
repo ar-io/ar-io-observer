@@ -24,6 +24,7 @@ import sinon from 'sinon';
 import { customHashPRNG } from './lib/prng.js';
 import * as metrics from './metrics.js';
 import {
+  assessOwnership,
   generateRandomRanges,
   getArnsResolution,
   Observer,
@@ -107,6 +108,37 @@ describe('Observer', function () {
       expect(result.contentLength).to.equal(String(data.length));
       expect(result.dataHashDigest).to.equal(expectedHash);
       expect(result.timings).to.be.a.string;
+    });
+
+    it('captures the x-arns-protocol header as protocol', async function () {
+      const data = Buffer.alloc(40, 'b').toString();
+      const headers = {
+        'Content-Type': defaultContentType,
+        'x-arns-resolved-id': 'bafyCID',
+        'x-arns-ttl-seconds': defaultArnsTtlSeconds,
+        'x-arns-protocol': 'ipfs',
+        'Content-Length': String(data.length),
+      };
+      nock(url).head('/').reply(200, undefined, headers);
+      nock(url).get('/').reply(200, data, headers);
+
+      const result = await getArnsResolution({ url, got, entropy });
+      expect(result.protocol).to.equal('ipfs');
+    });
+
+    it('defaults protocol to null when the header is absent', async function () {
+      const data = Buffer.alloc(40, 'c').toString();
+      const headers = {
+        'Content-Type': defaultContentType,
+        'x-arns-resolved-id': defaultArnsResolvedId,
+        'x-arns-ttl-seconds': defaultArnsTtlSeconds,
+        'Content-Length': String(data.length),
+      };
+      nock(url).head('/').reply(200, undefined, headers);
+      nock(url).get('/').reply(200, data, headers);
+
+      const result = await getArnsResolution({ url, got, entropy });
+      expect(result.protocol).to.equal(null);
     });
 
     it('should use range requests to hash data for responses over 1MiB', async function () {
@@ -490,6 +522,63 @@ describe('Observer', function () {
     afterEach(function () {
       sinon.restore();
       nock.cleanAll();
+    });
+
+    describe('IPFS protocol awareness (Phase 1)', function () {
+      const entropy = Buffer.from('e');
+
+      it('assessOwnership reports supportsIpfs=true from /ar-io/info', async function () {
+        nock('https://gw-ipfs.example.com')
+          .get('/ar-io/info')
+          .reply(200, { wallet: 'WALLET', ipfs: { enabled: true } });
+        const result = await assessOwnership({
+          host: 'gw-ipfs.example.com',
+          expectedWallets: ['WALLET'],
+        });
+        expect(result.pass).to.equal(true);
+        expect(result.supportsIpfs).to.equal(true);
+      });
+
+      it('assessOwnership reports supportsIpfs=false when ipfs is absent', async function () {
+        nock('https://gw-plain.example.com')
+          .get('/ar-io/info')
+          .reply(200, { wallet: 'WALLET' });
+        const result = await assessOwnership({
+          host: 'gw-plain.example.com',
+          expectedWallets: ['WALLET'],
+        });
+        expect(result.supportsIpfs).to.equal(false);
+      });
+
+      it('scores an IPFS name NEUTRAL on a gateway without IPFS support, without probing it', async function () {
+        // Reference says the name resolves via IPFS. The gateway does NOT support
+        // IPFS, so the name must be neutral — and no request should be made to the
+        // gateway (no nock is registered for it; a probe would error).
+        (observer as any).referenceGatewayResolutionCache = {
+          get: async () => ({
+            statusCode: 200,
+            resolvedId: 'bafyCID',
+            ttlSeconds: '900',
+            contentLength: '10',
+            contentType: 'image/jpeg',
+            dataHashDigest: 'h',
+            protocol: 'ipfs',
+            timings: null,
+          }),
+        };
+
+        const result = await observer.assessArnsName({
+          host: 'gw-without-ipfs.example.com',
+          arnsName: 'ipfsname',
+          entropy,
+          supportsIpfs: false,
+        });
+
+        expect(result.outcome).to.equal('neutral');
+        expect(result.protocol).to.equal('ipfs');
+        expect(result.pass).to.equal(false);
+        expect(result.resolvedId).to.equal(null);
+      });
     });
 
     describe('calculateFailureRate', function () {
