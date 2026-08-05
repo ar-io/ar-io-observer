@@ -509,17 +509,17 @@ export function arnsNameOutcome(
   return a.outcome ?? (a.pass ? 'pass' : 'fail');
 }
 
-// Whether a name should be assessed via the trustless IPFS path. Requires the
-// (trusted) reference to BOTH report protocol 'ipfs' AND resolve to a valid CID.
-// This stops a poisoned/malformed reference from flipping an Arweave name onto the
-// neutral-capable IPFS path, where a colluding gateway's deserved FAIL would be
-// converted into an excluded NEUTRAL.
+// Whether a name should be assessed via the trustless IPFS path. Derived from the
+// CONSENSUSED resolvedId: an ArNS IPFS name resolves to a CID, an Arweave name to
+// a 43-char tx id (not a valid CID). We deliberately do NOT route on the
+// x-arns-protocol header — it is not part of reference consensus (the resolver
+// groups only by resolvedId and copies protocol from one arbitrary gateway), and
+// an older pool gateway may omit it, which would wrongly flip a real IPFS name
+// onto the Arweave path and FAIL honest non-IPFS gateways during the ramp. The CID
+// form is the ground truth; it also blocks a poisoned reference from flipping an
+// Arweave name (whose non-CID id is not a valid CID) onto the neutral-capable path.
 export function isIpfsAssessable(r: ArnsResolution): boolean {
-  return (
-    (r.protocol ?? 'arweave') === 'ipfs' &&
-    r.resolvedId !== null &&
-    isValidCid(r.resolvedId)
-  );
+  return r.resolvedId !== null && isValidCid(r.resolvedId);
 }
 
 export async function assessOwnership({

@@ -75,14 +75,17 @@ describe('Observer', function () {
       timings: null,
     };
 
-    it('true only when protocol=ipfs AND resolvedId is a valid CID', async function () {
-      const cid = 'bafkreie2b7epkp5fadjerwtagfme2ukirn7nhoflpe4s43yvnoxtddw4m4';
+    const cid = 'bafkreie2b7epkp5fadjerwtagfme2ukirn7nhoflpe4s43yvnoxtddw4m4';
+
+    it('true when resolvedId is a valid CID, EVEN IF the protocol header is absent', async function () {
+      // The consensused CID is the ground truth; an older pool gateway that omits
+      // x-arns-protocol must not flip a real IPFS name off the trustless path.
       expect(
-        isIpfsAssessable({ ...base, protocol: 'ipfs', resolvedId: cid }),
+        isIpfsAssessable({ ...base, protocol: null, resolvedId: cid }),
       ).to.equal(true);
     });
 
-    it('false when protocol=ipfs but resolvedId is not a CID (poisoned reference)', async function () {
+    it('false when resolvedId is not a CID, even if protocol=ipfs (poisoned reference)', async function () {
       // A poisoned reference must not flip an Arweave name onto the neutral-capable
       // IPFS path with a non-CID resolvedId.
       expect(
@@ -94,12 +97,12 @@ describe('Observer', function () {
       ).to.equal(false);
     });
 
-    it('false for an arweave-protocol name', async function () {
+    it('false for an Arweave name (tx id is not a valid CID)', async function () {
       expect(
         isIpfsAssessable({
           ...base,
           protocol: 'arweave',
-          resolvedId: 'anything',
+          resolvedId: 'zt6spBgLNvJ7cMxCVPtRbEnYr7A9zZ1YxtXmefGc7lk',
         }),
       ).to.equal(false);
     });
