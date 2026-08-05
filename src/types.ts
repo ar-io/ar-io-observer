@@ -103,6 +103,9 @@ export interface ArnsResolution {
   contentLength: string | null;
   contentType: string | null;
   dataHashDigest: string | null;
+  // Target protocol from the x-arns-protocol header (e.g. 'arweave' | 'ipfs').
+  // Null when the gateway does not report it (treated as 'arweave').
+  protocol: string | null;
   timings: any | null;
 }
 
@@ -143,6 +146,9 @@ export interface OwnershipAssessment {
   observedRelease?: string;
   failureReason?: string;
   pass: boolean;
+  // Whether the gateway advertises IPFS support in /ar-io/info (ipfs.enabled).
+  // Used to capability-gate IPFS-protocol name assessments (adoption ramp).
+  supportsIpfs?: boolean;
 }
 
 export interface ArnsNameAssessment {
@@ -154,6 +160,10 @@ export interface ArnsNameAssessment {
   expectedDataHash: string | null;
   resolvedDataHash: string | null;
   pass: boolean;
+  // Resolved target protocol ('arweave' | 'ipfs'), and the tri-state outcome.
+  // 'neutral' names are excluded from the names pass/fail denominator.
+  protocol?: string;
+  outcome?: 'pass' | 'fail' | 'neutral';
   failureReason?: string;
   timings?: {
     wait?: number;

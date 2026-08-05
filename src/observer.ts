@@ -31,6 +31,7 @@ import {
   anchorChunkMetadata,
 } from './lib/chunk-metadata-anchor.js';
 import { customHashPRNG } from './lib/prng.js';
+import { verifyBytesAgainstCid, isValidCid } from './lib/ipfs-cid.js';
 import {
   parseTxPath,
   safeBigIntToNumber,
@@ -58,7 +59,11 @@ import {
   ReferenceGatewaySource,
 } from './types.js';
 
-export const REPORT_FORMAT_VERSION = 2;
+// v3: adds `protocol` and a tri-state `outcome` (pass|fail|neutral) to ArNS name
+// assessments so IPFS-protocol names can be scored neutral (excluded from the
+// names denominator) on gateways that don't yet support IPFS. On-chain
+// submission is unchanged (still a per-gateway pass/fail bitmap).
+export const REPORT_FORMAT_VERSION = 3;
 
 const NAME_PASS_THRESHOLD = 0.8;
 
@@ -141,6 +146,8 @@ export async function getArnsResolution({
         ? null
         : (response.headers['content-length'] ?? null),
     dataHashDigest: dataHashDigest ?? null,
+    protocol:
+      (response.headers['x-arns-protocol'] as string | undefined) ?? null,
     timings: response.timings,
   });
 
@@ -259,6 +266,262 @@ export async function getArnsResolution({
   return getHashWithinFirstMiB();
 }
 
+// A single IPFS block is bounded (~1-2 MiB by protocol); cap the read so a
+// misbehaving gateway can't stream an unbounded body into memory.
+export const MAX_IPFS_RAW_BLOCK_BYTES = 4 * 1024 * 1024; // 4 MiB
+
+/**
+ * Fetch the raw IPLD block for an ArNS name from a gateway's trustless endpoint
+ * (`?format=raw`) so it can be verified against the CID. Streams with a hard byte
+ * cap. Returns `bytes: null` when the gateway did not serve a 200 block (or it
+ * exceeded the cap); `statusCode`/`resolvedId` are surfaced for diagnostics.
+ */
+export async function getIpfsRawBlock({
+  url,
+  got,
+  timeoutMs,
+}: {
+  url: string;
+  got: Got;
+  timeoutMs: number;
+}): Promise<{
+  statusCode: number;
+  resolvedId: string | null;
+  bytes: Buffer | null;
+}> {
+  return new Promise((resolve) => {
+    const stream = got.stream.get(url, {
+      // Explicit deadlines sized for cold IPFS retrieval. BOTH request and socket
+      // are overridden: the base client's short socket-idle timeout (tuned for
+      // fast Arweave calls) would otherwise fire first and abort slow-but-valid
+      // cold-DHT retrieval. `request` also bounds a slow-drip gateway so report
+      // generation can't hang.
+      timeout: { request: timeoutMs, socket: timeoutMs },
+      headers: {
+        'Accept-Encoding': 'identity',
+        Accept: 'application/vnd.ipld.raw',
+      },
+    });
+
+    const chunks: Buffer[] = [];
+    let total = 0;
+    let statusCode = 0;
+    let resolvedId: string | null = null;
+    let settled = false;
+    const done = (v: {
+      statusCode: number;
+      resolvedId: string | null;
+      bytes: Buffer | null;
+    }) => {
+      if (!settled) {
+        settled = true;
+        resolve(v);
+      }
+    };
+
+    stream.on('response', (resp) => {
+      statusCode = resp.statusCode;
+      resolvedId =
+        (resp.headers['x-arns-resolved-id'] as string | undefined) ?? null;
+      const contentType = (
+        (resp.headers['content-type'] as string | undefined) ?? ''
+      ).toLowerCase();
+      // Only a genuine trustless raw block is verifiable. A non-200, or a 200
+      // that is NOT application/vnd.ipld.raw (an HTML error page, or a gateway
+      // that ignored ?format=raw), is treated as not-served (bytes: null ->
+      // neutral) so it can never be scored as a proven-wrong block.
+      if (
+        statusCode !== 200 ||
+        !contentType.includes('application/vnd.ipld.raw')
+      ) {
+        stream.destroy();
+        done({ statusCode, resolvedId, bytes: null });
+      }
+    });
+
+    stream.on('data', (chunk: Buffer) => {
+      total += chunk.length;
+      if (total > MAX_IPFS_RAW_BLOCK_BYTES) {
+        stream.destroy();
+        done({ statusCode, resolvedId, bytes: null });
+        return;
+      }
+      chunks.push(chunk);
+    });
+
+    stream.on('end', () => {
+      // A 200 with an empty body is not a served block — treat as not-served
+      // (neutral), consistent with "availability is never a fail".
+      done({
+        statusCode,
+        resolvedId,
+        bytes: total > 0 ? Buffer.concat(chunks) : null,
+      });
+    });
+
+    // Any error — connection refused, timeout, TLS, or a mid-body read error
+    // after a 200 — resolves as "not served" (bytes: null) rather than rejecting.
+    // The caller scores an unserved block as NEUTRAL (content unavailability is
+    // not proof the gateway misbehaved), and never leaves a pending promise.
+    stream.on('error', (error: RequestError) => {
+      const rs = error.response?.statusCode;
+      done({
+        statusCode: rs ?? statusCode,
+        resolvedId:
+          (error.response?.headers?.['x-arns-resolved-id'] as
+            | string
+            | undefined) ?? resolvedId,
+        bytes: null,
+      });
+    });
+  });
+}
+
+/**
+ * Trustlessly assess an IPFS-protocol ArNS name: fetch the gateway's raw block
+ * (`?format=raw`) and verify it against the CID the name resolves to (the
+ * reference binding). No reference-gateway byte trust; the CID is the proof.
+ * Shared by the one-shot Observer and the live ContinuousObserver/GatewayAssessor
+ * paths so their scoring can never diverge.
+ *
+ * Scoring: FAIL only on a PROVEN-WRONG answer — the gateway serves 200 bytes that
+ * hash to NEITHER the reference CID nor the CID the gateway itself claims. A clean
+ * hash-match against the reference CID is PASS. Everything else is NEUTRAL
+ * (excluded from the denominator): not-served / non-200 / timeout, a CID we can't
+ * verify, or a genuine binding disagreement the gateway PROVES (its bytes hash to
+ * the different CID it claims — a stale-cache vs mid-epoch-repoint race). So a
+ * gateway is never failed for availability, yet a liar serving garbage cannot
+ * dodge FAIL by echoing a bogus resolvedId.
+ */
+export async function assessIpfsNameTrustless({
+  host,
+  arnsName,
+  referenceResolution,
+  got,
+  timeoutMs,
+}: {
+  host: string;
+  arnsName: string;
+  referenceResolution: ArnsResolution;
+  got: Got;
+  timeoutMs: number;
+}): Promise<ArnsNameAssessment> {
+  const assessedAt = +(Date.now() / 1000).toFixed(0);
+  const expectedId = referenceResolution.resolvedId ?? null;
+  const expectedDataHash = referenceResolution.dataHashDigest ?? null;
+
+  if (expectedId === null) {
+    // No reference binding to verify against — neutral, not the gateway's fault.
+    return {
+      assessedAt,
+      expectedStatusCode: referenceResolution.statusCode,
+      expectedId: null,
+      resolvedId: null,
+      expectedDataHash,
+      resolvedDataHash: null,
+      protocol: 'ipfs',
+      outcome: 'neutral',
+      pass: false,
+      failureReason: 'neutral: reference resolution unavailable for IPFS name',
+    };
+  }
+
+  const timer = metrics.arnsResolutionHistogram.startTimer();
+  const { statusCode, resolvedId, bytes } = await getIpfsRawBlock({
+    url: `https://${arnsName}.${host}/?format=raw`,
+    got,
+    timeoutMs,
+  });
+  timer();
+
+  const base = {
+    assessedAt,
+    expectedStatusCode: referenceResolution.statusCode,
+    resolvedStatusCode: statusCode,
+    expectedId,
+    resolvedId,
+    expectedDataHash,
+    protocol: 'ipfs' as const,
+  };
+
+  if (bytes === null) {
+    // Not served (non-IPFS gateway 404s its Arweave path, no live provider, or a
+    // timeout). None of these prove the gateway served wrong content.
+    return {
+      ...base,
+      resolvedDataHash: null,
+      outcome: 'neutral',
+      pass: false,
+      failureReason: `neutral: gateway did not serve a raw block (status ${statusCode})`,
+    };
+  }
+
+  const resolvedDataHash = crypto
+    .createHash('sha256')
+    .update(bytes)
+    .digest('base64url');
+  const verification = await verifyBytesAgainstCid(expectedId, bytes);
+
+  if (verification === 'pass') {
+    return { ...base, resolvedDataHash, outcome: 'pass', pass: true };
+  }
+
+  if (verification === 'unsupported') {
+    // The reference CID uses a multihash we can't verify (not sha2-256) — neutral.
+    return {
+      ...base,
+      resolvedDataHash,
+      outcome: 'neutral',
+      pass: false,
+      failureReason: `neutral: CID not trustlessly verifiable (${expectedId})`,
+    };
+  }
+
+  // verification === 'fail': the served bytes do not hash to the reference-bound
+  // CID. This is a proven-wrong answer -> FAIL, consistent with the Arweave path
+  // (which likewise fails a gateway whose resolvedId disagrees with the reference).
+  //
+  // We deliberately do NOT excuse this based on the gateway's self-reported
+  // resolvedId: a gateway controls both the bytes AND that header, and can mint a
+  // CID from its own garbage (cid = CID(sha256(bytes))) so that the bytes "verify"
+  // against it by construction — proving nothing about the name's true binding.
+  // The only trustworthy binding is the reference (expectedId). A genuine
+  // mid-epoch repoint that races the reference cache may cause a rare, single-name
+  // false FAIL; that is bounded by the >=80% names threshold, the 3-cycle majority
+  // vote, and self-corrects next epoch — the same trade-off the Arweave path makes.
+  return {
+    ...base,
+    resolvedDataHash,
+    outcome: 'fail',
+    pass: false,
+    failureReason: `IPFS content verification failed: served bytes do not match reference CID ${expectedId}`,
+  };
+}
+
+// Tri-state outcome for an ArNS name assessment. NEUTRAL names (e.g. an
+// IPFS-protocol name on a gateway that does not yet advertise IPFS support) are
+// excluded from every pass/fail denominator — namesPass, the ArNS metrics, and
+// the failure rate that selects which observation is reported. Falls back to
+// pass/fail for assessments produced before `outcome` existed.
+export function arnsNameOutcome(
+  a: ArnsNameAssessment,
+): 'pass' | 'fail' | 'neutral' {
+  return a.outcome ?? (a.pass ? 'pass' : 'fail');
+}
+
+// Whether a name should be assessed via the trustless IPFS path. Derived from the
+// CONSENSUSED resolvedId: an ArNS IPFS name resolves to a CID, an Arweave name to
+// a 43-char tx id (not a valid CID). We deliberately do NOT route on the
+// x-arns-protocol header — it is not part of reference consensus (the resolver
+// groups only by resolvedId and copies protocol from one arbitrary gateway), and
+// an older pool gateway may omit it, which would wrongly flip a real IPFS name
+// onto the Arweave path and FAIL honest non-IPFS gateways during the ramp. The CID
+// form is the ground truth; it also blocks a poisoned reference from flipping an
+// Arweave name (whose non-CID id is not a valid CID) onto the neutral-capable path.
+export function isIpfsAssessable(r: ArnsResolution): boolean {
+  return r.resolvedId !== null && isValidCid(r.resolvedId);
+}
+
 export async function assessOwnership({
   host,
   expectedWallets,
@@ -273,12 +536,17 @@ export async function assessOwnership({
       resp?.release === undefined || resp?.release === null
         ? undefined
         : String(resp.release);
+    // Capability signal for the IPFS adoption ramp: the gateway self-reports
+    // whether it serves IPFS via /ar-io/info (ipfs.enabled). Read here because
+    // assessOwnership already fetches /ar-io/info — no extra request.
+    const supportsIpfs = resp?.ipfs?.enabled === true;
     if (resp?.wallet) {
       if (!expectedWallets.includes(resp.wallet)) {
         const result = {
           expectedWallets,
           observedWallet: resp.wallet,
           observedRelease,
+          supportsIpfs,
           failureReason: `Wallet mismatch: expected one of ${expectedWallets.join(
             ', ',
           )} but found ${resp.wallet}`,
@@ -294,6 +562,7 @@ export async function assessOwnership({
           expectedWallets,
           observedWallet: resp.wallet,
           observedRelease,
+          supportsIpfs,
           pass: true,
         };
         metrics.ownershipAssessmentsCounter.inc({
@@ -307,6 +576,7 @@ export async function assessOwnership({
       expectedWallets,
       observedWallet: null,
       observedRelease,
+      supportsIpfs,
       failureReason: `No wallet found`,
       pass: false,
     };
@@ -1891,6 +2161,25 @@ export class Observer {
 
     const referenceResolution =
       await this.referenceGatewayResolutionCache.get(arnsName);
+    const protocol = referenceResolution.protocol ?? 'arweave';
+
+    // Trustless IPFS verification (Phase 2): the resolvedId IS a content hash, so
+    // verify the served bytes against the CID directly instead of comparing a
+    // sampled digest to a reference gateway. We ALWAYS probe — capability is
+    // judged behaviorally, not on the gateway's self-reported /ar-io/info flag
+    // (which a malicious operator could flip to exempt itself). A gateway that
+    // doesn't serve the name (a non-IPFS gateway 404s its Arweave path) scores
+    // NEUTRAL; a gateway that serves wrong bytes scores FAIL. So a non-IPFS
+    // gateway is never failed, and a liar serving corrupt bytes can't hide.
+    if (isIpfsAssessable(referenceResolution)) {
+      return assessIpfsNameTrustless({
+        host,
+        arnsName,
+        referenceResolution,
+        got: this.gotClient,
+        timeoutMs: config.IPFS_ASSESSMENT_TIMEOUT_MS,
+      });
+    }
 
     const arnsResolutionTimer = metrics.arnsResolutionHistogram.startTimer();
     const gatewayResolution = await getArnsResolution({
@@ -1927,6 +2216,8 @@ export class Observer {
       resolvedId: gatewayResolution.resolvedId ?? null,
       expectedDataHash: referenceResolution.dataHashDigest ?? null,
       resolvedDataHash: gatewayResolution.dataHashDigest ?? null,
+      protocol,
+      outcome: pass ? 'pass' : 'fail',
       failureReason,
       pass,
       timings: gatewayResolution?.timings?.phases,
@@ -1966,6 +2257,7 @@ export class Observer {
             resolvedId: null,
             expectedDataHash: null,
             resolvedDataHash: null,
+            outcome: 'fail' as const,
             failureReason: errorMessage?.slice(0, 512),
             pass: false,
           };
@@ -2167,11 +2459,12 @@ export class Observer {
                 })(),
           ]);
 
-        // Track ArNS assessment metrics
+        // Track ArNS assessment metrics. Neutral names are reported under their
+        // own status so they never inflate the pass/fail counts.
         Object.values(prescribedAssessments).forEach((assessment) => {
           metrics.arnsAssessmentsCounter.inc({
             type: 'prescribed',
-            status: assessment.pass ? 'pass' : 'fail',
+            status: arnsNameOutcome(assessment),
             enforced: 'true',
           });
         });
@@ -2179,7 +2472,7 @@ export class Observer {
         Object.values(chosenAssessments).forEach((assessment) => {
           metrics.arnsAssessmentsCounter.inc({
             type: 'chosen',
-            status: assessment.pass ? 'pass' : 'fail',
+            status: arnsNameOutcome(assessment),
             enforced: 'true',
           });
         });
@@ -2214,15 +2507,26 @@ export class Observer {
           });
         }
 
-        const nameCount = new Set([...prescribedNames, ...chosenNames]).size;
-        const namePassCount = Object.values({
+        const nameAssessmentList = Object.values({
           ...prescribedAssessments,
           ...chosenAssessments,
-        }).reduce(
-          (count, assessment) => (assessment.pass ? count + 1 : count),
-          0,
-        );
-        const namesPass = namePassCount >= nameCount * NAME_PASS_THRESHOLD;
+        });
+        // Tri-state scoring. Neutral names (e.g. an IPFS-protocol name on a
+        // gateway that does not yet advertise IPFS support) are EXCLUDED from the
+        // pass/fail denominator during the adoption ramp — they can neither pass
+        // nor fail the gateway. `outcome` falls back to pass/fail for any
+        // assessment produced before this field existed.
+        const namePassCount = nameAssessmentList.filter(
+          (a) => arnsNameOutcome(a) === 'pass',
+        ).length;
+        const nameGradedCount = nameAssessmentList.filter(
+          (a) => arnsNameOutcome(a) !== 'neutral',
+        ).length;
+        // If every sampled name was neutral there is nothing to grade — don't
+        // fail the gateway on absence of evidence.
+        const namesPass =
+          nameGradedCount === 0 ||
+          namePassCount >= nameGradedCount * NAME_PASS_THRESHOLD;
 
         // Check if offset observation enforcement should affect pass status
         const offsetPass =
@@ -2276,39 +2580,41 @@ export class Observer {
     return report;
   }
 
-  private calculateFailureRate(report: ObserverReport): number {
-    let totalAssessments = 0;
-    let failedAssessments = 0;
+  // Tally graded (non-neutral) assessments across a report. Neutral names are
+  // excluded from BOTH counts so they can't inflate the failure rate.
+  private tallyGradedAssessments(report: ObserverReport): {
+    failed: number;
+    graded: number;
+  } {
+    let graded = 0;
+    let failed = 0;
 
     Object.values(report.gatewayAssessments).forEach((gatewayAssessment) => {
-      // Count ownership assessment
-      totalAssessments++;
+      graded++; // ownership always counts
       if (!gatewayAssessment.ownershipAssessment.pass) {
-        failedAssessments++;
+        failed++;
       }
 
-      // Count prescribed name assessments
+      const countName = (assessment: ArnsNameAssessment) => {
+        const outcome = arnsNameOutcome(assessment);
+        if (outcome === 'neutral') return;
+        graded++;
+        if (outcome === 'fail') failed++;
+      };
       Object.values(gatewayAssessment.arnsAssessments.prescribedNames).forEach(
-        (assessment) => {
-          totalAssessments++;
-          if (!assessment.pass) {
-            failedAssessments++;
-          }
-        },
+        countName,
       );
-
-      // Count chosen name assessments
       Object.values(gatewayAssessment.arnsAssessments.chosenNames).forEach(
-        (assessment) => {
-          totalAssessments++;
-          if (!assessment.pass) {
-            failedAssessments++;
-          }
-        },
+        countName,
       );
     });
 
-    return totalAssessments > 0 ? failedAssessments / totalAssessments : 0;
+    return { failed, graded };
+  }
+
+  private calculateFailureRate(report: ObserverReport): number {
+    const { failed, graded } = this.tallyGradedAssessments(report);
+    return graded > 0 ? failed / graded : 0;
   }
 
   async generateReport(): Promise<ObserverReport> {
@@ -2356,14 +2662,26 @@ export class Observer {
       observations.push(observation);
     }
 
-    // Calculate failure rates and select the observation with the lowest rate
+    // Select the observation with the lowest failure rate. Since neutral names
+    // are excluded from the rate's denominator, two observations can have
+    // different graded-name counts — so on a tie, prefer the observation that
+    // graded MORE names (more evidence). This stops a run where many names went
+    // neutral (a spuriously low or zero rate over few graded names) from being
+    // selected over a fuller, equally-clean run.
+    const scoreOf = (report: ObserverReport) => {
+      const { failed, graded } = this.tallyGradedAssessments(report);
+      return { rate: graded > 0 ? failed / graded : 0, graded };
+    };
     let bestObservation = observations[0];
-    let lowestFailureRate = this.calculateFailureRate(observations[0]);
+    let best = scoreOf(observations[0]);
 
     for (let i = 1; i < observations.length; i++) {
-      const failureRate = this.calculateFailureRate(observations[i]);
-      if (failureRate < lowestFailureRate) {
-        lowestFailureRate = failureRate;
+      const candidate = scoreOf(observations[i]);
+      if (
+        candidate.rate < best.rate ||
+        (candidate.rate === best.rate && candidate.graded > best.graded)
+      ) {
+        best = candidate;
         bestObservation = observations[i];
       }
     }
