@@ -217,6 +217,14 @@ export class EpochCranker {
         enablePrune: this.config.enableCleanup !== false,
         pruneBatchSize: this.config.cleanupBatchSize,
         pruneScanIntervalMs: this.config.cleanupMinIntervalMs,
+        // The other two thirds of the ArNS lease lifecycle. Previously the
+        // cranker only drained ReturnedName PDAs — a queue nothing ever filled,
+        // because `prune_name_to_returned` is what creates them and no actor
+        // called it. Expired leases therefore accumulated on-chain and stayed
+        // resolvable-but-unbuyable indefinitely. Same cleanup gate as above.
+        enablePruneToReturned: this.config.enableCleanup !== false,
+        enablePruneExpired: this.config.enableCleanup !== false,
+        pruneExpiredBatchSize: this.config.cleanupBatchSize,
       });
       action = result.action;
       if (result.action === 'idle') {
