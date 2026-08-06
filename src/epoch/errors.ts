@@ -61,6 +61,13 @@ const NOT_READY_ERRORS = new Set<number>([
   6048,
   // EpochNotCloseable (variant 51)
   6051,
+  // LeaveWindowNotExpired (variant 79) — a Leaving gateway whose leave window
+  // hasn't elapsed yet can't be finalize_gone'd. `getGoneGateways()` returns
+  // every Leaving gateway (not just expired ones), so the cleanup pass attempts
+  // them and they revert with this until their window passes — a wait-and-retry
+  // condition, NOT a real error (must not spam error logs or trip unhealthy via
+  // consecutiveRealErrors).
+  6079,
 ]);
 
 /**
