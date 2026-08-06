@@ -152,6 +152,12 @@ describe('cranker error classification', () => {
         new Error('AnchorError ... Error Number: 6038'),
         // WeightsNotTallied
         new Error('AnchorError ... Error Number: 6046'),
+        // LeaveWindowNotExpired (finalize_gone on a not-yet-expired gateway)
+        new Error('AnchorError ... Error Number: 6079'),
+        // ...same, hex form (0x17bf = 6079) as seen in simulation failures
+        new Error(
+          'Transaction simulation failed: custom program error: 0x17bf',
+        ),
       ];
       for (const e of examples) {
         expect(classifyError(e)).to.equal('not_ready');
