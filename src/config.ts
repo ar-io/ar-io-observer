@@ -300,6 +300,24 @@ function parsePositiveIntEnv(name: string, defaultValue: string): number {
   }
   return value;
 }
+// Like parsePositiveIntEnv, but returns undefined when the env var is unset so
+// callers can distinguish "operator set an explicit value" from "not set" and
+// fall back to a derived/adaptive default. Still validates when a value IS set.
+function parsePositiveIntEnvOrUndefined(name: string): number | undefined {
+  const raw = env.varOrUndefined(name);
+  if (raw === undefined) {
+    return undefined;
+  }
+  // Number() (not parseInt) so partially-numeric typos fail loudly: parseInt
+  // would silently accept '1.5'->1 and '15ms'->15, configuring e.g. a 1ms poll.
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(
+      `Invalid configuration: ${name}='${raw}' must be a positive integer.`,
+    );
+  }
+  return value;
+}
 function parseNonNegativeIntEnv(name: string, defaultValue: string): number {
   const raw = env.varOrDefault(name, defaultValue);
   // Reject anything that isn't strictly digits — Number.parseInt would silently
@@ -431,9 +449,10 @@ export const ARIO_ANT_PROGRAM_ID = env.varOrUndefined('ARIO_ANT_PROGRAM_ID');
 // Epoch cranking (opt-in — zero overhead when disabled)
 export const ENABLE_EPOCH_CRANKING =
   env.varOrDefault('ENABLE_EPOCH_CRANKING', 'false') === 'true';
-export const CRANK_POLL_INTERVAL_MS = parsePositiveIntEnv(
+// Optional: when unset, the cranker derives the poll cadence from the epoch
+// duration (see src/epoch/adaptive-intervals.ts). An explicit value always wins.
+export const CRANK_POLL_INTERVAL_MS = parsePositiveIntEnvOrUndefined(
   'CRANK_POLL_INTERVAL_MS',
-  '15000',
 );
 export const CRANK_BATCH_SIZE = parsePositiveIntEnv('CRANK_BATCH_SIZE', '15');
 export const CRANK_CLOSE_EPOCHS =
@@ -469,9 +488,10 @@ export const CLEANUP_FAILURE_THRESHOLD = parsePositiveIntEnv(
   'CLEANUP_FAILURE_THRESHOLD',
   '30',
 );
-export const CLEANUP_MIN_INTERVAL_MS = parsePositiveIntEnv(
+// Optional: when unset, the cranker derives the cleanup cadence from the epoch
+// duration (see src/epoch/adaptive-intervals.ts). An explicit value always wins.
+export const CLEANUP_MIN_INTERVAL_MS = parsePositiveIntEnvOrUndefined(
   'CLEANUP_MIN_INTERVAL_MS',
-  '300000',
 );
 export const ALT_RECLAIM_SCAN_LIMIT = parseNonNegativeIntEnv(
   'ALT_RECLAIM_SCAN_LIMIT',

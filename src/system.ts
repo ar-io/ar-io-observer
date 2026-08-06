@@ -346,6 +346,11 @@ const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
     }
     const { EpochCranker } = await import('./epoch/epoch-cranker.js');
     const {
+      deriveCrankIntervals,
+      FALLBACK_POLL_INTERVAL_MS,
+      FALLBACK_CLEANUP_MIN_INTERVAL_MS,
+    } = await import('./epoch/adaptive-intervals.js');
+    const {
       getEpochSettingsPDA,
       getArnsRegistryPDA,
       deserializeEpochSettingsFull,
@@ -354,11 +359,55 @@ const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
     const [nameRegistryPda] = await getArnsRegistryPDA(
       config.ARIO_ARNS_PROGRAM_ID as any,
     );
+
+    // Hoisted so the same reader both derives the adaptive intervals up front
+    // and drives the cranker's per-cycle reads.
+    const getEpochSettings = async () => {
+      const [pda] = await getEpochSettingsPDA(
+        config.ARIO_GAR_PROGRAM_ID as any,
+      );
+
+      const account = await fetchEncodedAccount(solanaRpc as any, pda, {
+        commitment: 'confirmed',
+      });
+      if (!account.exists) throw new Error('EpochSettings not found');
+      const data = deserializeEpochSettingsFull(Buffer.from(account.data));
+      return {
+        currentEpochIndex: data.currentEpochIndex as number,
+        genesisTimestamp: data.genesisTimestamp as number,
+        epochDuration: data.epochDuration as number,
+        enabled: (data.enabled as boolean) ?? true,
+      };
+    };
+
+    // Size poll + cleanup cadence to the epoch duration unless the operator set
+    // explicit values. One read at startup; a restart re-derives if the network
+    // ever changes epoch length. Fall back to static defaults on a read error.
+    let derived = {
+      pollIntervalMs: FALLBACK_POLL_INTERVAL_MS,
+      cleanupMinIntervalMs: FALLBACK_CLEANUP_MIN_INTERVAL_MS,
+    };
+    let intervalSource = 'derived';
+    try {
+      const { epochDuration } = await getEpochSettings();
+      derived = deriveCrankIntervals(epochDuration);
+    } catch (err) {
+      intervalSource = 'fallback';
+      log.warn(
+        'Could not read epoch duration to derive cranker intervals; using static defaults',
+        { error: err instanceof Error ? err.message : String(err) },
+      );
+    }
+    const pollIntervalMs =
+      config.CRANK_POLL_INTERVAL_MS ?? derived.pollIntervalMs;
+    const cleanupMinIntervalMs =
+      config.CLEANUP_MIN_INTERVAL_MS ?? derived.cleanupMinIntervalMs;
+
     const cranker = new EpochCranker({
       contract: networkContract,
       rpc: solanaRpc,
       signer: solanaSigner,
-      pollIntervalMs: config.CRANK_POLL_INTERVAL_MS,
+      pollIntervalMs,
       batchSize: config.CRANK_BATCH_SIZE,
       closeEpochs: config.CRANK_CLOSE_EPOCHS,
       epochRetention: config.CRANK_EPOCH_RETENTION,
@@ -369,30 +418,23 @@ const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
       maxCleanupTxsPerCycle: config.MAX_CLEANUP_TXS_PER_CYCLE,
       cleanupFailureThreshold: config.CLEANUP_FAILURE_THRESHOLD,
       altReclaimScanLimit: config.ALT_RECLAIM_SCAN_LIMIT,
-      cleanupMinIntervalMs: config.CLEANUP_MIN_INTERVAL_MS,
+      cleanupMinIntervalMs,
       log,
       nameRegistryAccount: nameRegistryPda,
-      getEpochSettings: async () => {
-        const [pda] = await getEpochSettingsPDA(
-          config.ARIO_GAR_PROGRAM_ID as any,
-        );
-
-        const account = await fetchEncodedAccount(solanaRpc as any, pda, {
-          commitment: 'confirmed',
-        });
-        if (!account.exists) throw new Error('EpochSettings not found');
-        const data = deserializeEpochSettingsFull(Buffer.from(account.data));
-        return {
-          currentEpochIndex: data.currentEpochIndex as number,
-          genesisTimestamp: data.genesisTimestamp as number,
-          epochDuration: data.epochDuration as number,
-          enabled: (data.enabled as boolean) ?? true,
-        };
-      },
+      getEpochSettings,
     });
     cranker.start();
     log.verbose('Epoch cranking enabled', {
-      pollIntervalMs: config.CRANK_POLL_INTERVAL_MS,
+      pollIntervalMs,
+      pollIntervalSource:
+        config.CRANK_POLL_INTERVAL_MS !== undefined
+          ? 'override'
+          : intervalSource,
+      cleanupMinIntervalMs,
+      cleanupMinIntervalSource:
+        config.CLEANUP_MIN_INTERVAL_MS !== undefined
+          ? 'override'
+          : intervalSource,
       batchSize: config.CRANK_BATCH_SIZE,
       epochRetention: config.CRANK_EPOCH_RETENTION,
       enableCleanup: config.ENABLE_CLEANUP,
