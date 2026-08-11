@@ -488,6 +488,18 @@ export const CLEANUP_FAILURE_THRESHOLD = parsePositiveIntEnv(
   'CLEANUP_FAILURE_THRESHOLD',
   '30',
 );
+// `prune_name_to_returned` takes a single record, so it cannot batch into one
+// tx the way the other two prune steps do — its throughput is (txs per scan) x
+// (scan rate). It is also the only deadline-bound step: a lease not converted
+// while inside its auction window ages into the past-auction band and is closed
+// directly, losing the protocol that Dutch auction permanently. Left at one per
+// scan it capped at ~48 names/day on a 24h epoch, the same order as the rate
+// leases fall past grace — so a backlog could never drain. Default 10 keeps
+// ~10x headroom while staying well inside MAX_CLEANUP_TXS_PER_CYCLE.
+export const CLEANUP_TO_RETURNED_TXS_PER_CYCLE = parsePositiveIntEnv(
+  'CLEANUP_TO_RETURNED_TXS_PER_CYCLE',
+  '10',
+);
 // Optional: when unset, the cranker derives the cleanup cadence from the epoch
 // duration (see src/epoch/adaptive-intervals.ts). An explicit value always wins.
 export const CLEANUP_MIN_INTERVAL_MS = parsePositiveIntEnvOrUndefined(
