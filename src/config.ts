@@ -91,15 +91,29 @@ export const REFERENCE_GATEWAY_HOSTS: string[] = (() => {
   return DEFAULT_REFERENCE_GATEWAYS;
 })();
 
-export const OBSERVED_GATEWAY_HOSTS = env
-  .varOrDefault('OBSERVED_GATEWAY_HOSTS', args.observedGatewayHosts ?? '')
-  .split(',')
-  .filter((h) => h.length > 0);
+/**
+ * Split a comma-separated env var into trimmed, non-empty entries.
+ *
+ * Trimming is the point: `a.com, b.com` is the natural way to write a list,
+ * but an untrimmed split yields `' b.com'`, which matches no gateway or name.
+ * That fails silently — the entry is simply never found — so it narrows the
+ * observation set rather than erroring. `REFERENCE_GATEWAY_HOSTS` already
+ * trims; this shares that behavior with the other list-valued settings.
+ */
+export function parseCommaSeparatedList(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
 
-export const ARNS_NAMES = env
-  .varOrDefault('ARNS_NAMES', args.arnsNames ?? '')
-  .split(',')
-  .filter((h) => h.length > 0);
+export const OBSERVED_GATEWAY_HOSTS = parseCommaSeparatedList(
+  env.varOrDefault('OBSERVED_GATEWAY_HOSTS', args.observedGatewayHosts ?? ''),
+);
+
+export const ARNS_NAMES = parseCommaSeparatedList(
+  env.varOrDefault('ARNS_NAMES', args.arnsNames ?? ''),
+);
 
 // Whitepaper v3.0.0 §10.3: "eight (8) 'chosen names' selected
 // independently by each observer". The default lived at `1` since the
