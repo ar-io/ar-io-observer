@@ -227,15 +227,19 @@ export class SolanaContractReportSink implements ReportSink {
           },
         );
 
-        if ((await this.shouldRetry(epochIndex, attempt)) === false) {
-          return reportInfo;
-        }
-
         await delay(
           this.retryBackoffMs[
             Math.min(attempt - 1, this.retryBackoffMs.length - 1)
           ],
         );
+
+        // Re-read AFTER the backoff, not before: the observation window can
+        // close during the 1s/3s pause, and submitting past
+        // `epoch.end_timestamp` is a terminal revert. Checking first would
+        // clear a stale "open" verdict and spend the next attempt anyway.
+        if ((await this.shouldRetry(epochIndex, attempt)) === false) {
+          return reportInfo;
+        }
       }
     }
 

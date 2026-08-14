@@ -36,10 +36,21 @@ if (args.saveReport) {
     console.error(
       `Persistence incomplete — these sinks failed: ${persisted.failedSinks.join(', ')}`,
     );
+    console.error(
+      'Skipping submission: refusing to land an on-chain observation without a ' +
+        'complete local record. Mirrors ContinuousObserver, which treats a failed ' +
+        'persistence sink as "not submitted".',
+    );
+    // `process.exitCode` records the failure but does NOT halt execution, so
+    // the submission below must be gated explicitly or a one-shot run would
+    // submit on-chain despite the incomplete persistence.
     process.exitCode = 1;
   }
 
-  if (submissionReportSink !== undefined) {
+  if (
+    submissionReportSink !== undefined &&
+    persisted.failedSinks === undefined
+  ) {
     let proceed = true;
     if (submissionGate !== undefined) {
       try {

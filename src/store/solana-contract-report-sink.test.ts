@@ -522,6 +522,44 @@ describe('SolanaContractReportSink', () => {
       expect(result.interactionTxIds).to.equal(undefined);
     });
 
+    it('stops when the window closes DURING the retry backoff', async () => {
+      // Regression guard for the re-read ordering. The pre-flight read happens
+      // immediately and sees an open window; the window then closes 25ms later,
+      // inside the 50ms backoff. Only a re-read placed AFTER the delay observes
+      // that. Checking before the pause would carry a stale "open" verdict into
+      // attempt 2 and submit past epoch.end_timestamp for a terminal revert.
+      const closesAtMs = Date.now() + 25;
+      const statusStub = sinon
+        .stub()
+        .callsFake(async () =>
+          Date.now() >= closesAtMs
+            ? openStatus({ windowOpen: false })
+            : openStatus(),
+        );
+      const readable = {
+        getEpochObservationStatus: statusStub,
+      } as any as SolanaARIOReadable;
+      const { contract, saveStub } = makeSequencedWriteable([
+        blockhashExpiredError(),
+        'SIG_TOO_LATE',
+      ]);
+      const sink = new SolanaContractReportSink({
+        log: makeLog(),
+        contract,
+        readable,
+        observerAddress: OBSERVER_PUBKEY,
+        maxSubmitAttempts: 3,
+        retryBackoffMs: [50],
+      });
+
+      const result = await sink.saveReport(
+        makeReportInfo(makeReport({ epochIndex: 512 }), REPORT_TX_ID),
+      );
+
+      expect(saveStub.callCount).to.equal(1);
+      expect(result.interactionTxIds).to.equal(undefined);
+    });
+
     it('retries anyway when the pre-retry re-read fails', async () => {
       const readable = makeSequencedReadable([
         openStatus(),
