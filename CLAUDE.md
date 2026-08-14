@@ -154,9 +154,30 @@ Flow:
 - After the parent epoch is fully distributed, the cranker's
   `close_observation` loop reclaims the Observation PDA's rent.
 
+**Transient-failure retry.** A blockhash lives ~150 slots (~60s). If
+the transaction does not land inside that window, `sendAndConfirm`
+rejects a valid instruction. The sink retries up to
+`maxSubmitAttempts` (default 3) with the backoff in `retryBackoffMs`
+(default 1s, 3s). `src/store/solana-tx-errors.ts` classifies the
+error: only transient send/confirm failures retry, and a program
+revert throws on the first attempt. Between attempts the sink re-reads
+`getEpochObservationStatus` — it stops if the observation landed after
+all, or if the window closed while retrying. An `already in use`
+revert from the `init`-constrained Observation PDA counts as a
+completed submission, not a failure.
+
+**Sink-failure propagation.** `PipelineReportSink` logs a sink error
+and continues to the next sink, so its result can carry a `reportTxId`
+from Turbo while the contract sink failed. It now names the failures in
+`ReportInfo.failedSinks`. `ContinuousObserver` treats a non-empty
+`failedSinks` as "not submitted" and retries next cycle; without that
+check a failed `save_observations` was logged as `Report submitted` and
+the epoch reward was lost.
+
 Unit tests: `src/store/solana-contract-report-sink.test.ts` covers the
 happy path + all three skip gates + missing-reportTxId guard + error
-propagation (9 tests).
+propagation + the retry loop (16 tests).
+`src/store/solana-tx-errors.test.ts` covers the classifiers (10 tests).
 
 ## Compression Settings
 

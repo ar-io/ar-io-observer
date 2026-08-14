@@ -1242,6 +1242,51 @@ describe('ContinuousObserver Integration', function () {
       expect(submission.saveReport.called).to.be.false;
     });
 
+    it('submission sink failed → returns false even though Turbo produced a txid', async function () {
+      // The epoch 512 miss: TurboReportSink uploaded, then
+      // SolanaContractReportSink threw. PipelineReportSink logs that and
+      // continues, so the result still carries a reportTxId. Reading
+      // only the txid marks the epoch done and drops the reward.
+      const persistence = persistenceSinkStub();
+      const submission = {
+        saveReport: sinon.stub().callsFake(async (info: any) => ({
+          ...info,
+          reportTxId: 'arweave-mock-tx',
+          failedSinks: ['SolanaContractReportSink'],
+        })),
+      };
+      const observer = newObserver({
+        persistenceSink: persistence,
+        submissionSink: submission,
+        submissionGate: sinon.stub().resolves({ proceed: true }),
+      });
+
+      const submitted = await (observer as any).finalizeAndSubmitReport();
+
+      expect(submitted).to.equal(false);
+      expect(submission.saveReport.calledOnce).to.be.true;
+    });
+
+    it('persistence sink failed → returns false before submission runs', async function () {
+      const persistence = {
+        saveReport: sinon.stub().callsFake(async (info: any) => ({
+          ...info,
+          failedSinks: ['FsReportStore'],
+        })),
+      };
+      const submission = submissionSinkStub();
+      const observer = newObserver({
+        persistenceSink: persistence,
+        submissionSink: submission,
+        submissionGate: sinon.stub().resolves({ proceed: true }),
+      });
+
+      const submitted = await (observer as any).finalizeAndSubmitReport();
+
+      expect(submitted).to.equal(false);
+      expect(submission.saveReport.called).to.be.false;
+    });
+
     it('no submission pipeline wired → persistence runs, returns true (terminal)', async function () {
       // Dev / dry-run setup with no Turbo + no contract submission.
       const persistence = persistenceSinkStub();

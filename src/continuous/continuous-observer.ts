@@ -681,6 +681,9 @@ export class ContinuousObserver {
    *   - false:  Submission pipeline ran but no `reportTxId` came back
    *             (a downstream gate dropped it — e.g. failure-rate
    *             threshold). Retry next cycle.
+   *   - false:  A sink inside either pipeline threw. The pipeline logs
+   *             and continues, so this is read from `failedSinks`.
+   *             Retry next cycle.
    *   - false:  Submission pipeline threw. Retry next cycle.
    *   - false:  Gate threw (RPC indeterminate). Retry next cycle.
    */
@@ -707,6 +710,18 @@ export class ContinuousObserver {
       this.log.error('Persistence pipeline failed; will retry next cycle', {
         epochIndex: report.epochIndex,
         error: error.message,
+      });
+      return false;
+    }
+
+    // PipelineReportSink swallows per-sink errors so one bad sink can't
+    // block the rest. It reports them in `failedSinks`, which must be
+    // checked — otherwise a failed FsReportStore looks like success and
+    // a restart finds no local state to restore.
+    if (persisted.failedSinks !== undefined) {
+      this.log.error('Persistence sink failed; will retry next cycle', {
+        epochIndex: report.epochIndex,
+        failedSinks: persisted.failedSinks,
       });
       return false;
     }
@@ -748,6 +763,18 @@ export class ContinuousObserver {
     // ----- Submission pipeline runs -----
     try {
       const result = await this.submissionSink.saveReport(persisted);
+      // A Turbo upload followed by a failed `save_observations` returns
+      // a `reportTxId` and no on-chain record. Checking only the txid
+      // reads that as success and burns the rest of the epoch. Retry
+      // instead — the observation window usually has hours left.
+      if (result.failedSinks !== undefined) {
+        this.log.error('Submission sink failed; will retry next cycle', {
+          epochIndex: report.epochIndex,
+          failedSinks: result.failedSinks,
+          reportTxId: result.reportTxId,
+        });
+        return false;
+      }
       if (result.reportTxId === undefined) {
         // The submission pipeline dropped the report (e.g. the 80%
         // failure-rate safety inside PipelineReportSink, or a Turbo
