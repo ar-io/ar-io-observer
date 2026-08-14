@@ -119,6 +119,68 @@ function makeWriteable(opts: { txId?: string; throws?: Error }): {
   };
 }
 
+type ObservationStatus = Awaited<
+  ReturnType<SolanaARIOReadable['getEpochObservationStatus']>
+>;
+
+/** The pre-flight status of a prescribed observer with work to do. */
+function openStatus(overrides: Partial<ObservationStatus> = {}) {
+  return {
+    prescribed: true,
+    observerIdx: 40,
+    alreadyObserved: false,
+    windowOpen: true,
+    endTimestampSec: Math.floor(Date.now() / 1000) + 3600,
+    ...overrides,
+  } as ObservationStatus;
+}
+
+/**
+ * A readable whose successive calls return successive statuses. The
+ * retry loop re-reads epoch state between attempts, so the first entry
+ * serves the pre-flight gate and later entries serve the retries.
+ */
+function makeSequencedReadable(
+  statuses: (ObservationStatus | Error)[],
+): SolanaARIOReadable {
+  const stub = sinon.stub();
+  statuses.forEach((status, i) => {
+    if (status instanceof Error) {
+      stub.onCall(i).rejects(status);
+    } else {
+      stub.onCall(i).resolves(status);
+    }
+  });
+  stub.resolves(statuses[statuses.length - 1]);
+  return { getEpochObservationStatus: stub } as any;
+}
+
+/** The @solana/kit error seen when a blockhash expires before commit. */
+function blockhashExpiredError(): Error {
+  const err: any = new Error(
+    'The network has progressed past the last block for which this transaction could have been committed.',
+  );
+  err.name = 'SolanaError';
+  err.context = { __code: 1 };
+  return err;
+}
+
+/** A writeable whose saveObservations follows a scripted sequence. */
+function makeSequencedWriteable(outcomes: (string | Error)[]): {
+  contract: SolanaARIOWriteable;
+  saveStub: sinon.SinonStub;
+} {
+  const saveStub = sinon.stub();
+  outcomes.forEach((outcome, i) => {
+    if (outcome instanceof Error) {
+      saveStub.onCall(i).rejects(outcome);
+    } else {
+      saveStub.onCall(i).resolves({ id: outcome });
+    }
+  });
+  return { contract: { saveObservations: saveStub } as any, saveStub };
+}
+
 // ---------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------
@@ -341,6 +403,157 @@ describe('SolanaContractReportSink', () => {
         expect(e.message).to.match(/Transaction simulation failed/);
       }
       expect(threw).to.equal(true);
+    });
+  });
+
+  describe('transient submission retry', () => {
+    /** Build a sink with retries and no backoff, for fast tests. */
+    function makeRetrySink(
+      readable: SolanaARIOReadable,
+      contract: SolanaARIOWriteable,
+      maxSubmitAttempts = 3,
+    ) {
+      return new SolanaContractReportSink({
+        log: makeLog(),
+        contract,
+        readable,
+        observerAddress: OBSERVER_PUBKEY,
+        maxSubmitAttempts,
+        retryBackoffMs: [0, 0],
+      });
+    }
+
+    it('retries a blockhash expiry and reports the signature that lands', async () => {
+      const readable = makeSequencedReadable([openStatus(), openStatus()]);
+      const { contract, saveStub } = makeSequencedWriteable([
+        blockhashExpiredError(),
+        'SIG_SECOND_TRY',
+      ]);
+      const sink = makeRetrySink(readable, contract);
+
+      const result = await sink.saveReport(
+        makeReportInfo(makeReport({ epochIndex: 512 }), REPORT_TX_ID),
+      );
+
+      expect(saveStub.callCount).to.equal(2);
+      expect(result.interactionTxIds).to.deep.equal(['SIG_SECOND_TRY']);
+    });
+
+    it('gives up after the attempt limit and rethrows', async () => {
+      const readable = makeSequencedReadable([openStatus()]);
+      const { contract, saveStub } = makeSequencedWriteable([
+        blockhashExpiredError(),
+        blockhashExpiredError(),
+        blockhashExpiredError(),
+      ]);
+      const sink = makeRetrySink(readable, contract, 3);
+
+      let threw = false;
+      try {
+        await sink.saveReport(
+          makeReportInfo(makeReport({ epochIndex: 512 }), REPORT_TX_ID),
+        );
+      } catch (e: any) {
+        threw = true;
+        expect(e.message).to.match(/network has progressed past/);
+      }
+      expect(threw).to.equal(true);
+      expect(saveStub.callCount).to.equal(3);
+    });
+
+    it('does not retry a program revert', async () => {
+      const readable = makeSequencedReadable([openStatus()]);
+      const { contract, saveStub } = makeSequencedWriteable([
+        new Error(
+          'Transaction simulation failed: custom program error: 0x1771',
+        ),
+        'SIG_NEVER_REACHED',
+      ]);
+      const sink = makeRetrySink(readable, contract);
+
+      let threw = false;
+      try {
+        await sink.saveReport(
+          makeReportInfo(makeReport({ epochIndex: 512 }), REPORT_TX_ID),
+        );
+      } catch {
+        threw = true;
+      }
+      expect(threw).to.equal(true);
+      expect(saveStub.callCount).to.equal(1);
+    });
+
+    it('stops when the re-read shows the observation already landed', async () => {
+      const readable = makeSequencedReadable([
+        openStatus(),
+        openStatus({ alreadyObserved: true }),
+      ]);
+      const { contract, saveStub } = makeSequencedWriteable([
+        blockhashExpiredError(),
+        'SIG_DOUBLE_SUBMIT',
+      ]);
+      const sink = makeRetrySink(readable, contract);
+
+      const result = await sink.saveReport(
+        makeReportInfo(makeReport({ epochIndex: 512 }), REPORT_TX_ID),
+      );
+
+      // No second submission, and no throw: the work is done on chain.
+      expect(saveStub.callCount).to.equal(1);
+      expect(result.interactionTxIds).to.equal(undefined);
+    });
+
+    it('stops when the window closes while retrying', async () => {
+      const readable = makeSequencedReadable([
+        openStatus(),
+        openStatus({ windowOpen: false }),
+      ]);
+      const { contract, saveStub } = makeSequencedWriteable([
+        blockhashExpiredError(),
+        'SIG_TOO_LATE',
+      ]);
+      const sink = makeRetrySink(readable, contract);
+
+      const result = await sink.saveReport(
+        makeReportInfo(makeReport({ epochIndex: 512 }), REPORT_TX_ID),
+      );
+
+      expect(saveStub.callCount).to.equal(1);
+      expect(result.interactionTxIds).to.equal(undefined);
+    });
+
+    it('retries anyway when the pre-retry re-read fails', async () => {
+      const readable = makeSequencedReadable([
+        openStatus(),
+        new Error('RPC 503'),
+      ]);
+      const { contract, saveStub } = makeSequencedWriteable([
+        blockhashExpiredError(),
+        'SIG_AFTER_BLIND_RETRY',
+      ]);
+      const sink = makeRetrySink(readable, contract);
+
+      const result = await sink.saveReport(
+        makeReportInfo(makeReport({ epochIndex: 512 }), REPORT_TX_ID),
+      );
+
+      expect(saveStub.callCount).to.equal(2);
+      expect(result.interactionTxIds).to.deep.equal(['SIG_AFTER_BLIND_RETRY']);
+    });
+
+    it('treats an already-in-use revert as a completed submission', async () => {
+      const readable = makeSequencedReadable([openStatus()]);
+      const { contract, saveStub } = makeSequencedWriteable([
+        new Error('Allocate: account Address { address: 7fxz } already in use'),
+      ]);
+      const sink = makeRetrySink(readable, contract);
+
+      const result = await sink.saveReport(
+        makeReportInfo(makeReport({ epochIndex: 512 }), REPORT_TX_ID),
+      );
+
+      expect(saveStub.callCount).to.equal(1);
+      expect(result.interactionTxIds).to.equal(undefined);
     });
   });
 });
