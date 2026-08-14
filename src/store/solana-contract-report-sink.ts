@@ -24,11 +24,56 @@
  * needed from the observer side.
  */
 import type { Address } from '@solana/kit';
+import {
+  SOLANA_ERROR__BLOCK_HEIGHT_EXCEEDED,
+  SOLANA_ERROR__JSON_RPC__SERVER_ERROR_NODE_UNHEALTHY,
+  SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
+  SOLANA_ERROR__TRANSACTION_ERROR__BLOCKHASH_NOT_FOUND,
+  isSolanaError,
+} from '@solana/errors';
 import type { SolanaARIOReadable, SolanaARIOWriteable } from '@ar.io/sdk';
 import type winston from 'winston';
 
 import type { ObserverReport, ReportInfo, ReportSink } from '../types.js';
 import { getFailedGatewaySummaryFromReport } from './failed-gateway-summary.js';
+
+/** Total `save_observations` attempts before giving up on an epoch. */
+const MAX_SUBMIT_ATTEMPTS = 3;
+/** Linear backoff base between attempts. */
+const RETRY_BACKOFF_MS = 1_000;
+
+/**
+ * Send failures that say "this transaction did not commit under that
+ * blockhash" — re-sending with a fresh one is the correct response. A
+ * deterministic program error (not prescribed, window closed, already
+ * observed) is NOT in this set: retrying those only burns fees.
+ *
+ * Retrying is safe even if a prior attempt did land after all, because the
+ * Observation PDA is `init`-constrained: a duplicate lands as an on-chain
+ * rejection rather than a second observation. The `alreadyObserved` re-check
+ * between attempts catches that case first and exits cleanly.
+ */
+const RETRYABLE_SOLANA_ERROR_CODES = [
+  SOLANA_ERROR__BLOCK_HEIGHT_EXCEEDED,
+  SOLANA_ERROR__TRANSACTION_ERROR__BLOCKHASH_NOT_FOUND,
+  SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
+  SOLANA_ERROR__JSON_RPC__SERVER_ERROR_NODE_UNHEALTHY,
+] as const;
+
+/**
+ * True when `err` (or anything in its `cause` chain — kit nests the original
+ * failure under the confirmation error) is one of the transient send failures.
+ */
+export function isRetryableSendError(err: unknown, depth = 0): boolean {
+  if (err === null || err === undefined || depth > 10) return false;
+  for (const code of RETRYABLE_SOLANA_ERROR_CODES) {
+    if (isSolanaError(err, code)) return true;
+  }
+  return isRetryableSendError((err as { cause?: unknown }).cause, depth + 1);
+}
+
+const delay = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export interface SolanaContractReportSinkConfig {
   log: winston.Logger;
@@ -151,20 +196,83 @@ export class SolanaContractReportSink implements ReportSink {
       reportTxId,
     });
 
-    let interactionTxId: string;
-    try {
-      const { id } = await this.contract.saveObservations({
-        reportTxId,
-        failedGateways,
-        epochIndex,
-      });
-      interactionTxId = id;
-    } catch (err: any) {
-      this.log.error('save_observations transaction failed', {
-        epochIndex,
-        message: err.message,
-      });
-      throw err;
+    // A blockhash is only valid ~60s from issue, so a slow RPC can expire the
+    // transaction before it lands — losing the epoch's observation AND its
+    // reward even though the report uploaded and the window was open. Retry the
+    // transient cases with a fresh blockhash (the SDK takes a new one per call).
+    let interactionTxId: string | undefined;
+    for (let attempt = 1; attempt <= MAX_SUBMIT_ATTEMPTS; attempt++) {
+      try {
+        const { id } = await this.contract.saveObservations({
+          reportTxId,
+          failedGateways,
+          epochIndex,
+        });
+        interactionTxId = id;
+        break;
+      } catch (err: any) {
+        const retryable = isRetryableSendError(err);
+        if (!retryable || attempt === MAX_SUBMIT_ATTEMPTS) {
+          this.log.error('save_observations transaction failed', {
+            epochIndex,
+            attempt,
+            retryable,
+            message: err.message,
+          });
+          throw err;
+        }
+
+        this.log.warn(
+          'save_observations hit a transient send error — retrying with a fresh blockhash',
+          {
+            epochIndex,
+            observer: this.observerAddress,
+            attempt,
+            maxAttempts: MAX_SUBMIT_ATTEMPTS,
+            message: err.message,
+          },
+        );
+
+        await delay(RETRY_BACKOFF_MS * attempt);
+
+        // Re-read epoch state before spending another transaction. Two cases
+        // matter: the previous attempt may have landed after we gave up on it
+        // (then we're done — the PDA exists and a retry would just be rejected),
+        // or the observation window may have closed while we backed off (then no
+        // retry can succeed). A failure to READ state is not itself a reason to
+        // abandon the retry, so that case falls through to the next attempt.
+        try {
+          const recheck = await this.readable.getEpochObservationStatus(
+            epochIndex,
+            this.observerAddress,
+          );
+          if (recheck.alreadyObserved) {
+            this.log.info(
+              'save_observations actually landed despite the send error — nothing to retry',
+              { epochIndex, observer: this.observerAddress, attempt },
+            );
+            return reportInfo;
+          }
+          if (!recheck.windowOpen) {
+            this.log.warn(
+              'Observation window closed while retrying — abandoning epoch',
+              { epochIndex, observer: this.observerAddress, attempt },
+            );
+            throw err;
+          }
+        } catch (recheckErr: any) {
+          if (recheckErr === err) throw err;
+          this.log.warn(
+            'Could not re-read epoch state between retries — retrying anyway',
+            { epochIndex, attempt, message: recheckErr.message },
+          );
+        }
+      }
+    }
+
+    /* c8 ignore next 3 -- the loop either sets an id, returns, or throws */
+    if (interactionTxId === undefined) {
+      throw new Error('save_observations produced no transaction id');
     }
 
     this.log.info('save_observations submitted', {

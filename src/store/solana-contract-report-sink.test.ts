@@ -14,6 +14,10 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import * as winston from 'winston';
 import type { Address } from '@solana/kit';
+import {
+  SOLANA_ERROR__BLOCK_HEIGHT_EXCEEDED,
+  SolanaError,
+} from '@solana/errors';
 
 import type { SolanaARIOReadable, SolanaARIOWriteable } from '@ar.io/sdk';
 import { SolanaContractReportSink } from './solana-contract-report-sink.js';
@@ -341,6 +345,138 @@ describe('SolanaContractReportSink', () => {
         expect(e.message).to.match(/Transaction simulation failed/);
       }
       expect(threw).to.equal(true);
+    });
+  });
+
+  describe('transient send-error retry', () => {
+    const openStatus = {
+      prescribed: true,
+      observerIdx: 7,
+      alreadyObserved: false,
+      windowOpen: true,
+      endTimestampSec: Math.floor(Date.now() / 1000) + 100,
+    };
+
+    /** The exact failure seen on mainnet: blockhash expired by one block. */
+    const blockHeightExceeded = () =>
+      new SolanaError(SOLANA_ERROR__BLOCK_HEIGHT_EXCEEDED, {
+        currentBlockHeight: 417090557n,
+        lastValidBlockHeight: 417090556n,
+      });
+
+    function makeSink(opts: { saveStub: sinon.SinonStub; statuses?: any[] }) {
+      const statusStub = sinon.stub();
+      const statuses = opts.statuses ?? [openStatus, openStatus, openStatus];
+      statuses.forEach((st, i) =>
+        st instanceof Error
+          ? statusStub.onCall(i).rejects(st)
+          : statusStub.onCall(i).resolves(st),
+      );
+      statusStub.resolves(statuses[statuses.length - 1]);
+      return new SolanaContractReportSink({
+        log: makeLog(),
+        contract: { saveObservations: opts.saveStub } as any,
+        readable: { getEpochObservationStatus: statusStub } as any,
+        observerAddress: OBSERVER_PUBKEY,
+      });
+    }
+
+    it('retries a blockhash expiry and succeeds on the next attempt', async () => {
+      const saveStub = sinon.stub();
+      saveStub.onCall(0).rejects(blockHeightExceeded());
+      saveStub.onCall(1).resolves({ id: 'SIG_RETRIED' });
+      const sink = makeSink({ saveStub });
+
+      const result = await sink.saveReport(
+        makeReportInfo(makeReport({ epochIndex: 512 }), REPORT_TX_ID),
+      );
+
+      expect(saveStub.callCount).to.equal(2);
+      expect(result.interactionTxIds).to.deep.equal(['SIG_RETRIED']);
+    });
+
+    it('retries when the transient error is nested in a cause chain', async () => {
+      const wrapped: any = new Error('sendAndConfirm failed');
+      wrapped.cause = blockHeightExceeded();
+      const saveStub = sinon.stub();
+      saveStub.onCall(0).rejects(wrapped);
+      saveStub.onCall(1).resolves({ id: 'SIG_NESTED' });
+      const sink = makeSink({ saveStub });
+
+      const result = await sink.saveReport(
+        makeReportInfo(makeReport({ epochIndex: 512 }), REPORT_TX_ID),
+      );
+
+      expect(saveStub.callCount).to.equal(2);
+      expect(result.interactionTxIds).to.deep.equal(['SIG_NESTED']);
+    });
+
+    it('does NOT retry a deterministic program error', async () => {
+      const saveStub = sinon
+        .stub()
+        .rejects(new Error('Transaction simulation failed: NotPrescribed'));
+      const sink = makeSink({ saveStub });
+
+      let threw = false;
+      try {
+        await sink.saveReport(
+          makeReportInfo(makeReport({ epochIndex: 512 }), REPORT_TX_ID),
+        );
+      } catch {
+        threw = true;
+      }
+      expect(threw).to.equal(true);
+      expect(saveStub.callCount).to.equal(1);
+    });
+
+    it('stops retrying when the first attempt actually landed', async () => {
+      const saveStub = sinon.stub().rejects(blockHeightExceeded());
+      const sink = makeSink({
+        saveStub,
+        statuses: [openStatus, { ...openStatus, alreadyObserved: true }],
+      });
+
+      const result = await sink.saveReport(
+        makeReportInfo(makeReport({ epochIndex: 512 }), REPORT_TX_ID),
+      );
+
+      expect(saveStub.callCount).to.equal(1);
+      expect(result.interactionTxIds).to.equal(undefined);
+    });
+
+    it('stops retrying once the observation window has closed', async () => {
+      const saveStub = sinon.stub().rejects(blockHeightExceeded());
+      const sink = makeSink({
+        saveStub,
+        statuses: [openStatus, { ...openStatus, windowOpen: false }],
+      });
+
+      let threw = false;
+      try {
+        await sink.saveReport(
+          makeReportInfo(makeReport({ epochIndex: 512 }), REPORT_TX_ID),
+        );
+      } catch {
+        threw = true;
+      }
+      expect(threw).to.equal(true);
+      expect(saveStub.callCount).to.equal(1);
+    });
+
+    it('gives up after the attempt cap and rethrows', async () => {
+      const saveStub = sinon.stub().rejects(blockHeightExceeded());
+      const sink = makeSink({ saveStub });
+
+      let threw = false;
+      try {
+        await sink.saveReport(
+          makeReportInfo(makeReport({ epochIndex: 512 }), REPORT_TX_ID),
+        );
+      } catch {
+        threw = true;
+      }
+      expect(threw).to.equal(true);
+      expect(saveStub.callCount).to.equal(3);
     });
   });
 });
