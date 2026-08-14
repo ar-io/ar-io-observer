@@ -23,10 +23,10 @@
     "@types/json-schema" "^7.0.15"
     js-yaml "^4.1.0"
 
-"@ar.io/sdk@^4.1.2":
-  version "4.1.2"
-  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-4.1.2.tgz#421cf300112e6698b53d000eaad45237437e7d53"
-  integrity sha512-4AyS67lkKa62L6BAWrNbXx3S1GG/AKWeMNZCGkqpkwwKldLGLyq3ZQrylku2bcSJKqRKL/SmYS76OPqIC6o3aQ==
+"@ar.io/sdk@^4.1.4":
+  version "4.1.4"
+  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-4.1.4.tgz#8ff7941d51fadac21cc57271aa08adf97ef289f1"
+  integrity sha512-5Nm6SP+KePW74jFn8qA68iio8/dvYzR5OxFC3euLjTzJ5YKsrl2G44qVbo9powU/XFarKmxYJhgMYZDSU7MGxw==
   dependencies:
     "@ar.io/solana-contracts" "1.1.0"
     "@noble/hashes" "^1.8.0"
