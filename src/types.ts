@@ -219,6 +219,17 @@ export interface ReportInfo {
   report: ObserverReport;
   reportTxId?: string;
   interactionTxIds?: string[];
+  /**
+   * Names of the sinks that threw during the last {@link ReportSink}
+   * run. `PipelineReportSink` logs a sink failure and continues to the
+   * next sink, so the returned `ReportInfo` can carry a `reportTxId`
+   * from an earlier sink while a later one failed. Without this field a
+   * caller cannot tell that partial state apart from full success.
+   *
+   * Each pipeline run replaces the field with its own result. An empty
+   * list is reported as `undefined`.
+   */
+  failedSinks?: string[];
 }
 
 export interface ReportSink {

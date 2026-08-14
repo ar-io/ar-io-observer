@@ -32,6 +32,12 @@ if (args.saveReport) {
   // gated on prescription so the one-shot CLI doesn't burn Turbo
   // credits + RPC for a report with no on-chain pathway.
   const persisted = await persistenceReportSink.saveReport({ report });
+  if (persisted.failedSinks !== undefined) {
+    console.error(
+      `Persistence incomplete — these sinks failed: ${persisted.failedSinks.join(', ')}`,
+    );
+    process.exitCode = 1;
+  }
 
   if (submissionReportSink !== undefined) {
     let proceed = true;
@@ -52,7 +58,15 @@ if (args.saveReport) {
       }
     }
     if (proceed) {
-      await submissionReportSink.saveReport(persisted);
+      const submitted = await submissionReportSink.saveReport(persisted);
+      // The pipeline logs sink errors and continues, so a non-zero exit
+      // is the only way a one-shot run signals a partial submission.
+      if (submitted.failedSinks !== undefined) {
+        console.error(
+          `Submission incomplete — these sinks failed: ${submitted.failedSinks.join(', ')}`,
+        );
+        process.exitCode = 1;
+      }
     }
   }
 }
