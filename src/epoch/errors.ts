@@ -7,15 +7,36 @@
  * - "not_ready": Preconditions not met yet. Wait and retry.
  * - "real": Unexpected failure. Needs investigation.
  *
- * IMPORTANT: Anchor assigns error codes as 6000 + variant-index in the
- * enum declared at `contracts/programs/ario-gar/src/error.rs`. Keep this
- * table in sync when new variants are added or reordered.
+ * Codes come from `@ar.io/solana-contracts`, which is generated from the
+ * deployed `ario-gar` IDL. They are deliberately NOT written out by hand:
+ * Anchor assigns each code as 6000 + the variant's index in
+ * `ario-gar/src/error.rs`, so inserting a variant anywhere shifts every
+ * code below it. That happened — `EpochsAlreadyEnabled` and
+ * `EpochCounterAlreadyAdvanced` were added at indexes 32/33 — and the
+ * previous hand-maintained table silently became a +2 shift for everything
+ * from 6032 up. Because the table decides whether a failure is ignorable,
+ * the drift both swallowed real errors as "already done"
+ * (6041 `InvalidObservation`, 6049 `InvalidGatewayAccount`) and reported
+ * benign races as real ones (`WeightsAlreadyTallied` was left unclassified).
+ * Importing the generated constants makes that class of bug impossible.
  */
+import {
+  ARIO_GAR_ERROR__DISTRIBUTION_INCOMPLETE,
+  ARIO_GAR_ERROR__EPOCHS_NOT_ENABLED,
+  ARIO_GAR_ERROR__EPOCH_ALREADY_EXISTS,
+  ARIO_GAR_ERROR__EPOCH_IN_PROGRESS,
+  ARIO_GAR_ERROR__EPOCH_NOT_CLOSEABLE,
+  ARIO_GAR_ERROR__EPOCH_NOT_STARTED,
+  ARIO_GAR_ERROR__LEAVE_WINDOW_NOT_EXPIRED,
+  ARIO_GAR_ERROR__PRESCRIPTIONS_ALREADY_DONE,
+  ARIO_GAR_ERROR__PRESCRIPTIONS_NOT_DONE,
+  ARIO_GAR_ERROR__REWARDS_ALREADY_DISTRIBUTED,
+  ARIO_GAR_ERROR__WEIGHTS_ALREADY_TALLIED,
+  ARIO_GAR_ERROR__WEIGHTS_NOT_TALLIED,
+} from '@ar.io/solana-contracts/gar';
 
 export type ErrorCategory = 'already_done' | 'not_ready' | 'real';
 
-// GarError variant indexes (verified against ario-gar/src/error.rs).
-// Anchor codes = 6000 + index.
 const ALREADY_DONE_ERRORS = new Set<number>([
   // AlreadyInitialized (Anchor built-in) — epoch account already exists
   0,
@@ -35,39 +56,29 @@ const ALREADY_DONE_ERRORS = new Set<number>([
   //          path where the account exists but has zero data could
   //          surface this. Semantically equivalent to "nothing to
   //          close."
-  3007, 3012,
-  // RewardsAlreadyDistributed (variant 37)
-  6037,
-  // EpochAlreadyExists (variant 41)
-  6041,
-  // WeightsAlreadyTallied (variant 45)
-  6045,
-  // PrescriptionsAlreadyDone (variant 49)
-  6049,
+  3007,
+  3012,
+  ARIO_GAR_ERROR__REWARDS_ALREADY_DISTRIBUTED,
+  ARIO_GAR_ERROR__EPOCH_ALREADY_EXISTS,
+  ARIO_GAR_ERROR__WEIGHTS_ALREADY_TALLIED,
+  ARIO_GAR_ERROR__PRESCRIPTIONS_ALREADY_DONE,
 ]);
 
 const NOT_READY_ERRORS = new Set<number>([
-  // EpochsNotEnabled (variant 31)
-  6031,
-  // EpochNotStarted (variant 32)
-  6032,
-  // EpochInProgress (variant 34)
-  6034,
-  // DistributionIncomplete (variant 38)
-  6038,
-  // WeightsNotTallied (variant 46)
-  6046,
-  // PrescriptionsNotDone (variant 48)
-  6048,
-  // EpochNotCloseable (variant 51)
-  6051,
-  // LeaveWindowNotExpired (variant 79) — a Leaving gateway whose leave window
+  ARIO_GAR_ERROR__EPOCHS_NOT_ENABLED,
+  ARIO_GAR_ERROR__EPOCH_NOT_STARTED,
+  ARIO_GAR_ERROR__EPOCH_IN_PROGRESS,
+  ARIO_GAR_ERROR__DISTRIBUTION_INCOMPLETE,
+  ARIO_GAR_ERROR__WEIGHTS_NOT_TALLIED,
+  ARIO_GAR_ERROR__PRESCRIPTIONS_NOT_DONE,
+  ARIO_GAR_ERROR__EPOCH_NOT_CLOSEABLE,
+  // LeaveWindowNotExpired — a Leaving gateway whose leave window
   // hasn't elapsed yet can't be finalize_gone'd. `getGoneGateways()` returns
   // every Leaving gateway (not just expired ones), so the cleanup pass attempts
   // them and they revert with this until their window passes — a wait-and-retry
   // condition, NOT a real error (must not spam error logs or trip unhealthy via
   // consecutiveRealErrors).
-  6079,
+  ARIO_GAR_ERROR__LEAVE_WINDOW_NOT_EXPIRED,
 ]);
 
 /**
