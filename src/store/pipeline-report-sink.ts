@@ -96,6 +96,12 @@ export class PipelineReportSink implements ReportSink {
 
     log.verbose('Saving report...');
     let lastReportInfo = reportInfo;
+    // One sink failure must not stop the sinks behind it — a failed
+    // Arweave upload should still let the on-chain sink run. The names
+    // are collected so the caller can see that the run was partial:
+    // a `reportTxId` from an early sink is not proof that the later
+    // sinks succeeded.
+    const failedSinks: string[] = [];
     for (const { name, sink } of this.sinks) {
       try {
         log.verbose(`Saving report using ${name}...`);
@@ -107,11 +113,28 @@ export class PipelineReportSink implements ReportSink {
           report: undefined,
         });
       } catch (error: any) {
+        failedSinks.push(name);
         log.error(`Error saving report using ${name}`, {
           message: error.message,
           stack: error.stack,
         });
       }
+    }
+
+    // Report this run's failures only. An inherited value from an
+    // upstream pipeline (persistence feeding submission) is dropped so
+    // each caller reads the result of the pipeline it invoked.
+    if (failedSinks.length > 0) {
+      log.error('Report pipeline finished with sink failures', {
+        failedSinks,
+        reportTxId: lastReportInfo.reportTxId,
+      });
+      return { ...lastReportInfo, failedSinks };
+    }
+    if (lastReportInfo.failedSinks !== undefined) {
+      const cleared: ReportInfo = { ...lastReportInfo };
+      delete cleared.failedSinks;
+      return cleared;
     }
 
     return lastReportInfo;
