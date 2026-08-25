@@ -91,15 +91,29 @@ export const REFERENCE_GATEWAY_HOSTS: string[] = (() => {
   return DEFAULT_REFERENCE_GATEWAYS;
 })();
 
-export const OBSERVED_GATEWAY_HOSTS = env
-  .varOrDefault('OBSERVED_GATEWAY_HOSTS', args.observedGatewayHosts ?? '')
-  .split(',')
-  .filter((h) => h.length > 0);
+/**
+ * Split a comma-separated env var into trimmed, non-empty entries.
+ *
+ * Trimming is the point: `a.com, b.com` is the natural way to write a list,
+ * but an untrimmed split yields `' b.com'`, which matches no gateway or name.
+ * That fails silently — the entry is simply never found — so it narrows the
+ * observation set rather than erroring. `REFERENCE_GATEWAY_HOSTS` already
+ * trims; this shares that behavior with the other list-valued settings.
+ */
+export function parseCommaSeparatedList(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
 
-export const ARNS_NAMES = env
-  .varOrDefault('ARNS_NAMES', args.arnsNames ?? '')
-  .split(',')
-  .filter((h) => h.length > 0);
+export const OBSERVED_GATEWAY_HOSTS = parseCommaSeparatedList(
+  env.varOrDefault('OBSERVED_GATEWAY_HOSTS', args.observedGatewayHosts ?? ''),
+);
+
+export const ARNS_NAMES = parseCommaSeparatedList(
+  env.varOrDefault('ARNS_NAMES', args.arnsNames ?? ''),
+);
 
 // Whitepaper v3.0.0 §10.3: "eight (8) 'chosen names' selected
 // independently by each observer". The default lived at `1` since the
@@ -487,6 +501,18 @@ export const MAX_CLEANUP_TXS_PER_CYCLE = parsePositiveIntEnv(
 export const CLEANUP_FAILURE_THRESHOLD = parsePositiveIntEnv(
   'CLEANUP_FAILURE_THRESHOLD',
   '30',
+);
+// `prune_name_to_returned` takes a single record, so it cannot batch into one
+// tx the way the other two prune steps do — its throughput is (txs per scan) x
+// (scan rate). It is also the only deadline-bound step: a lease not converted
+// while inside its auction window ages into the past-auction band and is closed
+// directly, losing the protocol that Dutch auction permanently. Left at one per
+// scan it capped at ~48 names/day on a 24h epoch, the same order as the rate
+// leases fall past grace — so a backlog could never drain. Default 10 keeps
+// ~10x headroom while staying well inside MAX_CLEANUP_TXS_PER_CYCLE.
+export const CLEANUP_TO_RETURNED_TXS_PER_CYCLE = parsePositiveIntEnv(
+  'CLEANUP_TO_RETURNED_TXS_PER_CYCLE',
+  '10',
 );
 // Optional: when unset, the cranker derives the cleanup cadence from the epoch
 // duration (see src/epoch/adaptive-intervals.ts). An explicit value always wins.

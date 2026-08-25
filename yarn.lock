@@ -23,10 +23,10 @@
     "@types/json-schema" "^7.0.15"
     js-yaml "^4.1.0"
 
-"@ar.io/sdk@^4.1.0":
-  version "4.1.0"
-  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-4.1.0.tgz#a8fa42c6bb99339480371a2dcfcea71e930f42cd"
-  integrity sha512-eW4OjjNDZhOHYqRVHM3hq7iGFlp+mYYAHYv4LPI9/q6paM490uoPB+TBOVteGIi+HYvGPUNlAONfy4QYfOiWfg==
+"@ar.io/sdk@^4.2.0":
+  version "4.2.0"
+  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-4.2.0.tgz#7282cfefae0cc76e2b99b6f1fcbfd056a5c423f2"
+  integrity sha512-kbMVGytA2jNJf11Ka6FPJcTi4DPucYNQCPc+F02ZHZ0XAstGoXm3KwwT4dV95m32OHbBVl/F9xlLnMbE9ovhLg==
   dependencies:
     "@ar.io/solana-contracts" "1.1.0"
     "@noble/hashes" "^1.8.0"
@@ -40,7 +40,7 @@
     prompts "^2.4.2"
     zod "^3.25.76"
 
-"@ar.io/solana-contracts@1.1.0":
+"@ar.io/solana-contracts@1.1.0", "@ar.io/solana-contracts@^1.1.0":
   version "1.1.0"
   resolved "https://registry.yarnpkg.com/@ar.io/solana-contracts/-/solana-contracts-1.1.0.tgz#900784dad9b0867ae76678dc177d346692f5e61f"
   integrity sha512-qX8ttp5GoZYMMNNgVzGMdBmaym3g1XL3Y7GyApbbXo4e4SSgt3DXMKl6PCISij5snhkec21LAhHxzHuLyoOe8w==

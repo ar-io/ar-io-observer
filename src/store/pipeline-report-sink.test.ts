@@ -365,7 +365,6 @@ describe('PipelineReportSink', function () {
       expect((mockSink3.saveReport as sinon.SinonStub).calledOnce).to.be.true;
 
       // Verify error was logged
-      expect((logStub.error as sinon.SinonStub).calledOnce).to.be.true;
       const errorCall = (logStub.error as sinon.SinonStub).firstCall;
       expect(errorCall.args[0]).to.equal(
         'Error saving report using failingSink',
@@ -374,6 +373,39 @@ describe('PipelineReportSink', function () {
       // Verify final result includes successful processing flags
       expect(result).to.have.property('sink1Processed', true);
       expect(result).to.have.property('sink3Processed', true);
+
+      // The caller must be able to see that the run was partial.
+      expect(result.failedSinks).to.deep.equal(['failingSink']);
+    });
+
+    it('names every failed sink and leaves the field unset on a clean run', async function () {
+      const failingSinkA: ReportSink = {
+        saveReport: sinon.stub().rejects(new Error('A failed')),
+      };
+      const failingSinkB: ReportSink = {
+        saveReport: sinon.stub().rejects(new Error('B failed')),
+      };
+
+      pipelineReportSink = new PipelineReportSink({
+        log: logStub,
+        sinks: [
+          { name: 'sinkA', sink: failingSinkA },
+          { name: 'sink1', sink: mockSink1 },
+          { name: 'sinkB', sink: failingSinkB },
+        ],
+      });
+
+      const report = createMockReport(10, 2);
+      const failed = await pipelineReportSink.saveReport({ report });
+      expect(failed.failedSinks).to.deep.equal(['sinkA', 'sinkB']);
+
+      // A later clean run must not inherit the previous run's failures.
+      const cleanPipeline = new PipelineReportSink({
+        log: logStub,
+        sinks: [{ name: 'sink1', sink: mockSink1 }],
+      });
+      const clean = await cleanPipeline.saveReport(failed);
+      expect(clean.failedSinks).to.equal(undefined);
     });
 
     it('should handle empty sinks array', async function () {

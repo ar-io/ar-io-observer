@@ -56,6 +56,13 @@ export interface EpochCrankerConfig {
    */
   maxCleanupTxsPerCycle?: number;
   /**
+   * `prune_name_to_returned` txs to submit per scan. Unlike the other two prune
+   * steps this instruction takes a single record and cannot batch into one tx,
+   * so this is what sets its throughput. Default: 10.
+   * Env: CLEANUP_TO_RETURNED_TXS_PER_CYCLE.
+   */
+  cleanupToReturnedTxsPerCycle?: number;
+  /**
    * Threshold for `prune_gateway` (failed_consecutive >= N). Mirrors
    * `EpochSettings.max_consecutive_failures` (default 30).
    */
@@ -216,6 +223,14 @@ export class EpochCranker {
         // tie it to the same cleanup config the runCleanup phases use.
         enablePrune: this.config.enableCleanup !== false,
         pruneBatchSize: this.config.cleanupBatchSize,
+        // Scan cadence stays tied to the cleanup interval on purpose. It is
+        // derived from the epoch duration specifically to cut credit-heavy
+        // getProgramAccounts scans on long epochs (adaptive-intervals.ts), and
+        // decoupling it would multiply them ~30x. The throughput problem that
+        // cadence used to cause is solved by pruneToReturnedTxsPerCycle below,
+        // which makes the deadline-bound step drain proportionally to the
+        // backlog rather than to the scan rate. Worst-case conversion latency
+        // is then one scan interval (30 min) against a 14-day auction window.
         pruneScanIntervalMs: this.config.cleanupMinIntervalMs,
         // The other two thirds of the ArNS lease lifecycle. Previously the
         // cranker only drained ReturnedName PDAs — a queue nothing ever filled,
@@ -223,6 +238,7 @@ export class EpochCranker {
         // called it. Expired leases therefore accumulated on-chain and stayed
         // resolvable-but-unbuyable indefinitely. Same cleanup gate as above.
         enablePruneToReturned: this.config.enableCleanup !== false,
+        pruneToReturnedTxsPerCycle: this.config.cleanupToReturnedTxsPerCycle,
         enablePruneExpired: this.config.enableCleanup !== false,
         pruneExpiredBatchSize: this.config.cleanupBatchSize,
       });
@@ -234,6 +250,13 @@ export class EpochCranker {
           epochIndex: result.epochIndex,
           tx: result.txId,
           progress: result.progress,
+          // Present when a batched step stopped early on a failed submission.
+          // Without it a partial drain is indistinguishable from a full one:
+          // the operator sees only a smaller progress.index and cannot tell
+          // whether the per-cycle budget or a real error bounded the work.
+          ...(result.partialFailureReason !== undefined
+            ? { partialFailureReason: result.partialFailureReason }
+            : {}),
         });
       }
     } catch (err) {

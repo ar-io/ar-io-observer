@@ -29,6 +29,16 @@ import type winston from 'winston';
 
 import type { ObserverReport, ReportInfo, ReportSink } from '../types.js';
 import { getFailedGatewaySummaryFromReport } from './failed-gateway-summary.js';
+import {
+  isAlreadySubmittedError,
+  isTransientSubmitError,
+} from './solana-tx-errors.js';
+
+/** Total attempts for one `save_observations` submission. */
+const DEFAULT_MAX_SUBMIT_ATTEMPTS = 3;
+
+/** Pause before attempt 2, then before attempt 3. */
+const DEFAULT_RETRY_BACKOFF_MS = [1_000, 3_000];
 
 export interface SolanaContractReportSinkConfig {
   log: winston.Logger;
@@ -45,6 +55,11 @@ export interface SolanaContractReportSinkConfig {
    *  read from `contract` so this sink can be constructed without
    *  reaching into the SDK's `signer` internals. */
   observerAddress: Address;
+  /** Total submission attempts, including the first. Defaults to 3. */
+  maxSubmitAttempts?: number;
+  /** Pause before each retry, in milliseconds. The last entry repeats
+   *  if attempts outnumber entries. Tests pass `[0, 0]`. */
+  retryBackoffMs?: number[];
 }
 
 export class SolanaContractReportSink implements ReportSink {
@@ -52,12 +67,22 @@ export class SolanaContractReportSink implements ReportSink {
   private readonly contract: SolanaARIOWriteable;
   private readonly readable: SolanaARIOReadable;
   private readonly observerAddress: Address;
+  private readonly maxSubmitAttempts: number;
+  private readonly retryBackoffMs: number[];
 
   constructor(cfg: SolanaContractReportSinkConfig) {
     this.log = cfg.log.child({ class: this.constructor.name });
     this.contract = cfg.contract;
     this.readable = cfg.readable;
     this.observerAddress = cfg.observerAddress;
+    this.maxSubmitAttempts = Math.max(
+      1,
+      cfg.maxSubmitAttempts ?? DEFAULT_MAX_SUBMIT_ATTEMPTS,
+    );
+    this.retryBackoffMs =
+      cfg.retryBackoffMs !== undefined && cfg.retryBackoffMs.length > 0
+        ? cfg.retryBackoffMs
+        : DEFAULT_RETRY_BACKOFF_MS;
   }
 
   async saveReport(reportInfo: ReportInfo): Promise<{
@@ -151,20 +176,79 @@ export class SolanaContractReportSink implements ReportSink {
       reportTxId,
     });
 
-    let interactionTxId: string;
-    try {
-      const { id } = await this.contract.saveObservations({
-        reportTxId,
-        failedGateways,
-        epochIndex,
-      });
-      interactionTxId = id;
-    } catch (err: any) {
-      this.log.error('save_observations transaction failed', {
-        epochIndex,
-        message: err.message,
-      });
-      throw err;
+    // A blockhash lives ~150 slots (~60s). If the transaction does not
+    // land inside that window, `sendAndConfirm` rejects even though the
+    // instruction is valid — the observed epoch 512 failure. Re-signing
+    // over a fresh blockhash recovers it, so retry a bounded number of
+    // times before giving the error back to the pipeline.
+    let interactionTxId: string | undefined;
+
+    for (let attempt = 1; attempt <= this.maxSubmitAttempts; attempt++) {
+      try {
+        const { id } = await this.contract.saveObservations({
+          reportTxId,
+          failedGateways,
+          epochIndex,
+        });
+        interactionTxId = id;
+        break;
+      } catch (err: any) {
+        // A confirmation timeout does not prove the transaction died.
+        // If it landed, the retry hits the `init` constraint on the
+        // Observation PDA and reverts. That revert means the work is
+        // done — report success rather than failing the epoch.
+        if (isAlreadySubmittedError(err)) {
+          this.log.warn(
+            'save_observations reverted as already submitted — treating as done',
+            { epochIndex, attempt, message: err.message },
+          );
+          return reportInfo;
+        }
+
+        const transient = isTransientSubmitError(err);
+        if (!transient || attempt >= this.maxSubmitAttempts) {
+          this.log.error('save_observations transaction failed', {
+            epochIndex,
+            attempt,
+            maxAttempts: this.maxSubmitAttempts,
+            transient,
+            message: err.message,
+          });
+          throw err;
+        }
+
+        this.log.warn(
+          'save_observations failed transiently — retrying with a fresh blockhash',
+          {
+            epochIndex,
+            attempt,
+            maxAttempts: this.maxSubmitAttempts,
+            message: err.message,
+          },
+        );
+
+        await delay(
+          this.retryBackoffMs[
+            Math.min(attempt - 1, this.retryBackoffMs.length - 1)
+          ],
+        );
+
+        // Re-read AFTER the backoff, not before: the observation window can
+        // close during the 1s/3s pause, and submitting past
+        // `epoch.end_timestamp` is a terminal revert. Checking first would
+        // clear a stale "open" verdict and spend the next attempt anyway.
+        if ((await this.shouldRetry(epochIndex, attempt)) === false) {
+          return reportInfo;
+        }
+      }
+    }
+
+    if (interactionTxId === undefined) {
+      // Unreachable: the loop either breaks with a signature, returns,
+      // or throws. Kept so a future edit can't produce a silent success.
+      throw new Error(
+        `save_observations produced no signature for epoch ${epochIndex}`,
+      );
     }
 
     this.log.info('save_observations submitted', {
@@ -181,4 +265,57 @@ export class SolanaContractReportSink implements ReportSink {
       interactionTxIds: [interactionTxId],
     };
   }
+
+  /**
+   * Re-read epoch state between submission attempts. This is the
+   * idempotency guard for the retry loop: the gates at the top of
+   * `saveReport` ran before the first attempt and can be stale by now.
+   *
+   * Returns `false` when the caller must stop — either the observation
+   * landed after all, or the window closed while we retried. Returns
+   * `true` when another attempt is worthwhile. An RPC failure here is
+   * indeterminate, so it returns `true`: the `init` constraint on the
+   * Observation PDA still blocks a double write.
+   */
+  private async shouldRetry(
+    epochIndex: number,
+    attempt: number,
+  ): Promise<boolean> {
+    let status: Awaited<
+      ReturnType<SolanaARIOReadable['getEpochObservationStatus']>
+    >;
+    try {
+      status = await this.readable.getEpochObservationStatus(
+        epochIndex,
+        this.observerAddress,
+      );
+    } catch (err: any) {
+      this.log.warn(
+        'Epoch re-read before retry failed — retrying submission anyway',
+        { epochIndex, attempt, message: err.message },
+      );
+      return true;
+    }
+
+    if (status.alreadyObserved) {
+      this.log.info(
+        'Observation landed despite the confirmation error — no retry needed',
+        { epochIndex, attempt, observer: this.observerAddress },
+      );
+      return false;
+    }
+    if (!status.windowOpen) {
+      this.log.warn('Observation window closed while retrying — giving up', {
+        epochIndex,
+        attempt,
+        endTimestampSec: status.endTimestampSec,
+      });
+      return false;
+    }
+    return true;
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

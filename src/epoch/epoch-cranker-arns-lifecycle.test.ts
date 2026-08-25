@@ -37,11 +37,15 @@ const noopLog: EpochCrankerConfig['log'] = {
  * `crankEpochStep` and tolerates every other SDK call the cleanup phases
  * may make (each returns an empty result).
  */
-function stubContract(capture: (opts: Record<string, unknown>) => void) {
+function stubContract(
+  capture: (opts: Record<string, unknown>) => void,
+  result: Record<string, unknown> | undefined = undefined,
+) {
+  const stepResult = result ?? { action: 'idle', reason: 'stubbed' };
   const base: Record<string, unknown> = {
     crankEpochStep: async (opts: Record<string, unknown>) => {
       capture(opts);
-      return { action: 'idle', reason: 'stubbed' };
+      return stepResult;
     },
   };
   return new Proxy(base, {
@@ -54,12 +58,13 @@ function stubContract(capture: (opts: Record<string, unknown>) => void) {
 
 async function crankOnce(
   overrides: Partial<EpochCrankerConfig>,
+  stepResult?: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   let captured: Record<string, unknown> | null = null;
   const cranker = new EpochCranker({
     contract: stubContract((o) => {
       captured = o;
-    }) as never,
+    }, stepResult) as never,
     rpc: {} as never,
     signer: { address: 'stub' } as never,
     pollIntervalMs: 1000,
@@ -89,6 +94,49 @@ describe('EpochCranker — ArNS lease lifecycle options', () => {
     expect(opts.enablePruneExpired).to.equal(true);
     // the pre-existing returned-name step must keep working
     expect(opts.enablePrune).to.equal(true);
+  });
+
+  it('forwards cleanupToReturnedTxsPerCycle as pruneToReturnedTxsPerCycle', async () => {
+    // Sets throughput for the only deadline-bound step. `prune_name_to_returned`
+    // takes a single record and cannot batch into one tx, so txs-per-scan is
+    // the whole lever: at one per scan a 24h-epoch cranker caps at ~48
+    // names/day, the same order as leases fall past grace, and the backlog
+    // never drains. A silently-dropped option here reintroduces exactly that.
+    const opts = await crankOnce({
+      enableCleanup: true,
+      cleanupToReturnedTxsPerCycle: 7,
+    });
+    expect(opts.pruneToReturnedTxsPerCycle).to.equal(7);
+  });
+
+  it('surfaces partialFailureReason from the SDK result into the log line', async () => {
+    // A partial drain must be distinguishable from a budget-bounded one.
+    const lines: Array<{ msg: string; meta: Record<string, unknown> }> = [];
+    await crankOnce(
+      {
+        enableCleanup: true,
+        log: {
+          ...noopLog,
+          info: (msg: string, meta?: Record<string, unknown>) => {
+            lines.push({ msg, meta: meta ?? {} });
+          },
+        } as EpochCrankerConfig['log'],
+      },
+      {
+        action: 'prune_name_to_returned',
+        txId: 'tx-1',
+        progress: { index: 2, total: 9 },
+        partialFailureReason: 'blockhash expired',
+      },
+    );
+    const line = lines.find((l) => l.msg.includes('prune_name_to_returned'));
+    expect(line, 'no prune log line emitted').to.not.equal(undefined);
+    expect(line?.meta.partialFailureReason).to.equal('blockhash expired');
+  });
+
+  it('leaves pruneToReturnedTxsPerCycle undefined when unconfigured, so the SDK default applies', async () => {
+    const opts = await crankOnce({ enableCleanup: true });
+    expect(opts.pruneToReturnedTxsPerCycle).to.equal(undefined);
   });
 
   it('forwards cleanupBatchSize as the expired-name batch size', async () => {

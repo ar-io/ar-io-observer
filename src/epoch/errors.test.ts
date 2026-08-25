@@ -6,6 +6,20 @@
  */
 import { expect } from 'chai';
 
+import {
+  ARIO_GAR_ERROR__DISTRIBUTION_INCOMPLETE,
+  ARIO_GAR_ERROR__EPOCH_ALREADY_EXISTS,
+  ARIO_GAR_ERROR__EPOCH_IN_PROGRESS,
+  ARIO_GAR_ERROR__INVALID_GATEWAY_ACCOUNT,
+  ARIO_GAR_ERROR__INVALID_OBSERVATION,
+  ARIO_GAR_ERROR__LEAVE_WINDOW_NOT_EXPIRED,
+  ARIO_GAR_ERROR__NOT_PRESCRIBED_OBSERVER,
+  ARIO_GAR_ERROR__PRESCRIPTIONS_ALREADY_DONE,
+  ARIO_GAR_ERROR__REWARDS_ALREADY_DISTRIBUTED,
+  ARIO_GAR_ERROR__WEIGHTS_ALREADY_TALLIED,
+  ARIO_GAR_ERROR__WEIGHTS_NOT_TALLIED,
+} from '@ar.io/solana-contracts/gar';
+
 import { classifyError, parseAnchorErrorCode } from './errors.js';
 
 describe('cranker error classification', () => {
@@ -82,16 +96,17 @@ describe('cranker error classification', () => {
 
   describe('classifyError', () => {
     it('categorises GAR program errors marked as already-done as "already_done"', () => {
+      // Codes come from the generated IDL constants rather than literals:
+      // these four were previously written out by hand and every one of
+      // them was wrong by +2 (6037/6041/6045/6049 are actually
+      // NotPrescribedObserver / InvalidObservation / NoNamesAvailable /
+      // InvalidGatewayAccount — all real failures).
       const examples = [
-        // RewardsAlreadyDistributed
-        new Error('AnchorError ... Error Number: 6037'),
-        // EpochAlreadyExists
-        new Error('AnchorError ... Error Number: 6041'),
-        // WeightsAlreadyTallied
-        new Error('AnchorError ... Error Number: 6045'),
-        // PrescriptionsAlreadyDone
-        new Error('AnchorError ... Error Number: 6049'),
-      ];
+        ARIO_GAR_ERROR__REWARDS_ALREADY_DISTRIBUTED,
+        ARIO_GAR_ERROR__EPOCH_ALREADY_EXISTS,
+        ARIO_GAR_ERROR__WEIGHTS_ALREADY_TALLIED,
+        ARIO_GAR_ERROR__PRESCRIPTIONS_ALREADY_DONE,
+      ].map((code) => new Error(`AnchorError ... Error Number: ${code}`));
       for (const e of examples) {
         expect(classifyError(e)).to.equal('already_done');
       }
@@ -146,14 +161,13 @@ describe('cranker error classification', () => {
 
     it('categorises not-yet-ready GAR errors as "not_ready"', () => {
       const examples = [
-        // EpochInProgress
-        new Error('AnchorError ... Error Number: 6034'),
-        // DistributionIncomplete
-        new Error('AnchorError ... Error Number: 6038'),
-        // WeightsNotTallied
-        new Error('AnchorError ... Error Number: 6046'),
-        // LeaveWindowNotExpired (finalize_gone on a not-yet-expired gateway)
-        new Error('AnchorError ... Error Number: 6079'),
+        ...[
+          ARIO_GAR_ERROR__EPOCH_IN_PROGRESS,
+          ARIO_GAR_ERROR__DISTRIBUTION_INCOMPLETE,
+          ARIO_GAR_ERROR__WEIGHTS_NOT_TALLIED,
+          // finalize_gone on a gateway whose leave window hasn't elapsed
+          ARIO_GAR_ERROR__LEAVE_WINDOW_NOT_EXPIRED,
+        ].map((code) => new Error(`AnchorError ... Error Number: ${code}`)),
         // ...same, hex form (0x17bf = 6079) as seen in simulation failures
         new Error(
           'Transaction simulation failed: custom program error: 0x17bf',
@@ -211,6 +225,42 @@ describe('cranker error classification', () => {
       expect(
         classifyError(new Error('completely unexpected program error')),
       ).to.equal('real');
+    });
+  });
+
+  describe('GAR error codes match the deployed program (drift guard)', () => {
+    // These codes were hand-maintained and drifted +2 once already, because
+    // `EpochsAlreadyEnabled` (6032) and `EpochCounterAlreadyAdvanced` (6033)
+    // were inserted into the middle of the GarError enum. The drift made
+    // `classifyError` swallow real failures as "already done" — which is
+    // exactly how mainnet epoch 523 lost every observation without the
+    // cranker treating it as an error. Pin the values so a future insertion
+    // fails here rather than silently in production.
+    const anchorError = (code: number) =>
+      new Error(`AnchorError thrown. Error Number: ${code}.`);
+
+    it('classifies InvalidObservation as a real error, not already_done', () => {
+      expect(ARIO_GAR_ERROR__INVALID_OBSERVATION).to.equal(6041);
+      expect(classifyError(anchorError(6041))).to.equal('real');
+    });
+
+    it('classifies InvalidGatewayAccount as a real error, not already_done', () => {
+      expect(ARIO_GAR_ERROR__INVALID_GATEWAY_ACCOUNT).to.equal(6049);
+      expect(classifyError(anchorError(6049))).to.equal('real');
+    });
+
+    it('classifies NotPrescribedObserver as a real error', () => {
+      expect(ARIO_GAR_ERROR__NOT_PRESCRIBED_OBSERVER).to.equal(6037);
+      expect(classifyError(anchorError(6037))).to.equal('real');
+    });
+
+    it('classifies the genuine already-done races as already_done', () => {
+      expect(ARIO_GAR_ERROR__EPOCH_ALREADY_EXISTS).to.equal(6043);
+      expect(ARIO_GAR_ERROR__WEIGHTS_ALREADY_TALLIED).to.equal(6047);
+      expect(ARIO_GAR_ERROR__PRESCRIPTIONS_ALREADY_DONE).to.equal(6051);
+      for (const code of [6043, 6047, 6051]) {
+        expect(classifyError(anchorError(code))).to.equal('already_done');
+      }
     });
   });
 });

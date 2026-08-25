@@ -32,8 +32,25 @@ if (args.saveReport) {
   // gated on prescription so the one-shot CLI doesn't burn Turbo
   // credits + RPC for a report with no on-chain pathway.
   const persisted = await persistenceReportSink.saveReport({ report });
+  if (persisted.failedSinks !== undefined) {
+    console.error(
+      `Persistence incomplete — these sinks failed: ${persisted.failedSinks.join(', ')}`,
+    );
+    console.error(
+      'Skipping submission: refusing to land an on-chain observation without a ' +
+        'complete local record. Mirrors ContinuousObserver, which treats a failed ' +
+        'persistence sink as "not submitted".',
+    );
+    // `process.exitCode` records the failure but does NOT halt execution, so
+    // the submission below must be gated explicitly or a one-shot run would
+    // submit on-chain despite the incomplete persistence.
+    process.exitCode = 1;
+  }
 
-  if (submissionReportSink !== undefined) {
+  if (
+    submissionReportSink !== undefined &&
+    persisted.failedSinks === undefined
+  ) {
     let proceed = true;
     if (submissionGate !== undefined) {
       try {
@@ -52,7 +69,15 @@ if (args.saveReport) {
       }
     }
     if (proceed) {
-      await submissionReportSink.saveReport(persisted);
+      const submitted = await submissionReportSink.saveReport(persisted);
+      // The pipeline logs sink errors and continues, so a non-zero exit
+      // is the only way a one-shot run signals a partial submission.
+      if (submitted.failedSinks !== undefined) {
+        console.error(
+          `Submission incomplete — these sinks failed: ${submitted.failedSinks.join(', ')}`,
+        );
+        process.exitCode = 1;
+      }
     }
   }
 }
