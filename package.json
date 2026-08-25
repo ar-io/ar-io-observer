@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ar.io/sdk": "^4.1.4",
+    "@ar.io/solana-contracts": "^1.1.0",
     "@ardrive/ardrive-promise-cache": "^1.1.4",
     "@ardrive/turbo-sdk": "^1.23.1",
     "@dha-team/arbundles": "^1.0.1",

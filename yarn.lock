@@ -40,7 +40,7 @@
     prompts "^2.4.2"
     zod "^3.25.76"
 
-"@ar.io/solana-contracts@1.1.0":
+"@ar.io/solana-contracts@1.1.0", "@ar.io/solana-contracts@^1.1.0":
   version "1.1.0"
   resolved "https://registry.yarnpkg.com/@ar.io/solana-contracts/-/solana-contracts-1.1.0.tgz#900784dad9b0867ae76678dc177d346692f5e61f"
   integrity sha512-qX8ttp5GoZYMMNNgVzGMdBmaym3g1XL3Y7GyApbbXo4e4SSgt3DXMKl6PCISij5snhkec21LAhHxzHuLyoOe8w==
