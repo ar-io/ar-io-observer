@@ -241,6 +241,15 @@ export const REFERENCE_GATEWAY_CONSENSUS_SIZE = +env.varOrDefault(
   '3',
 );
 
+// Request/response deadline for the trustless IPFS raw-block fetch. Must be >=
+// the gateway's own IPFS retrieval budget (ar-io-node IPFS_KUBO_REQUEST_TIMEOUT_MS
+// defaults to 30s) so legitimately-slow cold IPFS retrieval isn't misclassified;
+// also bounds the fetch so a slow-drip gateway can't hang report generation.
+export const IPFS_ASSESSMENT_TIMEOUT_MS = +env.varOrDefault(
+  'IPFS_ASSESSMENT_TIMEOUT_MS',
+  '35000',
+);
+
 if (REFERENCE_GATEWAY_CONSENSUS_SIZE < 1) {
   throw new Error(
     `Invalid configuration: REFERENCE_GATEWAY_CONSENSUS_SIZE (${REFERENCE_GATEWAY_CONSENSUS_SIZE}) must be at least 1.`,
