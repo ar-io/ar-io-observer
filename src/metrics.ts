@@ -44,6 +44,12 @@ export const gatewayAssessmentsCounter = new Counter({
   registers: [register],
 });
 
+export const gatewaysSkippedLeavingCounter = new Counter({
+  name: 'observer_gateways_skipped_leaving_total',
+  help: 'Gateways excluded from observation because the registry reports them as leaving the network',
+  registers: [register],
+});
+
 export const reportsGeneratedCounter = new Counter({
   name: 'observer_reports_generated_total',
   help: 'Total reports generated',

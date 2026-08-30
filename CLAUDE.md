@@ -62,8 +62,14 @@ The system uses a pluggable architecture with interfaces defined in `src/types.t
   `StaticArnsNameList` overrides via `ARNS_NAMES`.
 - **Host Sources**: `SolanaHostsSource` reads the on-chain
   `GatewayRegistry` via the SDK (`getGateways({limit})`) and maps each
-  to a `GatewayHost`. `StaticHostsSource` overrides via
-  `OBSERVED_GATEWAY_HOSTS`.
+  to a `GatewayHost`. Gateways with no FQDN are skipped, as are those the
+  registry reports as `leaving` — terminal, already outside the reward
+  set, and over half the registry in practice (334 of 646 on 2026-08-30).
+  Only an explicit `leaving` is excluded, so a registry that stops
+  reporting status degrades to observing everyone rather than no one; set
+  `SKIP_LEAVING_GATEWAYS=false` to restore the old behaviour. Exclusions
+  are counted by `observer_gateways_skipped_leaving_total`.
+  `StaticHostsSource` overrides via `OBSERVED_GATEWAY_HOSTS`.
 - **Epoch Sources**: `SolanaEpochSource` reads the current Epoch PDA via
   the SDK (`getEpoch(undefined)`), caches for 30s, and invalidates the
   moment `now > endTimestamp`. `getEpochStartHeight()` returns a 0

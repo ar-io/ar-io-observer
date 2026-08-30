@@ -454,6 +454,7 @@ const observedGatewayHostList =
     : new SolanaHostsSource({
         readable: networkContract,
         log,
+        skipLeaving: config.SKIP_LEAVING_GATEWAYS,
       });
 
 if (
