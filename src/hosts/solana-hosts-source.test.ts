@@ -113,4 +113,101 @@ describe('SolanaHostsSource', () => {
     await src.getHosts();
     expect(stub.firstCall.args[0]).to.deep.equal({ limit: 3000 });
   });
+
+  describe('leaving-gateway filtering', () => {
+    // Deliberately mixes every status case, including the two that must NOT be
+    // excluded: an absent status, and an unrecognised one. Without those two
+    // present the fail-open behaviour would be assumed rather than exercised.
+    const MIXED = [
+      {
+        gatewayAddress: 'JOINED',
+        status: 'joined',
+        settings: { fqdn: 'joined.example.com', port: 443, protocol: 'https' },
+      },
+      {
+        gatewayAddress: 'LEAVING',
+        status: 'leaving',
+        settings: { fqdn: 'leaving.example.com', port: 443, protocol: 'https' },
+      },
+      {
+        gatewayAddress: 'NO_STATUS',
+        settings: {
+          fqdn: 'nostatus.example.com',
+          port: 443,
+          protocol: 'https',
+        },
+      },
+      {
+        gatewayAddress: 'UNKNOWN_STATUS',
+        status: 'someFutureStatus',
+        settings: { fqdn: 'weird.example.com', port: 443, protocol: 'https' },
+      },
+    ];
+
+    const walletsOf = (hosts: { wallet: string }[]) =>
+      hosts.map((h) => h.wallet);
+
+    it('excludes gateways the registry reports as leaving', async () => {
+      const src = new SolanaHostsSource({
+        readable: makeReadable(MIXED),
+        log: makeLog(),
+      });
+      expect(walletsOf(await src.getHosts())).to.not.include('LEAVING');
+    });
+
+    it('keeps gateways whose status is absent or unrecognised (fail open)', async () => {
+      // The guard that matters. A registry or SDK that stops reporting status
+      // must degrade to observing everyone, never to observing no one -- an
+      // empty host list would silently produce an empty report.
+      const src = new SolanaHostsSource({
+        readable: makeReadable(MIXED),
+        log: makeLog(),
+      });
+      const got = walletsOf(await src.getHosts());
+      expect(got).to.include('NO_STATUS');
+      expect(got).to.include('UNKNOWN_STATUS');
+      expect(got).to.include('JOINED');
+      expect(got).to.have.length(3);
+    });
+
+    it('does not empty the host list when no gateway reports a status', async () => {
+      const src = new SolanaHostsSource({
+        readable: makeReadable([
+          {
+            gatewayAddress: 'A',
+            settings: { fqdn: 'a.example.com', port: 443, protocol: 'https' },
+          },
+          {
+            gatewayAddress: 'B',
+            settings: { fqdn: 'b.example.com', port: 443, protocol: 'https' },
+          },
+        ]),
+        log: makeLog(),
+      });
+      expect(await src.getHosts()).to.have.length(2);
+    });
+
+    it('keeps leaving gateways when skipLeaving is disabled', async () => {
+      const src = new SolanaHostsSource({
+        readable: makeReadable(MIXED),
+        log: makeLog(),
+        skipLeaving: false,
+      });
+      expect(walletsOf(await src.getHosts())).to.include('LEAVING');
+    });
+
+    it('still skips an empty fqdn even when the gateway is joined', async () => {
+      const src = new SolanaHostsSource({
+        readable: makeReadable([
+          {
+            gatewayAddress: 'JOINED_NO_FQDN',
+            status: 'joined',
+            settings: { fqdn: '', port: 443, protocol: 'https' },
+          },
+        ]),
+        log: makeLog(),
+      });
+      expect(await src.getHosts()).to.deep.equal([]);
+    });
+  });
 });

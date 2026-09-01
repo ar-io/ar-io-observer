@@ -133,6 +133,33 @@ export const GATEWAY_ASSESSMENT_CONCURRENCY = +env.varOrDefault(
   '10',
 );
 
+// Exclude gateways the registry reports as `leaving` from observation.
+//
+// A gateway is `leaving` either because its operator withdrew it or because
+// the network demoted it after 30 consecutive failed epochs, which makes the
+// status a consensus liveness signal rather than a mere statement of intent.
+//
+// Observing one accomplishes nothing in either case: `leaving` is terminal
+// (`join_network -> leaving -> finalize_gone`, with no path back), such a
+// gateway is already outside the reward set, and having been demoted it
+// cannot be demoted again -- its failure counter simply increments forever.
+//
+// The cost is not marginal. On mainnet 2026-08-30, 334 of 646 registered
+// gateways were `leaving`: 51.7% of the registry, and at
+// OBSERVATIONS_PER_GATEWAY=3 roughly half of every epoch's observation budget
+// spent confirming that gateways which already announced their exit are, in
+// fact, down. They also fail essentially without exception (84 of 84 sampled
+// in one epoch, against 22 of 87 for joined gateways), so the cohort puts a
+// hard ~50% floor under the reported failure rate and consumes most of the
+// headroom below OBSERVER_MAX_GATEWAY_FAILURE_THRESHOLD, above which the
+// whole report is suppressed.
+//
+// Only an explicit 'leaving' is excluded; unknown or absent status is kept,
+// so a registry that stops reporting status degrades to the previous
+// behaviour instead of emptying the host list. Set false to restore that.
+export const SKIP_LEAVING_GATEWAYS =
+  env.varOrDefault('SKIP_LEAVING_GATEWAYS', 'true') === 'true';
+
 export const NAME_ASSESSMENT_CONCURRENCY = +env.varOrDefault(
   'NAME_ASSESSMENT_CONCURRENCY',
   '5',
