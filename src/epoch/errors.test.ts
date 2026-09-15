@@ -10,6 +10,8 @@ import {
   ARIO_GAR_ERROR__DISTRIBUTION_INCOMPLETE,
   ARIO_GAR_ERROR__EPOCH_ALREADY_EXISTS,
   ARIO_GAR_ERROR__EPOCH_IN_PROGRESS,
+  ARIO_GAR_ERROR__EPOCH_NO_LONGER_LIVE,
+  ARIO_GAR_ERROR__EPOCH_WEIGHTS_CLOBBERED,
   ARIO_GAR_ERROR__INVALID_GATEWAY_ACCOUNT,
   ARIO_GAR_ERROR__INVALID_OBSERVATION,
   ARIO_GAR_ERROR__LEAVE_WINDOW_NOT_EXPIRED,
@@ -260,6 +262,24 @@ describe('cranker error classification', () => {
       expect(ARIO_GAR_ERROR__PRESCRIPTIONS_ALREADY_DONE).to.equal(6051);
       for (const code of [6043, 6047, 6051]) {
         expect(classifyError(anchorError(code))).to.equal('already_done');
+      }
+    });
+
+    it('classifies the ADR-0032/0033 errors as real — each needs a human', () => {
+      // Both shipped in @ar.io/solana-contracts 1.3.0, generated from the IDL
+      // deployed to mainnet on 2026-09-15 (gar slot 447280441).
+      // EpochWeightsClobbered: a gateway in the epoch's reward set lost its
+      // weights to another epoch's tally, so the epoch can never be
+      // distributed correctly. EpochNoLongerLive: the epoch is no longer the
+      // live one, so it can never be tallied. Neither is a retry condition,
+      // so neither may be suppressed as already_done or not_ready.
+      expect(ARIO_GAR_ERROR__EPOCH_WEIGHTS_CLOBBERED).to.equal(6097);
+      expect(ARIO_GAR_ERROR__EPOCH_NO_LONGER_LIVE).to.equal(6098);
+      for (const code of [
+        ARIO_GAR_ERROR__EPOCH_WEIGHTS_CLOBBERED,
+        ARIO_GAR_ERROR__EPOCH_NO_LONGER_LIVE,
+      ]) {
+        expect(classifyError(anchorError(code))).to.equal('real');
       }
     });
   });
