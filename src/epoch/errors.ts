@@ -80,22 +80,15 @@ const NOT_READY_ERRORS = new Set<number>([
   // condition, NOT a real error (must not spam error logs or trip unhealthy via
   // consecutiveRealErrors).
   ARIO_GAR_ERROR__LEAVE_WINDOW_NOT_EXPIRED,
-  // LatestEpochUnfinished (6102, ADR-0036/ADR-0034) — registry positions are
-  // frozen while an epoch is unfinished, so `finalize_gone` is refused for the
-  // WHOLE window between an epoch's creation and its distribution. The cleanup
-  // pass runs every cycle, so after the Wave 2 program upgrade this is the
-  // steady state, not an edge case.
-  //
-  // Left unclassified it would take the default 'real' path: a correctly
-  // behaving observer would log an error on most cycles, accumulate
-  // `consecutiveRealErrors` and trip its own health check. `create_epoch`
-  // raises the same code when the previous epoch is unfinished, which is
-  // likewise wait-and-retry.
-  //
-  // MissingLatestEpochAccount (6103) is deliberately NOT added — that one means
-  // THIS process is running a pre-Wave-2 client and must be loud, not retried.
-  ARIO_GAR_ERROR__LATEST_EPOCH_UNFINISHED,
 ]);
+
+// LatestEpochUnfinished (6102) is deliberately absent from BOTH sets above:
+// what it means depends on which instruction raised it, so it is classified by
+// `classifyLatestEpochUnfinished` below rather than by a flat code lookup.
+//
+// MissingLatestEpochAccount (6103) stays unlisted too, so it takes the default
+// 'real' path — that one means THIS process is running a pre-Wave-2 client and
+// must be loud, not retried.
 
 /**
  * Walk the `cause` chain on a thrown error and concatenate every
@@ -159,10 +152,60 @@ export function parseAnchorErrorCode(error: unknown): number | null {
   return null;
 }
 
+/**
+ * The Anchor instruction that actually failed, read back from the program
+ * logs.
+ *
+ * Anchor emits `Program log: Instruction: <Name>` as the first log of every
+ * instruction it handles, so the LAST such line before the error is the one
+ * that reverted. That holds for a bundled transaction too — ADR-0036's
+ * recommended `[distribute_epoch, finalize_gone]` sweep logs both names in
+ * order, and the last is the failing one. Non-Anchor programs in the same
+ * transaction (ComputeBudget) emit no such line, so they cannot be mistaken
+ * for it.
+ *
+ * Returns null when the logs are unavailable — the caller must treat that as
+ * "unknown", not as a particular instruction.
+ */
+function extractFailingInstruction(text: string): string | null {
+  const matches = [...text.matchAll(/Program log: Instruction: (\w+)/g)];
+  return matches.length > 0 ? matches[matches.length - 1][1] : null;
+}
+
+/**
+ * `LatestEpochUnfinished` (6102) means two opposite things depending on which
+ * instruction raised it, and a flat code lookup cannot tell them apart:
+ *
+ *   finalize_gone — ROUTINE. ADR-0036 freezes registry positions while an
+ *     epoch is unfinished, so the GC sweep is refused for the whole window
+ *     between an epoch's creation and its distribution. The cleanup pass runs
+ *     every cycle, so this is the steady state, not an exception. Classified
+ *     `not_ready`: it must not spam error logs or trip the health check via
+ *     `consecutiveRealErrors`.
+ *
+ *   create_epoch — THE NETWORK IS HALTED. ADR-0034 refuses to supersede an
+ *     unfinished epoch, so this means the previous epoch cannot be distributed
+ *     and the whole lifecycle has stopped: no epochs, no rewards, no
+ *     observations, for everyone, until an operator writes the stuck epoch off
+ *     with `admin_close_stale_epoch`. Classified `real`.
+ *
+ * Unknown instruction (no logs) is deliberately classified `real`. The failure
+ * direction is toward NOISE rather than SILENCE: a spurious alert costs
+ * attention, a silently retried network halt costs the protocol.
+ */
+function classifyLatestEpochUnfinished(text: string): ErrorCategory {
+  return extractFailingInstruction(text) === 'FinalizeGone'
+    ? 'not_ready'
+    : 'real';
+}
+
 export function classifyError(error: unknown): ErrorCategory {
   const code = parseAnchorErrorCode(error);
   if (code !== null) {
     if (ALREADY_DONE_ERRORS.has(code)) return 'already_done';
+    if (code === ARIO_GAR_ERROR__LATEST_EPOCH_UNFINISHED) {
+      return classifyLatestEpochUnfinished(collectErrorText(error));
+    }
     if (NOT_READY_ERRORS.has(code)) return 'not_ready';
   }
 
