@@ -5,6 +5,14 @@ on:
     branches:
       - develop
       - main
+  # Run lint/test/build on PRs too. Until this was added, the `build` job only
+  # ran AFTER a merge to develop/main, so a pull request had no test signal at
+  # all — the sole required check was an external reviewer bot. The container
+  # push below is deliberately excluded from PR runs (see its `if`).
+  pull_request:
+    branches:
+      - develop
+      - main
 
 jobs:
   build:
@@ -24,6 +32,10 @@ jobs:
 
   push:
     needs: [build]
+    # Never publish a container from a pull request. PR runs exist for the
+    # `build` signal only; `pull_request` from a fork would also lack the
+    # credentials this job needs.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
