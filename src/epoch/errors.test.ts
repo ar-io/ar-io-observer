@@ -14,7 +14,9 @@ import {
   ARIO_GAR_ERROR__EPOCH_WEIGHTS_CLOBBERED,
   ARIO_GAR_ERROR__INVALID_GATEWAY_ACCOUNT,
   ARIO_GAR_ERROR__INVALID_OBSERVATION,
+  ARIO_GAR_ERROR__LATEST_EPOCH_UNFINISHED,
   ARIO_GAR_ERROR__LEAVE_WINDOW_NOT_EXPIRED,
+  ARIO_GAR_ERROR__MISSING_LATEST_EPOCH_ACCOUNT,
   ARIO_GAR_ERROR__NOT_PRESCRIBED_OBSERVER,
   ARIO_GAR_ERROR__PRESCRIPTIONS_ALREADY_DONE,
   ARIO_GAR_ERROR__REWARDS_ALREADY_DISTRIBUTED,
@@ -97,6 +99,43 @@ describe('cranker error classification', () => {
   });
 
   describe('classifyError', () => {
+    // --- Wave 2 (ADR-0034 / ADR-0036) ---------------------------------
+    //
+    // After the Wave 2 program upgrade, `finalize_gone` is refused for the
+    // whole window between an epoch's creation and its distribution, because
+    // registry positions are frozen while an epoch is unfinished. The cleanup
+    // pass runs every cycle, so this is the STEADY STATE.
+    //
+    // If it fell through to 'real', a correctly-behaving observer would log an
+    // error on most cycles, accumulate `consecutiveRealErrors` and trip its own
+    // health check.
+    it('categorises LatestEpochUnfinished (6102) as "not_ready"', () => {
+      expect(ARIO_GAR_ERROR__LATEST_EPOCH_UNFINISHED).to.equal(6102);
+      expect(
+        classifyError(
+          new Error(
+            `AnchorError ... Error Number: ${ARIO_GAR_ERROR__LATEST_EPOCH_UNFINISHED}`,
+          ),
+        ),
+      ).to.equal('not_ready');
+    });
+
+    // The deliberate opposite. This means THIS process is running a
+    // pre-Wave-2 client and did not send the Epoch PDA ADR-0034 requires, so
+    // it must be loud rather than quietly retried forever. Anchor derives 6102
+    // and 6103 adjacently, so both are pinned by value: a renumbering that
+    // swapped them would silently invert both behaviours.
+    it('categorises MissingLatestEpochAccount (6103) as "real"', () => {
+      expect(ARIO_GAR_ERROR__MISSING_LATEST_EPOCH_ACCOUNT).to.equal(6103);
+      expect(
+        classifyError(
+          new Error(
+            `AnchorError ... Error Number: ${ARIO_GAR_ERROR__MISSING_LATEST_EPOCH_ACCOUNT}`,
+          ),
+        ),
+      ).to.equal('real');
+    });
+
     it('categorises GAR program errors marked as already-done as "already_done"', () => {
       // Codes come from the generated IDL constants rather than literals:
       // these four were previously written out by hand and every one of

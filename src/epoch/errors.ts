@@ -27,6 +27,7 @@ import {
   ARIO_GAR_ERROR__EPOCH_IN_PROGRESS,
   ARIO_GAR_ERROR__EPOCH_NOT_CLOSEABLE,
   ARIO_GAR_ERROR__EPOCH_NOT_STARTED,
+  ARIO_GAR_ERROR__LATEST_EPOCH_UNFINISHED,
   ARIO_GAR_ERROR__LEAVE_WINDOW_NOT_EXPIRED,
   ARIO_GAR_ERROR__PRESCRIPTIONS_ALREADY_DONE,
   ARIO_GAR_ERROR__PRESCRIPTIONS_NOT_DONE,
@@ -79,6 +80,21 @@ const NOT_READY_ERRORS = new Set<number>([
   // condition, NOT a real error (must not spam error logs or trip unhealthy via
   // consecutiveRealErrors).
   ARIO_GAR_ERROR__LEAVE_WINDOW_NOT_EXPIRED,
+  // LatestEpochUnfinished (6102, ADR-0036/ADR-0034) — registry positions are
+  // frozen while an epoch is unfinished, so `finalize_gone` is refused for the
+  // WHOLE window between an epoch's creation and its distribution. The cleanup
+  // pass runs every cycle, so after the Wave 2 program upgrade this is the
+  // steady state, not an edge case.
+  //
+  // Left unclassified it would take the default 'real' path: a correctly
+  // behaving observer would log an error on most cycles, accumulate
+  // `consecutiveRealErrors` and trip its own health check. `create_epoch`
+  // raises the same code when the previous epoch is unfinished, which is
+  // likewise wait-and-retry.
+  //
+  // MissingLatestEpochAccount (6103) is deliberately NOT added — that one means
+  // THIS process is running a pre-Wave-2 client and must be loud, not retried.
+  ARIO_GAR_ERROR__LATEST_EPOCH_UNFINISHED,
 ]);
 
 /**
