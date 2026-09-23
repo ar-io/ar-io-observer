@@ -541,6 +541,17 @@ export const CLEANUP_TO_RETURNED_TXS_PER_CYCLE = parsePositiveIntEnv(
   'CLEANUP_TO_RETURNED_TXS_PER_CYCLE',
   '10',
 );
+// Drain multi-batch crank phases (distribute, compound) within a cycle instead
+// of one tx per cycle. 45s keeps a drain inside a typical 60s interval;
+// whatever does not fit simply continues next cycle.
+export const MAX_CRANK_STEPS_PER_CYCLE = parsePositiveIntEnv(
+  'MAX_CRANK_STEPS_PER_CYCLE',
+  '50',
+);
+export const MAX_CRANK_STEP_MS = parsePositiveIntEnv(
+  'MAX_CRANK_STEP_MS',
+  '45000',
+);
 // Optional: when unset, the cranker derives the cleanup cadence from the epoch
 // duration (see src/epoch/adaptive-intervals.ts). An explicit value always wins.
 export const CLEANUP_MIN_INTERVAL_MS = parsePositiveIntEnvOrUndefined(

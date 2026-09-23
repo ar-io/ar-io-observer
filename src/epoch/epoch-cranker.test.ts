@@ -239,3 +239,135 @@ describe('EpochCranker cleanup continuity floor', () => {
     expect(counters.closeObservationCalls).to.have.length(0);
   });
 });
+
+/**
+ * Draining multi-batch crank phases.
+ *
+ * `crankEpochStep` advances the lifecycle by ONE step. Distribution is one tx
+ * per `batchSize` gateways and the post-distribution compound sweep is one tx
+ * per 6 delegations, so at one step per cycle those became one tx per CYCLE.
+ * On staging (617 gateways, 542 delegations, ~60s cycles) a single rollover
+ * spent ~42 minutes distributing, and compound — which is sequenced
+ * immediately before "create the next epoch" — would have added ~91 more,
+ * leaving the next epoch over two hours late.
+ */
+function makeDrainCranker(
+  step: () => Promise<any>,
+  overrides: Partial<EpochCrankerConfig> = {},
+): { cranker: EpochCranker; calls: number[] } {
+  const calls: number[] = [];
+  const contract: any = {
+    crankEpochStep: async () => {
+      calls.push(Date.now());
+      return step();
+    },
+  };
+  const config: EpochCrankerConfig = {
+    contract: contract as any,
+    rpc: {} as any,
+    signer: {} as any,
+    pollIntervalMs: 1000,
+    batchSize: 15,
+    closeEpochs: false,
+    enableCleanup: false,
+    log: noopLog,
+    getEpochSettings: async () => ({
+      currentEpochIndex: 5,
+      genesisTimestamp: 0,
+      epochDuration: 100,
+      enabled: true,
+    }),
+    ...overrides,
+  };
+  return { cranker: new EpochCranker(config), calls };
+}
+
+const runCycle = (c: EpochCranker) => (c as any).runCycle();
+
+describe('EpochCranker — draining multi-batch phases', () => {
+  it('keeps stepping until idle instead of one step per cycle', async () => {
+    let n = 0;
+    const { cranker, calls } = makeDrainCranker(async () => {
+      if (n >= 5) return { action: 'idle', reason: 'epoch_complete' };
+      n += 1;
+      return {
+        action: 'distribute',
+        epochIndex: 4,
+        txId: `tx${n}`,
+        progress: { index: n * 15, total: 75 },
+      };
+    });
+    await runCycle(cranker);
+    expect(calls.length).to.equal(
+      6,
+      '5 batches + the idle that ends the drain',
+    );
+  });
+
+  it('drains a compound sweep, whose progress shrinks `total` rather than advancing `index`', async () => {
+    // compound reports {index: batchSize, total: remaining}: `index` is
+    // constant at 6 while `total` falls. A progress check watching only
+    // `index` would read that as no progress and stop after ONE batch,
+    // reintroducing the bug in a subtler form.
+    let remaining = 30;
+    const { cranker, calls } = makeDrainCranker(async () => {
+      if (remaining <= 0) return { action: 'idle', reason: 'epoch_complete' };
+      remaining -= 6;
+      return {
+        action: 'compound',
+        txId: 'c',
+        progress: { index: 6, total: remaining + 6 },
+      };
+    });
+    await runCycle(cranker);
+    expect(calls.length).to.equal(6, '5 batches + idle');
+  });
+
+  it('stops when a step repeats with no progress, rather than firing the whole budget', async () => {
+    const { cranker, calls } = makeDrainCranker(async () => ({
+      action: 'distribute',
+      epochIndex: 4,
+      txId: 'stuck',
+      progress: { index: 15, total: 600 },
+    }));
+    await runCycle(cranker);
+    expect(calls.length).to.equal(
+      2,
+      'one step, one identical repeat, then stop',
+    );
+  });
+
+  it('respects the per-cycle step budget', async () => {
+    let i = 0;
+    const { cranker, calls } = makeDrainCranker(
+      async () => {
+        i += 1;
+        return {
+          action: 'distribute',
+          epochIndex: 4,
+          txId: `t${i}`,
+          progress: { index: i, total: 10_000 },
+        };
+      },
+      { maxCrankStepsPerCycle: 7 },
+    );
+    await runCycle(cranker);
+    expect(calls.length).to.equal(7, 'never exceeds maxCrankStepsPerCycle');
+  });
+
+  it('ends the drain when a step throws', async () => {
+    let i = 0;
+    const { cranker, calls } = makeDrainCranker(async () => {
+      i += 1;
+      if (i === 3) throw new Error('AnchorError. Error Number: 9999.');
+      return {
+        action: 'distribute',
+        epochIndex: 4,
+        txId: `t${i}`,
+        progress: { index: i, total: 100 },
+      };
+    });
+    await runCycle(cranker);
+    expect(calls.length).to.equal(3, 'stops at the throwing step');
+  });
+});
