@@ -417,6 +417,8 @@ const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
       cleanupBatchSize: config.CLEANUP_BATCH_SIZE,
       maxCleanupTxsPerCycle: config.MAX_CLEANUP_TXS_PER_CYCLE,
       cleanupToReturnedTxsPerCycle: config.CLEANUP_TO_RETURNED_TXS_PER_CYCLE,
+      maxCrankStepsPerCycle: config.MAX_CRANK_STEPS_PER_CYCLE,
+      maxCrankStepMs: config.MAX_CRANK_STEP_MS,
       cleanupFailureThreshold: config.CLEANUP_FAILURE_THRESHOLD,
       altReclaimScanLimit: config.ALT_RECLAIM_SCAN_LIMIT,
       cleanupMinIntervalMs,

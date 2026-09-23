@@ -239,3 +239,186 @@ describe('EpochCranker cleanup continuity floor', () => {
     expect(counters.closeObservationCalls).to.have.length(0);
   });
 });
+
+/**
+ * Draining multi-batch crank phases.
+ *
+ * `crankEpochStep` advances the lifecycle by ONE step. Distribution is one tx
+ * per `batchSize` gateways and the post-distribution compound sweep is one tx
+ * per 6 delegations, so at one step per cycle those became one tx per CYCLE.
+ * On staging (617 gateways, 542 delegations, ~60s cycles) a single rollover
+ * spent ~42 minutes distributing, and compound — which is sequenced
+ * immediately before "create the next epoch" — would have added ~91 more,
+ * leaving the next epoch over two hours late.
+ */
+function makeDrainCranker(
+  step: () => Promise<any>,
+  overrides: Partial<EpochCrankerConfig> = {},
+): { cranker: EpochCranker; calls: number[] } {
+  const calls: number[] = [];
+  const contract: any = {
+    crankEpochStep: async () => {
+      calls.push(Date.now());
+      return step();
+    },
+  };
+  const config: EpochCrankerConfig = {
+    contract: contract as any,
+    rpc: {} as any,
+    signer: {} as any,
+    pollIntervalMs: 1000,
+    batchSize: 15,
+    closeEpochs: false,
+    enableCleanup: false,
+    log: noopLog,
+    getEpochSettings: async () => ({
+      currentEpochIndex: 5,
+      genesisTimestamp: 0,
+      epochDuration: 100,
+      enabled: true,
+    }),
+    ...overrides,
+  };
+  return { cranker: new EpochCranker(config), calls };
+}
+
+// `runCycle` is reached directly here, bypassing start()/tick(). The drain
+// loop honours `running` so that stop() halts it promptly, so these harnesses
+// must set it the way a live cranker would.
+const runCycle = (c: EpochCranker) => {
+  (c as any).running = true;
+  return (c as any).runCycle();
+};
+
+describe('EpochCranker — draining multi-batch phases', () => {
+  it('keeps stepping until idle instead of one step per cycle', async () => {
+    let n = 0;
+    const { cranker, calls } = makeDrainCranker(async () => {
+      if (n >= 5) return { action: 'idle', reason: 'epoch_complete' };
+      n += 1;
+      return {
+        action: 'distribute',
+        epochIndex: 4,
+        txId: `tx${n}`,
+        progress: { index: n * 15, total: 75 },
+      };
+    });
+    await runCycle(cranker);
+    expect(calls.length).to.equal(
+      6,
+      '5 batches + the idle that ends the drain',
+    );
+  });
+
+  it('drains a compound sweep, whose progress shrinks `total` rather than advancing `index`', async () => {
+    // compound reports {index: batchSize, total: remaining}: `index` is
+    // constant at 6 while `total` falls. A progress check watching only
+    // `index` would read that as no progress and stop after ONE batch,
+    // reintroducing the bug in a subtler form.
+    let remaining = 30;
+    const { cranker, calls } = makeDrainCranker(async () => {
+      if (remaining <= 0) return { action: 'idle', reason: 'epoch_complete' };
+      remaining -= 6;
+      return {
+        action: 'compound',
+        txId: 'c',
+        progress: { index: 6, total: remaining + 6 },
+      };
+    });
+    await runCycle(cranker);
+    expect(calls.length).to.equal(6, '5 batches + idle');
+  });
+
+  it('stops when a step repeats with no progress, rather than firing the whole budget', async () => {
+    const { cranker, calls } = makeDrainCranker(async () => ({
+      action: 'distribute',
+      epochIndex: 4,
+      txId: 'stuck',
+      progress: { index: 15, total: 600 },
+    }));
+    await runCycle(cranker);
+    expect(calls.length).to.equal(
+      2,
+      'one step, one identical repeat, then stop',
+    );
+  });
+
+  it('respects the per-cycle step budget', async () => {
+    let i = 0;
+    const { cranker, calls } = makeDrainCranker(
+      async () => {
+        i += 1;
+        return {
+          action: 'distribute',
+          epochIndex: 4,
+          txId: `t${i}`,
+          progress: { index: i, total: 10_000 },
+        };
+      },
+      { maxCrankStepsPerCycle: 7 },
+    );
+    await runCycle(cranker);
+    expect(calls.length).to.equal(7, 'never exceeds maxCrankStepsPerCycle');
+  });
+
+  it('stops stepping once the wall-clock deadline has passed', async () => {
+    // The ms budget, not the step count, is what usually binds: each step is a
+    // confirmed transaction. With a 1ms budget the first step still runs (the
+    // deadline is checked before it), and the loop then exits rather than
+    // interrupting anything in flight.
+    let i = 0;
+    const { cranker, calls } = makeDrainCranker(
+      async () => {
+        i += 1;
+        await new Promise((r) => setTimeout(r, 5));
+        return {
+          action: 'distribute',
+          epochIndex: 4,
+          txId: `t${i}`,
+          progress: { index: i, total: 10_000 },
+        };
+      },
+      { maxCrankStepMs: 1 },
+    );
+    await runCycle(cranker);
+    expect(calls.length).to.equal(
+      1,
+      'the deadline ends the drain after one step',
+    );
+  });
+
+  it('stops stepping when the cranker is stopped mid-drain', async () => {
+    // Without this the drain would keep submitting for the whole budget after
+    // stop() — up to 50 more transactions during a shutdown or redeploy. A
+    // cycle used to be a single step, so this hazard arrives WITH the drain.
+    let i = 0;
+    const { cranker, calls } = makeDrainCranker(async () => {
+      i += 1;
+      if (i === 2) (cranker as any).running = false;
+      return {
+        action: 'distribute',
+        epochIndex: 4,
+        txId: `t${i}`,
+        progress: { index: i, total: 10_000 },
+      };
+    });
+    await runCycle(cranker);
+    expect(calls.length).to.equal(2, 'no further steps after stop()');
+  });
+
+  it('ends the drain when a step throws', async () => {
+    let i = 0;
+    const { cranker, calls } = makeDrainCranker(async () => {
+      i += 1;
+      if (i === 3) throw new Error('AnchorError. Error Number: 9999.');
+      return {
+        action: 'distribute',
+        epochIndex: 4,
+        txId: `t${i}`,
+        progress: { index: i, total: 100 },
+      };
+    });
+    await runCycle(cranker);
+    expect(calls.length).to.equal(3, 'stops at the throwing step');
+  });
+});
