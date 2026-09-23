@@ -248,7 +248,11 @@ export class EpochCranker {
     let steps = 0;
     let lastFingerprint: string | null = null;
     try {
-      while (steps < maxSteps && Date.now() < deadline) {
+      // `this.running` is re-checked every iteration so stop() halts the drain
+      // promptly. Without it a shutdown mid-drain would keep submitting for up
+      // to the full budget — a regression the drain introduces, since a cycle
+      // used to be a single step.
+      while (this.running && steps < maxSteps && Date.now() < deadline) {
         const result = await ario.crankEpochStep({
           batchSize: this.config.batchSize,
           enableClose: this.config.closeEpochs,

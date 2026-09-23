@@ -282,7 +282,13 @@ function makeDrainCranker(
   return { cranker: new EpochCranker(config), calls };
 }
 
-const runCycle = (c: EpochCranker) => (c as any).runCycle();
+// `runCycle` is reached directly here, bypassing start()/tick(). The drain
+// loop honours `running` so that stop() halts it promptly, so these harnesses
+// must set it the way a live cranker would.
+const runCycle = (c: EpochCranker) => {
+  (c as any).running = true;
+  return (c as any).runCycle();
+};
 
 describe('EpochCranker — draining multi-batch phases', () => {
   it('keeps stepping until idle instead of one step per cycle', async () => {
@@ -353,6 +359,51 @@ describe('EpochCranker — draining multi-batch phases', () => {
     );
     await runCycle(cranker);
     expect(calls.length).to.equal(7, 'never exceeds maxCrankStepsPerCycle');
+  });
+
+  it('stops stepping once the wall-clock deadline has passed', async () => {
+    // The ms budget, not the step count, is what usually binds: each step is a
+    // confirmed transaction. With a 1ms budget the first step still runs (the
+    // deadline is checked before it), and the loop then exits rather than
+    // interrupting anything in flight.
+    let i = 0;
+    const { cranker, calls } = makeDrainCranker(
+      async () => {
+        i += 1;
+        await new Promise((r) => setTimeout(r, 5));
+        return {
+          action: 'distribute',
+          epochIndex: 4,
+          txId: `t${i}`,
+          progress: { index: i, total: 10_000 },
+        };
+      },
+      { maxCrankStepMs: 1 },
+    );
+    await runCycle(cranker);
+    expect(calls.length).to.equal(
+      1,
+      'the deadline ends the drain after one step',
+    );
+  });
+
+  it('stops stepping when the cranker is stopped mid-drain', async () => {
+    // Without this the drain would keep submitting for the whole budget after
+    // stop() — up to 50 more transactions during a shutdown or redeploy. A
+    // cycle used to be a single step, so this hazard arrives WITH the drain.
+    let i = 0;
+    const { cranker, calls } = makeDrainCranker(async () => {
+      i += 1;
+      if (i === 2) (cranker as any).running = false;
+      return {
+        action: 'distribute',
+        epochIndex: 4,
+        txId: `t${i}`,
+        progress: { index: i, total: 10_000 },
+      };
+    });
+    await runCycle(cranker);
+    expect(calls.length).to.equal(2, 'no further steps after stop()');
   });
 
   it('ends the drain when a step throws', async () => {
