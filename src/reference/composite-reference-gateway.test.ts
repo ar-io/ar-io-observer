@@ -49,6 +49,7 @@ describe('CompositeReferenceGateway', function () {
     contentLength: '1000',
     contentType: 'application/octet-stream',
     dataHashDigest: 'hash123',
+    protocol: null,
     timings: null,
   };
 

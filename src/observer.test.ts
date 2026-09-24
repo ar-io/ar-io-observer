@@ -20,12 +20,18 @@ import got from 'got';
 import nock from 'nock';
 import crypto from 'node:crypto';
 import sinon from 'sinon';
+import { CID } from 'multiformats/cid';
+import { sha256 } from 'multiformats/hashes/sha2';
+import * as rawCodec from 'multiformats/codecs/raw';
 
 import { customHashPRNG } from './lib/prng.js';
 import * as metrics from './metrics.js';
 import {
+  assessOwnership,
   generateRandomRanges,
   getArnsResolution,
+  getIpfsRawBlock,
+  isIpfsAssessable,
   Observer,
 } from './observer.js';
 import { ReferenceGatewaySource } from './types.js';
@@ -59,6 +65,49 @@ function createReport(
 }
 
 describe('Observer', function () {
+  describe('isIpfsAssessable', function () {
+    const base = {
+      statusCode: 200,
+      ttlSeconds: '900',
+      contentLength: '1',
+      contentType: 'x',
+      dataHashDigest: null,
+      timings: null,
+    };
+
+    const cid = 'bafkreie2b7epkp5fadjerwtagfme2ukirn7nhoflpe4s43yvnoxtddw4m4';
+
+    it('true when resolvedId is a valid CID, EVEN IF the protocol header is absent', async function () {
+      // The consensused CID is the ground truth; an older pool gateway that omits
+      // x-arns-protocol must not flip a real IPFS name off the trustless path.
+      expect(
+        isIpfsAssessable({ ...base, protocol: null, resolvedId: cid }),
+      ).to.equal(true);
+    });
+
+    it('false when resolvedId is not a CID, even if protocol=ipfs (poisoned reference)', async function () {
+      // A poisoned reference must not flip an Arweave name onto the neutral-capable
+      // IPFS path with a non-CID resolvedId.
+      expect(
+        isIpfsAssessable({
+          ...base,
+          protocol: 'ipfs',
+          resolvedId: 'zt6spBgLNvJ7cMxCVPtRbEnYr7A9zZ1YxtXmefGc7lk',
+        }),
+      ).to.equal(false);
+    });
+
+    it('false for an Arweave name (tx id is not a valid CID)', async function () {
+      expect(
+        isIpfsAssessable({
+          ...base,
+          protocol: 'arweave',
+          resolvedId: 'zt6spBgLNvJ7cMxCVPtRbEnYr7A9zZ1YxtXmefGc7lk',
+        }),
+      ).to.equal(false);
+    });
+  });
+
   describe('getArnsResolution', function () {
     const url = 'https://arnsname.gateway.com';
     const invalidUrl = 'http://invalidhost.invaliddomain';
@@ -107,6 +156,37 @@ describe('Observer', function () {
       expect(result.contentLength).to.equal(String(data.length));
       expect(result.dataHashDigest).to.equal(expectedHash);
       expect(result.timings).to.be.a.string;
+    });
+
+    it('captures the x-arns-protocol header as protocol', async function () {
+      const data = Buffer.alloc(40, 'b').toString();
+      const headers = {
+        'Content-Type': defaultContentType,
+        'x-arns-resolved-id': 'bafyCID',
+        'x-arns-ttl-seconds': defaultArnsTtlSeconds,
+        'x-arns-protocol': 'ipfs',
+        'Content-Length': String(data.length),
+      };
+      nock(url).head('/').reply(200, undefined, headers);
+      nock(url).get('/').reply(200, data, headers);
+
+      const result = await getArnsResolution({ url, got, entropy });
+      expect(result.protocol).to.equal('ipfs');
+    });
+
+    it('defaults protocol to null when the header is absent', async function () {
+      const data = Buffer.alloc(40, 'c').toString();
+      const headers = {
+        'Content-Type': defaultContentType,
+        'x-arns-resolved-id': defaultArnsResolvedId,
+        'x-arns-ttl-seconds': defaultArnsTtlSeconds,
+        'Content-Length': String(data.length),
+      };
+      nock(url).head('/').reply(200, undefined, headers);
+      nock(url).get('/').reply(200, data, headers);
+
+      const result = await getArnsResolution({ url, got, entropy });
+      expect(result.protocol).to.equal(null);
     });
 
     it('should use range requests to hash data for responses over 1MiB', async function () {
@@ -492,6 +572,155 @@ describe('Observer', function () {
       nock.cleanAll();
     });
 
+    describe('IPFS protocol awareness (Phase 1)', function () {
+      it('assessOwnership reports supportsIpfs=true from /ar-io/info', async function () {
+        nock('https://gw-ipfs.example.com')
+          .get('/ar-io/info')
+          .reply(200, { wallet: 'WALLET', ipfs: { enabled: true } });
+        const result = await assessOwnership({
+          host: 'gw-ipfs.example.com',
+          expectedWallets: ['WALLET'],
+        });
+        expect(result.pass).to.equal(true);
+        expect(result.supportsIpfs).to.equal(true);
+      });
+
+      it('assessOwnership reports supportsIpfs=false when ipfs is absent', async function () {
+        nock('https://gw-plain.example.com')
+          .get('/ar-io/info')
+          .reply(200, { wallet: 'WALLET' });
+        const result = await assessOwnership({
+          host: 'gw-plain.example.com',
+          expectedWallets: ['WALLET'],
+        });
+        expect(result.supportsIpfs).to.equal(false);
+      });
+    });
+
+    describe('IPFS trustless verification (Phase 2)', function () {
+      const entropy = Buffer.from('e');
+      const host = 'gw.example.com';
+      const arnsName = 'ipfsname';
+
+      const setReferenceCid = (cid: string | null) => {
+        (observer as any).referenceGatewayResolutionCache = {
+          get: async () => ({
+            statusCode: 200,
+            resolvedId: cid,
+            ttlSeconds: '900',
+            contentLength: '10',
+            contentType: 'application/octet-stream',
+            dataHashDigest: null,
+            protocol: 'ipfs',
+            timings: null,
+          }),
+        };
+      };
+
+      const rawCidFor = async (bytes: Uint8Array) =>
+        CID.create(1, rawCodec.code, await sha256.digest(bytes)).toString();
+
+      it('PASSES when the gateway serves a raw block that verifies against the CID', async function () {
+        const bytes = Buffer.from('trustless ipfs bytes');
+        const cid = await rawCidFor(bytes);
+        setReferenceCid(cid);
+        nock(`https://${arnsName}.${host}`)
+          .get('/?format=raw')
+          .reply(200, bytes, {
+            'content-type': 'application/vnd.ipld.raw',
+            'x-arns-resolved-id': cid,
+          });
+
+        const result = await observer.assessArnsName({
+          host,
+          arnsName,
+          entropy,
+        });
+
+        expect(result.outcome).to.equal('pass');
+        expect(result.pass).to.equal(true);
+        expect(result.protocol).to.equal('ipfs');
+      });
+
+      it('FAILS when the gateway agrees on the CID but serves non-matching bytes', async function () {
+        const cid = await rawCidFor(Buffer.from('the real content'));
+        setReferenceCid(cid);
+        nock(`https://${arnsName}.${host}`)
+          .get('/?format=raw')
+          .reply(200, Buffer.from('tampered content'), {
+            'content-type': 'application/vnd.ipld.raw',
+            'x-arns-resolved-id': cid, // gateway agrees on the binding
+          });
+
+        const result = await observer.assessArnsName({
+          host,
+          arnsName,
+          entropy,
+        });
+
+        expect(result.outcome).to.equal('fail');
+        expect(result.pass).to.equal(false);
+      });
+
+      it('scores NEUTRAL (not fail) when the gateway does not serve the block', async function () {
+        // A non-IPFS gateway routes the CID down its Arweave path and 404s —
+        // availability is not proof of misbehaviour, so it is neutral.
+        const cid = await rawCidFor(Buffer.from('x'));
+        setReferenceCid(cid);
+        nock(`https://${arnsName}.${host}`).get('/?format=raw').reply(404);
+
+        const result = await observer.assessArnsName({
+          host,
+          arnsName,
+          entropy,
+        });
+
+        expect(result.outcome).to.equal('neutral');
+        expect(result.resolvedStatusCode).to.equal(404);
+      });
+
+      it('FAILS when served bytes do not match the reference CID, even if the gateway self-reports a matching CID', async function () {
+        // The gateway serves bytes that do not hash to the reference CID and echoes
+        // a CID it minted from those very bytes. That "self-consistent" proof means
+        // nothing (the gateway controls both), so it must be FAIL — trusting the
+        // gateway's own resolvedId would let any garbage dodge to neutral.
+        const cidRef = await rawCidFor(Buffer.from('old content'));
+        const servedBytes = Buffer.from('attacker content');
+        const cidSelf = await rawCidFor(servedBytes);
+        setReferenceCid(cidRef);
+        nock(`https://${arnsName}.${host}`)
+          .get('/?format=raw')
+          .reply(200, servedBytes, {
+            'content-type': 'application/vnd.ipld.raw',
+            'x-arns-resolved-id': cidSelf,
+          });
+
+        const result = await observer.assessArnsName({
+          host,
+          arnsName,
+          entropy,
+        });
+
+        expect(result.outcome).to.equal('fail');
+        expect(result.pass).to.equal(false);
+      });
+
+      it('getIpfsRawBlock returns bytes:null on timeout instead of hanging', async function () {
+        nock('https://slow.example.com')
+          .get('/?format=raw')
+          .delay(300)
+          .reply(200, Buffer.from('too late'));
+
+        const result = await getIpfsRawBlock({
+          url: 'https://slow.example.com/?format=raw',
+          got,
+          timeoutMs: 50,
+        });
+
+        expect(result.bytes).to.equal(null);
+      });
+    });
+
     describe('calculateFailureRate', function () {
       it('should return 0 for empty report', function () {
         const report: ObserverReport = createReport({
@@ -500,6 +729,55 @@ describe('Observer', function () {
 
         const failureRate = (observer as any).calculateFailureRate(report);
         expect(failureRate).to.equal(0);
+      });
+
+      it('excludes neutral names from the failure rate (numerator and denominator)', function () {
+        // ownership passes; one name is NEUTRAL and one FAILS. Neutral must be
+        // dropped from both counts: graded = ownership + failing = 2, failed = 1
+        // => 0.5. If neutral were (wrongly) counted as a failure it would be
+        // 2/3 ≈ 0.667.
+        const report: ObserverReport = createReport({
+          gatewayAssessments: {
+            'gw.com': {
+              ownershipAssessment: {
+                expectedWallets: ['w'],
+                observedWallet: 'w',
+                pass: true,
+              },
+              arnsAssessments: {
+                prescribedNames: {
+                  ipfsNeutral: {
+                    pass: false,
+                    outcome: 'neutral',
+                    assessedAt: 100,
+                    expectedId: 'bafyCID',
+                    resolvedId: null,
+                    expectedDataHash: null,
+                    resolvedDataHash: null,
+                    protocol: 'ipfs',
+                    failureReason: 'neutral: gateway does not support IPFS',
+                  },
+                  arweaveFail: {
+                    pass: false,
+                    outcome: 'fail',
+                    assessedAt: 100,
+                    expectedId: 'id1',
+                    resolvedId: 'id2',
+                    expectedDataHash: null,
+                    resolvedDataHash: null,
+                    failureReason: 'resolvedId mismatch',
+                  },
+                },
+                chosenNames: {},
+                pass: false,
+              },
+              pass: false,
+            },
+          },
+        });
+
+        const failureRate = (observer as any).calculateFailureRate(report);
+        expect(failureRate).to.equal(0.5);
       });
 
       it('should calculate correct failure rate for single gateway', function () {
