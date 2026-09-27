@@ -280,6 +280,15 @@ export class EpochCranker {
           pruneToReturnedTxsPerCycle: this.config.cleanupToReturnedTxsPerCycle,
           enablePruneExpired: this.config.enableCleanup !== false,
           pruneExpiredBatchSize: this.config.cleanupBatchSize,
+          // Gateway lifecycle (ar-io/ar-io-sdk#756). finalize_gone runs in the
+          // window between distribution and create_epoch, the only time
+          // ADR-0036 allows it. The delegate sweep moves delegations off
+          // leaving and delegation-disabled gateways into their delegates'
+          // withdrawal vaults during the observation window; it pays each
+          // vault's rent and pauses below the SDK's SOL floor, so it can't
+          // starve create_epoch. Same cleanup gate as the steps above.
+          enableFinalizeGone: this.config.enableCleanup !== false,
+          enableDelegateSweep: this.config.enableCleanup !== false,
         });
         action = result.action;
         steps += 1;
@@ -404,7 +413,12 @@ export class EpochCranker {
     // gate that stranded imported returned names. Removed from runCleanup so
     // there's a single source of truth — see the crankEpochStep call in runCycle.
 
-    // Phase 3: Deficient gateways → prune_gateway, plus Gone gateways → finalize_gone.
+    // Phase 3: Deficient gateways → prune_gateway.
+    //
+    // finalize_gone is NOT here. ADR-0036 lets it succeed only between an
+    // epoch's distribution and the next epoch's creation, and cleanup runs only
+    // mid-epoch, so every call here returned 6102. crankEpochStep finalizes
+    // departed gateways inside that window instead (ar-io/ar-io-sdk#756).
     if (budget.remaining > 0) {
       try {
         const deficient = await ario.getDeficientGateways(failureThreshold);
@@ -423,30 +437,6 @@ export class EpochCranker {
         }
       } catch (err) {
         this.handleError(err, 'cleanup_deficient_gateways_scan');
-      }
-    }
-    if (budget.remaining > 0) {
-      try {
-        // Only gateways whose leave window has elapsed AND have no remaining
-        // delegated stake are actually finalize_gone-able. getGoneGateways()
-        // over-returns every Leaving gateway, so finalizing per result reverts
-        // (LeaveWindowNotExpired / 6079) on every not-yet-eligible one each
-        // cycle — pure noise. getFinalizableGoneGateways(now) pre-filters to the
-        // on-chain eligibility conditions. Requires @ar.io/sdk with
-        // ar-io/ar-io-sdk#685.
-        const gone = await ario.getFinalizableGoneGateways(now);
-        for (const g of gone) {
-          if (budget.remaining <= 0) break;
-          try {
-            await ario.finalizeGone({ gateway: g.operator });
-            budget.remaining--;
-            log.info('Finalized gone gateway', { operator: g.operator });
-          } catch (err) {
-            this.handleError(err, 'finalize_gone');
-          }
-        }
-      } catch (err) {
-        this.handleError(err, 'cleanup_gone_gateways_scan');
       }
     }
 
