@@ -66,7 +66,6 @@ function makeCranker(opts: {
     getExpiredReturnedNames: async () => [],
     // Phase 3
     getDeficientGateways: async () => [],
-    getFinalizableGoneGateways: async () => [],
     // Phase 4 — the unit under test.
     getEpochRaw: async (epochIndex: number) => {
       counters.getEpochRawCalls.push(epochIndex);
@@ -420,5 +419,61 @@ describe('EpochCranker — draining multi-batch phases', () => {
     });
     await runCycle(cranker);
     expect(calls.length).to.equal(3, 'stops at the throwing step');
+  });
+});
+
+/**
+ * Gateway lifecycle hand-off to the SDK (ar-io/ar-io-sdk#756). ADR-0036 lets
+ * finalize_gone succeed only between distribution and create_epoch, and
+ * cleanup runs only mid-epoch, so the cleanup call could never succeed.
+ */
+describe('EpochCranker — gateway lifecycle is left to crankEpochStep', () => {
+  it('cleanup never calls finalize_gone, even with finalizable gateways', async () => {
+    const { cranker } = makeCranker({
+      existingEpochs: new Set(),
+      observerAddrs: [],
+    });
+    const contract = (cranker as any).config.contract;
+    let finalizeCalls = 0;
+    let finalizableScans = 0;
+    contract.getFinalizableGoneGateways = async () => {
+      finalizableScans++;
+      return [{ pubkey: 'p', operator: 'gone-operator' }];
+    };
+    contract.finalizeGone = async () => {
+      finalizeCalls++;
+      return { id: 'sig' };
+    };
+    await runCleanup(cranker, 470);
+    expect(finalizeCalls).to.equal(0);
+    expect(finalizableScans).to.equal(0);
+  });
+
+  const passedOpts = async (enableCleanup: boolean | undefined) => {
+    const seen: any[] = [];
+    const { cranker } = makeDrainCranker(async () => ({
+      action: 'idle',
+      reason: 'waiting_for_observations',
+    }));
+    const contract = (cranker as any).config.contract;
+    contract.crankEpochStep = async (o: any) => {
+      seen.push(o);
+      return { action: 'idle', reason: 'waiting_for_observations' };
+    };
+    (cranker as any).config.enableCleanup = enableCleanup;
+    await runCycle(cranker);
+    return seen[0];
+  };
+
+  it('turns on finalize_gone and the delegate sweep in crankEpochStep by default', async () => {
+    const o = await passedOpts(undefined);
+    expect(o.enableFinalizeGone).to.equal(true);
+    expect(o.enableDelegateSweep).to.equal(true);
+  });
+
+  it('turns both off when cleanup is disabled', async () => {
+    const o = await passedOpts(false);
+    expect(o.enableFinalizeGone).to.equal(false);
+    expect(o.enableDelegateSweep).to.equal(false);
   });
 });
