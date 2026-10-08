@@ -527,6 +527,8 @@ export class ContinuousObserver {
       sampleRate: offsetObservation.config.sampleRate,
       selectedCount: this.state.offsetAssessmentGateways.size,
       enforcementEnabled: offsetObservation.config.enforcementEnabled,
+      // Lets anyone recompute the sample and check observers agree.
+      offsetEntropy: this.offsetEntropy.toString('hex'),
       selectedGateways: [...this.state.offsetAssessmentGateways].sort(),
     });
   }
