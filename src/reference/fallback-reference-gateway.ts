@@ -66,6 +66,29 @@ export class FallbackReferenceGateway implements ReferenceGatewaySource {
   }
 
   /**
+   * Reference hosts usable for a lookup, minus any excluded FQDNs.
+   *
+   * Callers pass the gateway being observed so it is never compared
+   * against itself. Throws when every host is excluded so that
+   * `CompositeReferenceGateway` can fall back to the network.
+   */
+  private eligibleHosts(excludeFqdns: string[] | undefined): string[] {
+    if (excludeFqdns === undefined || excludeFqdns.length === 0) {
+      return this.hosts;
+    }
+    const excluded = new Set(excludeFqdns.map((fqdn) => fqdn.toLowerCase()));
+    const hosts = this.hosts.filter(
+      (host) => !excluded.has(host.toLowerCase()),
+    );
+    if (hosts.length === 0) {
+      throw new Error(
+        'No reference gateway hosts left after excluding the observed gateway',
+      );
+    }
+    return hosts;
+  }
+
+  /**
    * Try an operation with sequential fallback across hosts.
    *
    * @param operation Function that takes a host and returns a result
@@ -73,13 +96,14 @@ export class FallbackReferenceGateway implements ReferenceGatewaySource {
    * @returns The result from the first successful host
    */
   private async tryWithFallback<T>(
+    hosts: string[],
     operation: (host: string) => Promise<T>,
     operationName: string,
   ): Promise<{ host: string; result: T }> {
     let lastError: Error | undefined;
 
-    for (let i = 0; i < this.hosts.length; i++) {
-      const host = this.hosts[i];
+    for (let i = 0; i < hosts.length; i++) {
+      const host = hosts[i];
 
       try {
         const result = await operation(host);
@@ -90,15 +114,15 @@ export class FallbackReferenceGateway implements ReferenceGatewaySource {
         this.log.debug(`${operationName} failed on host, trying fallback`, {
           host,
           hostIndex: i,
-          totalHosts: this.hosts.length,
+          totalHosts: hosts.length,
           error: error?.message?.slice(0, 256),
         });
 
         // Increment fallback counter when falling back to the next host
-        if (i + 1 < this.hosts.length) {
+        if (i + 1 < hosts.length) {
           metrics.referenceGatewayFallbackCounter.inc({
             operation: operationName,
-            host: this.hosts[i + 1],
+            host: hosts[i + 1],
           });
         }
       }
@@ -119,23 +143,29 @@ export class FallbackReferenceGateway implements ReferenceGatewaySource {
     arnsName: string;
     entropy: Buffer;
     referenceContentLength?: string | null;
+    excludeFqdns?: string[];
   }): Promise<{ host: string; resolution: ArnsResolution }> {
     const { arnsName, entropy, referenceContentLength } = params;
+    const hosts = this.eligibleHosts(params.excludeFqdns);
 
-    const { host, result } = await this.tryWithFallback(async (host) => {
-      const url = `https://${arnsName}.${host}/`;
+    const { host, result } = await this.tryWithFallback(
+      hosts,
+      async (host) => {
+        const url = `https://${arnsName}.${host}/`;
 
-      const resolution = await getArnsResolution({
-        url,
-        got: this.gotClient,
-        referenceGatewayContentLength: referenceContentLength,
-        entropy,
-      });
+        const resolution = await getArnsResolution({
+          url,
+          got: this.gotClient,
+          referenceGatewayContentLength: referenceContentLength,
+          entropy,
+        });
 
-      validateArnsResolutionHeaders(resolution, host, arnsName);
+        validateArnsResolutionHeaders(resolution, host, arnsName);
 
-      return resolution;
-    }, 'getArnsResolution');
+        return resolution;
+      },
+      'getArnsResolution',
+    );
 
     return { host, resolution: result };
   }
@@ -149,12 +179,14 @@ export class FallbackReferenceGateway implements ReferenceGatewaySource {
    */
   async checkChunkAvailability(params: {
     offset: number;
+    excludeFqdns?: string[];
   }): Promise<{ host: string; available: boolean }> {
     const { offset } = params;
+    const hosts = this.eligibleHosts(params.excludeFqdns);
     let lastError: Error | undefined;
 
-    for (let i = 0; i < this.hosts.length; i++) {
-      const host = this.hosts[i];
+    for (let i = 0; i < hosts.length; i++) {
+      const host = hosts[i];
       const url = `https://${host}/chunk/${offset}`;
 
       this.log.debug('Checking chunk availability', {
@@ -204,16 +236,16 @@ export class FallbackReferenceGateway implements ReferenceGatewaySource {
         this.log.debug('Chunk availability check failed, trying fallback', {
           host,
           hostIndex: i,
-          totalHosts: this.hosts.length,
+          totalHosts: hosts.length,
           statusCode,
           error: error?.message?.slice(0, 256),
         });
 
         // Increment fallback counter when falling back to the next host
-        if (i + 1 < this.hosts.length) {
+        if (i + 1 < hosts.length) {
           metrics.referenceGatewayFallbackCounter.inc({
             operation: 'checkChunkAvailability',
-            host: this.hosts[i + 1],
+            host: hosts[i + 1],
           });
         }
       }
@@ -239,8 +271,10 @@ export class FallbackReferenceGateway implements ReferenceGatewaySource {
    */
   async getChunkMetadata(params: {
     offset: number;
+    excludeFqdns?: string[];
   }): Promise<{ host: string; metadata: ChunkHeaderMetadata | null }> {
     const { offset } = params;
+    const hosts = this.eligibleHosts(params.excludeFqdns);
     let lastError: Error | undefined;
     // Track the most recent host that produced any HTTP response (200
     // without headers, 404, 410, etc.) so we can return metadata:null
@@ -249,16 +283,16 @@ export class FallbackReferenceGateway implements ReferenceGatewaySource {
     let lastReachableHost: string | undefined;
 
     const incrementFallbackCounter = (nextHostIndex: number) => {
-      if (nextHostIndex < this.hosts.length) {
+      if (nextHostIndex < hosts.length) {
         metrics.referenceGatewayFallbackCounter.inc({
           operation: 'getChunkMetadata',
-          host: this.hosts[nextHostIndex],
+          host: hosts[nextHostIndex],
         });
       }
     };
 
-    for (let i = 0; i < this.hosts.length; i++) {
-      const host = this.hosts[i];
+    for (let i = 0; i < hosts.length; i++) {
+      const host = hosts[i];
       const url = `https://${host}/chunk/${offset}/data`;
 
       this.log.debug('Fetching chunk metadata headers', { host, offset, url });
@@ -283,7 +317,7 @@ export class FallbackReferenceGateway implements ReferenceGatewaySource {
         // chunk metadata headers (older deployment). Try the next host.
         this.log.debug(
           'Chunk metadata headers missing or malformed, trying fallback',
-          { host, offset, hostIndex: i, totalHosts: this.hosts.length },
+          { host, offset, hostIndex: i, totalHosts: hosts.length },
         );
         lastReachableHost = host;
         incrementFallbackCounter(i + 1);
@@ -308,7 +342,7 @@ export class FallbackReferenceGateway implements ReferenceGatewaySource {
         this.log.debug('Chunk metadata fetch failed, trying fallback', {
           host,
           hostIndex: i,
-          totalHosts: this.hosts.length,
+          totalHosts: hosts.length,
           statusCode,
           error: error?.message?.slice(0, 256),
         });

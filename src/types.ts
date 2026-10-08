@@ -117,19 +117,30 @@ export interface ChunkHeaderMetadata {
   chunkRelativeStartOffset: bigint;
 }
 
+/**
+ * A source of reference answers that observed gateways are compared with.
+ *
+ * Every lookup takes an optional `excludeFqdns`. Callers pass the gateway
+ * under observation so it is never used as its own reference. Exclusion is
+ * per call rather than stored on the source, because one source serves many
+ * concurrent assessments.
+ */
 export interface ReferenceGatewaySource {
   getArnsResolution(params: {
     arnsName: string;
     entropy: Buffer;
     referenceContentLength?: string | null;
+    excludeFqdns?: string[];
   }): Promise<{ host: string; resolution: ArnsResolution }>;
 
   checkChunkAvailability(params: {
     offset: number;
+    excludeFqdns?: string[];
   }): Promise<{ host: string; available: boolean }>;
 
   getChunkMetadata(params: {
     offset: number;
+    excludeFqdns?: string[];
   }): Promise<{ host: string; metadata: ChunkHeaderMetadata | null }>;
 }
 
@@ -303,9 +314,4 @@ export interface ArnsConsensusResolver {
     excludeFqdns?: string[];
     referenceContentLength?: string | null;
   }): Promise<{ host: string; resolution: ArnsResolution }>;
-}
-
-export interface CompositeReferenceGatewaySource
-  extends ReferenceGatewaySource {
-  setObservedGateway(fqdn: string | null): void;
 }
