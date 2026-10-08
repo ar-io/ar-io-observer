@@ -15,7 +15,6 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { ReadThroughPromiseCache } from '@ardrive/ardrive-promise-cache';
 import { validatePath } from 'arweave/node/lib/merkle.js';
 import got, { Got, RequestError, Response } from 'got';
 import { LRUCache } from 'lru-cache';
@@ -38,6 +37,7 @@ import {
 } from './lib/tx-path-parser.js';
 import log from './log.js';
 import * as metrics from './metrics.js';
+import { ReferenceResolutionCache } from './reference/reference-resolution-cache.js';
 
 import {
   ArnsNameAssessment,
@@ -344,10 +344,7 @@ export class Observer {
   private entropySource: EntropySource;
   private heightSource: HeightSource;
   private gotClient: Got;
-  private referenceGatewayResolutionCache?: ReadThroughPromiseCache<
-    string,
-    ArnsResolution
-  >;
+  private referenceGatewayResolutionCache?: ReferenceResolutionCache;
   // Caches for binary search data to avoid repeated API calls
   // LRU caches to prevent memory issues - store minimal data only
   // Optimized sizes: since we use the same maxStableOffset across all gateways,
@@ -1205,14 +1202,20 @@ export class Observer {
    * existing chain-search path. The reference gateway's headers are
    * never trusted over the chain.
    */
-  private async resolveTxBoundsViaReferenceHeaders(offset: number): Promise<{
+  private async resolveTxBoundsViaReferenceHeaders(
+    offset: number,
+    targetHost: string,
+  ): Promise<{
     effectiveDataRoot: Uint8Array;
     txStartOffset: number;
     txEndOffset: number;
   } | null> {
     let metadata: ChunkHeaderMetadata | null;
     try {
-      const result = await this.referenceGateway.getChunkMetadata({ offset });
+      const result = await this.referenceGateway.getChunkMetadata({
+        offset,
+        excludeFqdns: [targetHost],
+      });
       metadata = result.metadata;
     } catch (error: any) {
       log.debug('Reference chunk metadata fetch failed', {
@@ -1425,6 +1428,7 @@ export class Observer {
   }> {
     const headerResult = await this.resolveTxBoundsViaReferenceHeaders(
       params.offset,
+      params.targetHost,
     );
     if (headerResult !== null) {
       return headerResult;
@@ -1521,7 +1525,10 @@ export class Observer {
               });
 
               const { host: referenceHost, available } =
-                await this.referenceGateway.checkChunkAvailability({ offset });
+                await this.referenceGateway.checkChunkAvailability({
+                  offset,
+                  excludeFqdns: [targetHost],
+                });
 
               log.debug('Reference gateway chunk check completed', {
                 targetHost,
@@ -1889,8 +1896,10 @@ export class Observer {
       throw new Error('Reference gateway resolution cache not set');
     }
 
-    const referenceResolution =
-      await this.referenceGatewayResolutionCache.get(arnsName);
+    const referenceResolution = await this.referenceGatewayResolutionCache.get(
+      arnsName,
+      host,
+    );
 
     const arnsResolutionTimer = metrics.arnsResolutionHistogram.startTimer();
     const gatewayResolution = await getArnsResolution({
@@ -2069,21 +2078,13 @@ export class Observer {
       });
     }
 
-    this.referenceGatewayResolutionCache = new ReadThroughPromiseCache<
-      string,
-      ArnsResolution
-    >({
-      cacheParams: {
-        cacheCapacity: prescribedNames.length + chosenNames.length,
-        cacheTTL: 5 * 60_000, // 5 minutes
-      },
-      readThroughFunction: async (name: string) => {
-        const { resolution } = await this.referenceGateway.getArnsResolution({
-          arnsName: name,
-          entropy,
-        });
-        return resolution;
-      },
+    this.referenceGatewayResolutionCache = new ReferenceResolutionCache({
+      referenceGateway: this.referenceGateway,
+      entropy,
+      // Shared entry per name plus entries for observed reference gateways
+      capacity: (prescribedNames.length + chosenNames.length) * 2,
+      ttlMs: 5 * 60_000, // 5 minutes
+      log,
     });
 
     await pMap(

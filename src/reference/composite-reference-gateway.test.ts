@@ -379,18 +379,9 @@ describe('CompositeReferenceGateway', function () {
     });
   });
 
-  describe('setObservedGateway', function () {
-    it('should exclude observed gateway from consensus resolution', async function () {
-      (mockExplicitGateway.getArnsResolution as sinon.SinonStub).rejects(
-        new Error('Explicit gateway failed'),
-      );
-
-      (mockConsensusResolver.resolveWithConsensus as sinon.SinonStub).resolves({
-        host: 'network1.example.com',
-        resolution: defaultResolution,
-      });
-
-      const gateway = new CompositeReferenceGateway({
+  describe('excludeFqdns', function () {
+    const createComposite = () =>
+      new CompositeReferenceGateway({
         explicitGateway: mockExplicitGateway,
         networkGatewaySource: mockNetworkGatewaySource,
         consensusResolver: mockConsensusResolver,
@@ -400,20 +391,103 @@ describe('CompositeReferenceGateway', function () {
         log: logStub,
       });
 
-      gateway.setObservedGateway('observed.example.com');
-
-      await gateway.getArnsResolution({
-        arnsName: 'testname',
-        entropy,
+    it('forwards the exclusion to the explicit gateway', async function () {
+      (mockExplicitGateway.getArnsResolution as sinon.SinonStub).resolves({
+        host: 'explicit2.example.com',
+        resolution: defaultResolution,
       });
 
-      // Consensus resolver should receive excludeFqdns with the observed gateway
+      await createComposite().getArnsResolution({
+        arnsName: 'testname',
+        entropy,
+        excludeFqdns: ['explicit1.example.com'],
+      });
+
+      const explicitCall = (
+        mockExplicitGateway.getArnsResolution as sinon.SinonStub
+      ).firstCall;
+      expect(explicitCall.args[0].excludeFqdns).to.deep.equal([
+        'explicit1.example.com',
+      ]);
+    });
+
+    it('falls back to network consensus, still excluding the observed gateway', async function () {
+      // An explicit source left with no hosts after exclusion throws.
+      (mockExplicitGateway.getArnsResolution as sinon.SinonStub).rejects(
+        new Error('No reference gateway hosts left after excluding'),
+      );
+      (mockConsensusResolver.resolveWithConsensus as sinon.SinonStub).resolves({
+        host: 'network1.example.com',
+        resolution: defaultResolution,
+      });
+
+      const result = await createComposite().getArnsResolution({
+        arnsName: 'testname',
+        entropy,
+        excludeFqdns: ['observed.example.com'],
+      });
+
+      expect(result.host).to.equal('network1.example.com');
       const resolverCall = (
         mockConsensusResolver.resolveWithConsensus as sinon.SinonStub
       ).firstCall;
-      expect(resolverCall.args[0].excludeFqdns).to.include(
+      expect(resolverCall.args[0].excludeFqdns).to.deep.equal([
         'observed.example.com',
+      ]);
+    });
+
+    it('excludes the observed gateway from network chunk checks', async function () {
+      (mockExplicitGateway.checkChunkAvailability as sinon.SinonStub).rejects(
+        new Error('explicit down'),
       );
+      (
+        mockNetworkGatewaySource.getEligibleGateways as sinon.SinonStub
+      ).resolves([createGateway('network1.example.com')]);
+      nock('https://network1.example.com')
+        .get('/chunk/12345')
+        .reply(200, { chunk: 'abc', data_path: 'def' });
+
+      await createComposite().checkChunkAvailability({
+        offset: 12345,
+        excludeFqdns: ['observed.example.com'],
+      });
+
+      const explicitCall = (
+        mockExplicitGateway.checkChunkAvailability as sinon.SinonStub
+      ).firstCall;
+      expect(explicitCall.args[0].excludeFqdns).to.deep.equal([
+        'observed.example.com',
+      ]);
+      const networkCall = (
+        mockNetworkGatewaySource.getEligibleGateways as sinon.SinonStub
+      ).firstCall;
+      expect(networkCall.args[0].excludeFqdns).to.deep.equal([
+        'observed.example.com',
+      ]);
+    });
+
+    it('excludes the observed gateway from network chunk metadata', async function () {
+      (mockExplicitGateway.getChunkMetadata as sinon.SinonStub).rejects(
+        new Error('explicit down'),
+      );
+      (
+        mockNetworkGatewaySource.getEligibleGateways as sinon.SinonStub
+      ).resolves([createGateway('network1.example.com')]);
+      nock('https://network1.example.com')
+        .head('/chunk/12345/data')
+        .reply(200, undefined, completeHeaders);
+
+      await createComposite().getChunkMetadata({
+        offset: 12345,
+        excludeFqdns: ['observed.example.com'],
+      });
+
+      const networkCall = (
+        mockNetworkGatewaySource.getEligibleGateways as sinon.SinonStub
+      ).firstCall;
+      expect(networkCall.args[0].excludeFqdns).to.deep.equal([
+        'observed.example.com',
+      ]);
     });
   });
 

@@ -16,7 +16,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { ReadThroughPromiseCache } from '@ardrive/ardrive-promise-cache';
 import { Got } from 'got';
 import pMap from 'p-map';
 import { Logger } from 'winston';
@@ -24,6 +23,7 @@ import { Logger } from 'winston';
 import { createGatewayHttpClient } from '../lib/http-client.js';
 import * as metrics from '../metrics.js';
 import { assessOwnership, getArnsResolution } from '../observer.js';
+import { ReferenceResolutionCache } from '../reference/reference-resolution-cache.js';
 import {
   ArnsNameAssessment,
   ArnsNameAssessments,
@@ -52,10 +52,7 @@ export class GatewayAssessor {
   private readonly log: Logger;
   private readonly gotClient: Got;
 
-  private referenceResolutionCache?: ReadThroughPromiseCache<
-    string,
-    ArnsResolution
-  >;
+  private referenceResolutionCache?: ReferenceResolutionCache;
   private currentEntropy?: Buffer;
 
   constructor({
@@ -93,21 +90,14 @@ export class GatewayAssessor {
     this.currentEntropy = entropy;
 
     // Create reference resolution cache for this epoch
-    this.referenceResolutionCache = new ReadThroughPromiseCache<
-      string,
-      ArnsResolution
-    >({
-      cacheParams: {
-        cacheCapacity: Math.max(namesCount, 100),
-        cacheTTL: REFERENCE_RESOLUTION_CACHE_TTL_MS,
-      },
-      readThroughFunction: async (arnsName: string) => {
-        const { resolution } = await this.referenceGateway.getArnsResolution({
-          arnsName,
-          entropy: this.currentEntropy!,
-        });
-        return resolution;
-      },
+    // Capacity covers the shared entry per name plus the extra entries
+    // made when a reference gateway is itself observed.
+    this.referenceResolutionCache = new ReferenceResolutionCache({
+      referenceGateway: this.referenceGateway,
+      entropy,
+      capacity: Math.max(namesCount * 2, 100),
+      ttlMs: REFERENCE_RESOLUTION_CACHE_TTL_MS,
+      log: this.log,
     });
 
     this.log.debug('GatewayAssessor initialized for epoch', {
@@ -154,8 +144,10 @@ export class GatewayAssessor {
       throw new Error('Entropy not set for epoch');
     }
 
-    const referenceResolution =
-      await this.referenceResolutionCache.get(arnsName);
+    const referenceResolution = await this.referenceResolutionCache.get(
+      arnsName,
+      host,
+    );
 
     const arnsResolutionTimer = metrics.arnsResolutionHistogram.startTimer();
     const gatewayResolution = await getArnsResolution({
