@@ -226,6 +226,12 @@ export interface GatewayOffsetAssessments {
   assessments: OffsetSamplingAssessment[];
   validatedOffset?: number;
   pass: boolean;
+  /**
+   * True when the assessment failed without any sample the observer could
+   * judge (every sample `unverifiable`, or the check itself errored). An
+   * inconclusive assessment never fails the gateway.
+   */
+  inconclusive?: boolean;
 }
 
 export interface GatewayAssessments {

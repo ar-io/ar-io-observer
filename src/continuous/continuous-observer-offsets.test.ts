@@ -467,9 +467,16 @@ describe('ContinuousObserver offset observations', function () {
         offsetConfig: { ...enforcing, sampleCount: 1 },
       });
       await observeAll(observer, [bad.fqdn]);
-      const sample = (observer as any).state.gatewayObservations.get(bad.fqdn)
-        .observations[0].offsetAssessments.assessments[0];
+      const observation = (observer as any).state.gatewayObservations.get(
+        bad.fqdn,
+      ).observations[0];
+      const sample = observation.offsetAssessments.assessments[0];
       expect(sample.failureCategory).to.equal('unverifiable');
+      // Nothing the observer could judge: inconclusive, and with
+      // enforcement on the gateway still passes.
+      expect(observation.offsetAssessments.pass).to.be.false;
+      expect(observation.offsetAssessments.inconclusive).to.be.true;
+      expect(observation.pass).to.be.true;
     });
 
     // Connection errors are classified directly: through got they wait
@@ -480,6 +487,34 @@ describe('ContinuousObserver offset observations', function () {
           classifyChunkFetchError({ name: 'RequestError', code }),
         ).to.equal('network');
       }
+    });
+
+    it('still fails a gateway when a judged sample fails alongside unverifiable ones', async function () {
+      // First request 404s, the rest serve a chunk the observer cannot anchor.
+      nock(`https://${bad.fqdn}`)
+        .get(/^\/chunk\/\d+$/)
+        .reply(404);
+      serveChunks(bad.fqdn, validDataPath);
+      const assessor = createOffsetAssessor();
+      ((assessor as any).resolveTxBoundsForOffset as sinon.SinonStub).rejects(
+        new Error('arweave node timeout'),
+      );
+      const observer = createObserver({
+        gateways: [bad],
+        offsetAssessor: assessor,
+        offsetConfig: { ...enforcing, sampleCount: 2 },
+      });
+      await observeAll(observer, [bad.fqdn]);
+      const observation = (observer as any).state.gatewayObservations.get(
+        bad.fqdn,
+      ).observations[0];
+      expect(
+        observation.offsetAssessments.assessments.map(
+          (a: any) => a.failureCategory,
+        ),
+      ).to.deep.equal(['http_status', 'unverifiable']);
+      expect(observation.offsetAssessments.inconclusive).to.be.undefined;
+      expect(observation.pass).to.be.false;
     });
 
     it('classifies got timeouts as timeout', function () {

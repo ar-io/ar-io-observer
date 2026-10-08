@@ -137,9 +137,27 @@ export function selectGatewaysForOffsetAssessment({
 }
 
 /**
- * Whether a gateway's offset result lets it pass, under the rule the batch
- * observer has used since r54. Only a performed, failed assessment with
- * enforcement on can fail a gateway.
+ * Whether a failed assessment contains no sample the observer could
+ * judge: every sample is `unverifiable` (the observer's own chain lookups
+ * failed), or there are none because the check itself errored.
+ */
+export function isInconclusiveOffsetAssessment(
+  offsetAssessments: GatewayOffsetAssessments,
+): boolean {
+  return (
+    !offsetAssessments.pass &&
+    offsetAssessments.assessments.every(
+      (assessment) => assessment.failureCategory === 'unverifiable',
+    )
+  );
+}
+
+/**
+ * Whether a gateway's offset result lets it pass. The batch observer's
+ * rule since r54: only a performed, failed assessment with enforcement on
+ * can fail a gateway. An inconclusive assessment (nothing the observer
+ * could judge) does not count, so an outage on the observer's side, such
+ * as its ARWEAVE_URL failing, cannot fail every sampled gateway at once.
  */
 export function offsetAssessmentPasses({
   offsetAssessments,
@@ -151,7 +169,8 @@ export function offsetAssessmentPasses({
   return (
     !enforcementEnabled ||
     offsetAssessments === undefined ||
-    offsetAssessments.pass
+    offsetAssessments.pass ||
+    offsetAssessments.inconclusive === true
   );
 }
 
@@ -312,7 +331,9 @@ export class OffsetAssessor {
         `Offset sampling completed for ${targetHost}: ${result.pass ? 'PASS' : 'FAIL'}`,
       );
 
-      return result;
+      return isInconclusiveOffsetAssessment(result)
+        ? { ...result, inconclusive: true }
+        : result;
     } catch (error: any) {
       // Log the error but don't fail the assessment unless enforcement is enabled
       log.warn('Offset sampling failed for gateway', {
@@ -327,7 +348,12 @@ export class OffsetAssessor {
 
       // Return a failed assessment if enforcement is enabled, otherwise undefined
       return enforcementEnabled
-        ? { plannedOffsets: [], assessments: [], pass: false }
+        ? {
+            plannedOffsets: [],
+            assessments: [],
+            pass: false,
+            inconclusive: true,
+          }
         : undefined;
     }
   }
