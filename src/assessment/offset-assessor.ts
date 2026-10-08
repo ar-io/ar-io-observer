@@ -38,6 +38,7 @@ import * as metrics from '../metrics.js';
 import {
   ChunkHeaderMetadata,
   GatewayOffsetAssessments,
+  OffsetFailureCategory,
   OffsetSamplingAssessment,
   ReferenceGatewaySource,
 } from '../types.js';
@@ -58,6 +59,24 @@ interface ArweaveTransaction {
   id: string;
   data_root: string;
   data_size: string;
+}
+
+/**
+ * Categorise an error thrown while fetching `/chunk/<offset>` from the
+ * gateway under assessment.
+ */
+export function classifyChunkFetchError(error: any): OffsetFailureCategory {
+  if (error?.name === 'TimeoutError' || error?.code === 'ETIMEDOUT') {
+    return 'timeout';
+  }
+  if (error?.name === 'ParseError') {
+    // 2xx with a body that is not chunk JSON
+    return 'invalid_chunk';
+  }
+  if (error?.response?.statusCode !== undefined) {
+    return 'http_status';
+  }
+  return 'network';
 }
 
 /**
@@ -243,6 +262,15 @@ export class OffsetAssessor {
         filePath: config.BLOCK_OFFSET_MAPPING_FILE,
       });
     }
+  }
+
+  /**
+   * Weave size at `height` from the configured Arweave node: the upper
+   * bound (exclusive) of offsets that are stable at that height.
+   */
+  async getWeaveSizeAtHeight(height: number): Promise<number> {
+    const block = await this.getBlockByHeight(this.arweaveBaseUrl, height);
+    return parseInt(block.weave_size, 10);
   }
 
   /**
@@ -1338,6 +1366,9 @@ export class OffsetAssessor {
     const startTime = Date.now();
     const offsetValidationTimer =
       metrics.offsetValidationHistogram.startTimer();
+    // Errors after the chunk arrives come from the observer's own chain
+    // lookups, not from the gateway.
+    let chunkFetched = false;
 
     try {
       // Fetch chunk data and proof from gateway
@@ -1353,6 +1384,7 @@ export class OffsetAssessor {
         tx_path?: string;
         packing?: string;
       };
+      chunkFetched = true;
 
       const chunkData = Buffer.from(chunkResponse.chunk, 'base64url');
       const chunkHash = crypto
@@ -1388,6 +1420,7 @@ export class OffsetAssessor {
           offset,
           pass: false,
           failureReason: quickValidationResult.failureReason,
+          failureCategory: 'invalid_chunk',
           referenceGatewayAvailable: undefined, // Skip reference check for invalid chunks
         };
       }
@@ -1540,6 +1573,7 @@ export class OffsetAssessor {
               offset,
               pass: false,
               failureReason: 'Merkle proof validation failed',
+              failureCategory: 'bad_proof',
               referenceGatewayAvailable,
             };
           }
@@ -1557,6 +1591,7 @@ export class OffsetAssessor {
             offset,
             pass: false,
             failureReason: `Validation error: ${validationError?.message}`,
+            failureCategory: 'bad_proof',
             referenceGatewayAvailable,
           };
         }
@@ -1584,6 +1619,12 @@ export class OffsetAssessor {
           offset,
           pass: false,
           failureReason: `Missing validation components: ${missing.join(', ')}`,
+          // The proof is checked by quick validation, so a missing component
+          // here is a data_root or tx bounds the observer could not resolve.
+          failureCategory:
+            proof === null || proof.length === 0
+              ? 'invalid_chunk'
+              : 'unverifiable',
           referenceGatewayAvailable,
         };
       }
@@ -1610,6 +1651,9 @@ export class OffsetAssessor {
         offset,
         pass: false,
         failureReason: `Network error: ${failureReason}`,
+        failureCategory: chunkFetched
+          ? 'unverifiable'
+          : classifyChunkFetchError(error),
         referenceGatewayAvailable: undefined, // Can't check reference gateway if target fetch failed
       };
     }

@@ -61,6 +61,16 @@ const client = got.extend({
   },
 });
 
+/**
+ * HTTP client the observer uses to probe gateways, tagged with the
+ * observer's node release.
+ */
+export function createObserverGotClient(nodeReleaseVersion: string): Got {
+  return client.extend({
+    headers: { 'X-AR-IO-Node-Release': nodeReleaseVersion },
+  });
+}
+
 export function generateRandomRanges({
   contentSize,
   rangeSize,
@@ -358,9 +368,7 @@ export class Observer {
     this.nodeReleaseVersion = nodeReleaseVersion;
     this.entropySource = entropySource;
     this.heightSource = heightSource;
-    this.gotClient = client.extend({
-      headers: { 'X-AR-IO-Node-Release': this.nodeReleaseVersion },
-    });
+    this.gotClient = createObserverGotClient(this.nodeReleaseVersion);
 
     this.offsetAssessor = new OffsetAssessor({
       referenceGateway,
