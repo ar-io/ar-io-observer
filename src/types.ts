@@ -187,11 +187,37 @@ export interface GatewayArnsAssessments {
   pass: boolean;
 }
 
+/**
+ * Why a sampled chunk failed validation.
+ *
+ * - `timeout`: the gateway did not answer `/chunk/<offset>` in time.
+ * - `network`: connection-level failure (DNS, refused, TLS, reset).
+ * - `http_status`: the gateway answered with a non-2xx status (a 404
+ *   means it could not serve the chunk).
+ * - `invalid_chunk`: the response was not a usable chunk (not JSON,
+ *   empty or oversized chunk, missing or undecodable `data_path`).
+ * - `bad_proof`: the `data_path` Merkle proof does not validate against
+ *   the chain's data_root and tx bounds.
+ * - `unverifiable`: the gateway served a chunk, but the observer could
+ *   not anchor it to the chain (its own reference or Arweave lookups
+ *   failed). This is an observer-side failure, not evidence against the
+ *   gateway.
+ */
+export type OffsetFailureCategory =
+  | 'timeout'
+  | 'network'
+  | 'http_status'
+  | 'invalid_chunk'
+  | 'bad_proof'
+  | 'unverifiable';
+
 export interface OffsetSamplingAssessment {
   assessedAt: number;
   offset: number;
   pass: boolean;
   failureReason?: string;
+  /** Set on failures only. */
+  failureCategory?: OffsetFailureCategory;
   referenceGatewayAvailable?: boolean;
 }
 
@@ -200,6 +226,12 @@ export interface GatewayOffsetAssessments {
   assessments: OffsetSamplingAssessment[];
   validatedOffset?: number;
   pass: boolean;
+  /**
+   * True when the assessment failed without any sample the observer could
+   * judge (every sample `unverifiable`, or the check itself errored). An
+   * inconclusive assessment never fails the gateway.
+   */
+  inconclusive?: boolean;
 }
 
 export interface GatewayAssessments {
