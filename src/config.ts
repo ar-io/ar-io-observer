@@ -189,9 +189,13 @@ export const ALWAYS_SAVE_REPORTS =
 export const OFFSET_OBSERVATION_ENABLED =
   env.varOrDefault('OFFSET_OBSERVATION_ENABLED', 'true') === 'true';
 
+// Every gateway by default: at 0.20 a gateway that answers ArNS but serves no
+// chunks went unchecked in four epochs out of five. The selection is shared
+// by every observer, so a rate below 1.0 only narrows which gateways can be
+// failed for it.
 export const OFFSET_OBSERVATION_SAMPLE_RATE = Math.max(
   0.0,
-  Math.min(1.0, +env.varOrDefault('OFFSET_OBSERVATION_SAMPLE_RATE', '0.20')),
+  Math.min(1.0, +env.varOrDefault('OFFSET_OBSERVATION_SAMPLE_RATE', '1.0')),
 );
 
 export const OFFSET_SAMPLE_COUNT = +env.varOrDefault(
