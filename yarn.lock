@@ -23,12 +23,12 @@
     "@types/json-schema" "^7.0.15"
     js-yaml "^4.1.0"
 
-"@ar.io/sdk@4.3.1":
-  version "4.3.1"
-  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-4.3.1.tgz#e00ba43f5531ef53c23624e928b104379407ee8b"
-  integrity sha512-VIJlqqvEYT3SsQvpfXRlJZYQSoZoWBCggjek9BTX0QBHW17copi/QtTpGsq6CYl8l5WR3G5JVovm70vI2W7UIQ==
+"@ar.io/sdk@4.5.2":
+  version "4.5.2"
+  resolved "https://registry.yarnpkg.com/@ar.io/sdk/-/sdk-4.5.2.tgz#2767d7864c98b68dad8ff3edd258186f246c96bc"
+  integrity sha512-trL/sczOkmhGQIhCYRBt02cOvnGLSZSM9o+mddwTkNYVbzdc9SBmHqjiv7T4yQTatPMWei9Kw/tdrFfQPNXz8A==
   dependencies:
-    "@ar.io/solana-contracts" "1.3.0"
+    "@ar.io/solana-contracts" "1.4.0"
     "@noble/hashes" "^1.8.0"
     "@solana-program/address-lookup-table" "^0.11.0"
     "@solana-program/compute-budget" "^0.15.0"
@@ -40,10 +40,10 @@
     prompts "^2.4.2"
     zod "^3.25.76"
 
-"@ar.io/solana-contracts@1.3.0":
-  version "1.3.0"
-  resolved "https://registry.yarnpkg.com/@ar.io/solana-contracts/-/solana-contracts-1.3.0.tgz#7d032ade0129a9da1ef771697f365db38e2983b4"
-  integrity sha512-KqEAovz/+bAspZfS++trcWrZlu4C0aZo+0EifUI4Nqo8KVkrxX0gdC9gOK/fMQ3M6PkGQksH23oqVbVkoW540g==
+"@ar.io/solana-contracts@1.4.0":
+  version "1.4.0"
+  resolved "https://registry.yarnpkg.com/@ar.io/solana-contracts/-/solana-contracts-1.4.0.tgz#5902ca5cc9cea5a7044bf396a4678ab25ee41c9d"
+  integrity sha512-hvWukXbEnhLoQH+V+xcQsiJ2/VF+GcyKTE0mPzZzKZdKJpwZIyKVDrBxukT34VZWdakRheQFiIbmp5raMDzcMA==
   dependencies:
     "@noble/hashes" "^1.5.0"
     bs58 "^6.0.0"

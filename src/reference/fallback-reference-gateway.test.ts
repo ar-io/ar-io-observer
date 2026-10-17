@@ -748,4 +748,95 @@ describe('FallbackReferenceGateway', function () {
       expect(result.metadata).to.equal(null);
     });
   });
+
+  describe('excludeFqdns', function () {
+    const arnsHeaders = (length: number) => ({
+      'Content-Type': 'application/octet-stream',
+      'x-arns-resolved-id': defaultArnsResolvedId,
+      'x-arns-ttl-seconds': defaultArnsTtlSeconds,
+      'Content-Length': String(length),
+    });
+
+    it('skips an excluded host and resolves from the next one', async function () {
+      const gateway = new FallbackReferenceGateway({
+        hosts: ['gateway1.com', 'gateway2.com'],
+        nodeReleaseVersion: 'test-version',
+        log: logStub,
+      });
+
+      const data = Buffer.alloc(100, 'a').toString();
+      // Only gateway2 is mocked: any request to gateway1 would fail the test.
+      nock('https://testname.gateway2.com')
+        .head('/')
+        .reply(200, undefined, arnsHeaders(data.length));
+      nock('https://testname.gateway2.com')
+        .get('/')
+        .reply(200, data, arnsHeaders(data.length));
+
+      const result = await gateway.getArnsResolution({
+        arnsName: 'testname',
+        entropy,
+        excludeFqdns: ['GATEWAY1.com'],
+      });
+
+      expect(result.host).to.equal('gateway2.com');
+      expect(nock.isDone()).to.be.true;
+    });
+
+    it('throws without any request when every host is excluded', async function () {
+      const gateway = new FallbackReferenceGateway({
+        hosts: ['gateway1.com'],
+        nodeReleaseVersion: 'test-version',
+        log: logStub,
+      });
+
+      for (const call of [
+        () =>
+          gateway.getArnsResolution({
+            arnsName: 'testname',
+            entropy,
+            excludeFqdns: ['gateway1.com'],
+          }),
+        () =>
+          gateway.checkChunkAvailability({
+            offset: 12345,
+            excludeFqdns: ['gateway1.com'],
+          }),
+        () =>
+          gateway.getChunkMetadata({
+            offset: 12345,
+            excludeFqdns: ['gateway1.com'],
+          }),
+      ]) {
+        try {
+          await call();
+          expect.fail('Should have thrown');
+        } catch (error: any) {
+          expect(error.message).to.include(
+            'No reference gateway hosts left after excluding',
+          );
+        }
+      }
+    });
+
+    it('skips an excluded host for chunk checks', async function () {
+      const gateway = new FallbackReferenceGateway({
+        hosts: ['gateway1.com', 'gateway2.com'],
+        nodeReleaseVersion: 'test-version',
+        log: logStub,
+      });
+
+      nock('https://gateway2.com')
+        .get('/chunk/12345')
+        .reply(200, { chunk: 'test-chunk-data', data_path: 'test-path' });
+
+      const result = await gateway.checkChunkAvailability({
+        offset: 12345,
+        excludeFqdns: ['gateway1.com'],
+      });
+
+      expect(result.host).to.equal('gateway2.com');
+      expect(result.available).to.be.true;
+    });
+  });
 });

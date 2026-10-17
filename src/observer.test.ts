@@ -791,14 +791,18 @@ describe('Observer', function () {
           .replyWithError('ENOTFOUND');
 
         // Call assessGatewayOffsets twice with same parameters
-        const result1 = await (observer as any).assessGatewayOffsets({
+        const result1 = await (
+          observer as any
+        ).offsetAssessor.assessGatewayOffsets({
           targetHost: 'gateway1.com',
           entropy,
           offsetSampleCount: 2,
           maxStableOffset: 599058, // Use the same mocked value as in other tests
         });
 
-        const result2 = await (observer as any).assessGatewayOffsets({
+        const result2 = await (
+          observer as any
+        ).offsetAssessor.assessGatewayOffsets({
           targetHost: 'gateway1.com',
           entropy,
           offsetSampleCount: 2,
@@ -831,7 +835,9 @@ describe('Observer', function () {
           };
           const chunkData = Buffer.from('', 'base64url');
 
-          const result = (observer as any).performQuickChunkValidation({
+          const result = (
+            observer as any
+          ).offsetAssessor.performQuickChunkValidation({
             chunkResponse,
             chunkData,
             targetHost: 'test-gateway.com',
@@ -850,7 +856,9 @@ describe('Observer', function () {
             data_path: 'dGVzdC1wcm9vZg',
           };
 
-          const result = (observer as any).performQuickChunkValidation({
+          const result = (
+            observer as any
+          ).offsetAssessor.performQuickChunkValidation({
             chunkResponse,
             chunkData: oversizedData,
             targetHost: 'test-gateway.com',
@@ -869,7 +877,9 @@ describe('Observer', function () {
           };
           const chunkData = Buffer.from('test-chunk');
 
-          const result = (observer as any).performQuickChunkValidation({
+          const result = (
+            observer as any
+          ).offsetAssessor.performQuickChunkValidation({
             chunkResponse,
             chunkData,
             targetHost: 'test-gateway.com',
@@ -887,7 +897,9 @@ describe('Observer', function () {
           };
           const chunkData = Buffer.from('test-chunk');
 
-          const result = (observer as any).performQuickChunkValidation({
+          const result = (
+            observer as any
+          ).offsetAssessor.performQuickChunkValidation({
             chunkResponse,
             chunkData,
             targetHost: 'test-gateway.com',
@@ -905,7 +917,9 @@ describe('Observer', function () {
           };
           const chunkData = Buffer.from('test-chunk');
 
-          const result = (observer as any).performQuickChunkValidation({
+          const result = (
+            observer as any
+          ).offsetAssessor.performQuickChunkValidation({
             chunkResponse,
             chunkData,
             targetHost: 'test-gateway.com',
@@ -924,7 +938,9 @@ describe('Observer', function () {
           };
           const chunkData = Buffer.from('test-chunk-data');
 
-          const result = (observer as any).performQuickChunkValidation({
+          const result = (
+            observer as any
+          ).offsetAssessor.performQuickChunkValidation({
             chunkResponse,
             chunkData,
             targetHost: 'test-gateway.com',
@@ -944,7 +960,9 @@ describe('Observer', function () {
             data_path: validProof.toString('base64url'),
           };
 
-          const result = (observer as any).performQuickChunkValidation({
+          const result = (
+            observer as any
+          ).offsetAssessor.performQuickChunkValidation({
             chunkResponse,
             chunkData: maxSizeData,
             targetHost: 'test-gateway.com',
@@ -975,7 +993,9 @@ describe('Observer', function () {
             data_path: 'dGVzdA',
           });
 
-          const result = await (observer as any).validateChunkAtOffset({
+          const result = await (
+            observer as any
+          ).offsetAssessor.validateChunkAtOffset({
             targetHost: 'test-gateway.com',
             offset: 12345,
             maxSearchHeight: 1000,
@@ -992,7 +1012,9 @@ describe('Observer', function () {
             .get('/chunk/12345')
             .replyWithError('ENOTFOUND');
 
-          const result = await (observer as any).validateChunkAtOffset({
+          const result = await (
+            observer as any
+          ).offsetAssessor.validateChunkAtOffset({
             targetHost: 'test-gateway.com',
             offset: 12345,
             maxSearchHeight: 1000,
@@ -1023,7 +1045,9 @@ describe('Observer', function () {
 
           // Mock binary search dependencies - these will fail but that's expected for this test
           // The test will demonstrate the parallel execution and reference gateway check
-          const result = await (observer as any).validateChunkAtOffset({
+          const result = await (
+            observer as any
+          ).offsetAssessor.validateChunkAtOffset({
             targetHost: 'test-gateway.com',
             offset: 12345,
             maxSearchHeight: 1000,
@@ -1055,7 +1079,9 @@ describe('Observer', function () {
               data_path: validProof.toString('base64url'),
             });
 
-          const result = await (observer as any).validateChunkAtOffset({
+          const result = await (
+            observer as any
+          ).offsetAssessor.validateChunkAtOffset({
             targetHost: 'test-gateway.com',
             offset: 12345,
             maxSearchHeight: 1000,
@@ -1083,7 +1109,9 @@ describe('Observer', function () {
               data_path: validProof.toString('base64url'),
             });
 
-          const result = await (observer as any).validateChunkAtOffset({
+          const result = await (
+            observer as any
+          ).offsetAssessor.validateChunkAtOffset({
             targetHost: 'test-gateway.com',
             offset: 12345,
             maxSearchHeight: 1000,
@@ -1133,7 +1161,10 @@ describe('Observer', function () {
 
           const result = await (
             observer as any
-          ).resolveTxBoundsViaReferenceHeaders(probeOffset);
+          ).offsetAssessor.resolveTxBoundsViaReferenceHeaders(
+            probeOffset,
+            'test-gateway.com',
+          );
 
           expect(result).to.not.equal(null);
           expect(BigInt(result.txStartOffset)).to.equal(txStartOffset);
@@ -1151,7 +1182,10 @@ describe('Observer', function () {
 
           const result = await (
             observer as any
-          ).resolveTxBoundsViaReferenceHeaders(probeOffset);
+          ).offsetAssessor.resolveTxBoundsViaReferenceHeaders(
+            probeOffset,
+            'test-gateway.com',
+          );
 
           expect(result).to.equal(null);
         });
@@ -1178,7 +1212,10 @@ describe('Observer', function () {
           try {
             const result = await (
               observer as any
-            ).resolveTxBoundsViaReferenceHeaders(probeOffset);
+            ).offsetAssessor.resolveTxBoundsViaReferenceHeaders(
+              probeOffset,
+              'test-gateway.com',
+            );
 
             expect(result).to.equal(null);
             expect(counterStub.calledWith(sinon.match({ result: 'mismatch' })))
@@ -1207,7 +1244,10 @@ describe('Observer', function () {
 
             const first = await (
               observer as any
-            ).resolveTxBoundsViaReferenceHeaders(probeOffset);
+            ).offsetAssessor.resolveTxBoundsViaReferenceHeaders(
+              probeOffset,
+              'test-gateway.com',
+            );
             expect(first).to.not.equal(null);
 
             const secondOffset = probeOffset + 262144;
@@ -1221,7 +1261,10 @@ describe('Observer', function () {
 
             const second = await (
               observer as any
-            ).resolveTxBoundsViaReferenceHeaders(secondOffset);
+            ).offsetAssessor.resolveTxBoundsViaReferenceHeaders(
+              secondOffset,
+              'test-gateway.com',
+            );
 
             expect(second).to.not.equal(null);
             expect(second.txStartOffset).to.equal(first.txStartOffset);

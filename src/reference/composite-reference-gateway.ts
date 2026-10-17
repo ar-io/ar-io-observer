@@ -26,7 +26,6 @@ import {
   ArnsConsensusResolver,
   ArnsResolution,
   ChunkHeaderMetadata,
-  CompositeReferenceGatewaySource,
   NetworkGatewaySource,
   ReferenceGatewaySource,
 } from '../types.js';
@@ -47,10 +46,13 @@ import {
  * Fallback chain (Chunks):
  * - Mode 2: Explicit hosts (sequential) -> Network (sequential)
  * - Mode 3: Network (sequential)
+ *
+ * Every lookup forwards `excludeFqdns` to both the explicit hosts and the
+ * network selection, so the gateway being observed is never its own
+ * reference. When exclusion empties the explicit host list, the explicit
+ * side throws and the network fallback (if enabled) takes over.
  */
-export class CompositeReferenceGateway
-  implements CompositeReferenceGatewaySource
-{
+export class CompositeReferenceGateway implements ReferenceGatewaySource {
   private readonly explicitGateway: ReferenceGatewaySource | null;
   private readonly networkGatewaySource: NetworkGatewaySource | null;
   private readonly consensusResolver: ArnsConsensusResolver | null;
@@ -58,8 +60,6 @@ export class CompositeReferenceGateway
   private readonly networkFallback: boolean;
   private readonly log: Logger;
   private readonly gotClient: Got;
-
-  private observedGatewayFqdn: string | null = null;
 
   constructor({
     explicitGateway,
@@ -112,22 +112,15 @@ export class CompositeReferenceGateway
   }
 
   /**
-   * Set the currently observed gateway to exclude from network selection.
-   */
-  setObservedGateway(fqdn: string | null): void {
-    this.observedGatewayFqdn = fqdn;
-    this.log.debug('Observed gateway set', { fqdn });
-  }
-
-  /**
    * Get ArNS resolution with fallback support.
    */
   async getArnsResolution(params: {
     arnsName: string;
     entropy: Buffer;
     referenceContentLength?: string | null;
+    excludeFqdns?: string[];
   }): Promise<{ host: string; resolution: ArnsResolution }> {
-    const { arnsName, entropy, referenceContentLength } = params;
+    const { arnsName, entropy, referenceContentLength, excludeFqdns } = params;
 
     // Mode 3: Network only
     if (this.networkOnly) {
@@ -135,6 +128,7 @@ export class CompositeReferenceGateway
         arnsName,
         entropy,
         referenceContentLength,
+        excludeFqdns,
       });
     }
 
@@ -167,6 +161,7 @@ export class CompositeReferenceGateway
           arnsName,
           entropy,
           referenceContentLength,
+          excludeFqdns,
         });
 
         metrics.networkFallbackCounter.inc({
@@ -197,20 +192,17 @@ export class CompositeReferenceGateway
     arnsName: string;
     entropy: Buffer;
     referenceContentLength?: string | null;
+    excludeFqdns?: string[];
   }): Promise<{ host: string; resolution: ArnsResolution }> {
     if (this.consensusResolver === null) {
       throw new Error('Consensus resolver not configured');
     }
 
-    // Build exclude list (the observed gateway should not be used for reference)
-    const excludeFqdns =
-      this.observedGatewayFqdn !== null ? [this.observedGatewayFqdn] : [];
-
     // The consensus resolver fetches gateways and handles retry-with-replacement
     return this.consensusResolver.resolveWithConsensus({
       arnsName: params.arnsName,
       entropy: params.entropy,
-      excludeFqdns,
+      excludeFqdns: params.excludeFqdns ?? [],
       referenceContentLength: params.referenceContentLength,
     });
   }
@@ -220,12 +212,13 @@ export class CompositeReferenceGateway
    */
   async checkChunkAvailability(params: {
     offset: number;
+    excludeFqdns?: string[];
   }): Promise<{ host: string; available: boolean }> {
-    const { offset } = params;
+    const { offset, excludeFqdns } = params;
 
     // Mode 3: Network only
     if (this.networkOnly) {
-      return this.checkChunkFromNetwork({ offset });
+      return this.checkChunkFromNetwork({ offset, excludeFqdns });
     }
 
     // Mode 1 & 2: Try explicit gateway first
@@ -254,7 +247,10 @@ export class CompositeReferenceGateway
       });
 
       try {
-        const result = await this.checkChunkFromNetwork({ offset });
+        const result = await this.checkChunkFromNetwork({
+          offset,
+          excludeFqdns,
+        });
 
         metrics.networkFallbackCounter.inc({
           operation: 'checkChunkAvailability',
@@ -279,6 +275,7 @@ export class CompositeReferenceGateway
    */
   private async checkChunkFromNetwork(params: {
     offset: number;
+    excludeFqdns?: string[];
   }): Promise<{ host: string; available: boolean }> {
     if (this.networkGatewaySource === null) {
       throw new Error('Network gateway source not configured');
@@ -287,11 +284,8 @@ export class CompositeReferenceGateway
     const { offset } = params;
 
     // Get eligible gateways, excluding the observed gateway
-    const excludeFqdns =
-      this.observedGatewayFqdn !== null ? [this.observedGatewayFqdn] : [];
-
     const gateways = await this.networkGatewaySource.getEligibleGateways({
-      excludeFqdns,
+      excludeFqdns: params.excludeFqdns ?? [],
     });
 
     if (gateways.length === 0) {
@@ -373,12 +367,13 @@ export class CompositeReferenceGateway
    */
   async getChunkMetadata(params: {
     offset: number;
+    excludeFqdns?: string[];
   }): Promise<{ host: string; metadata: ChunkHeaderMetadata | null }> {
-    const { offset } = params;
+    const { offset, excludeFqdns } = params;
 
     // Mode 3: Network only
     if (this.networkOnly) {
-      return this.getChunkMetadataFromNetwork({ offset });
+      return this.getChunkMetadataFromNetwork({ offset, excludeFqdns });
     }
 
     // Mode 1 & 2: Try explicit gateway first
@@ -420,7 +415,10 @@ export class CompositeReferenceGateway
     });
 
     try {
-      const result = await this.getChunkMetadataFromNetwork({ offset });
+      const result = await this.getChunkMetadataFromNetwork({
+        offset,
+        excludeFqdns,
+      });
 
       metrics.networkFallbackCounter.inc({
         operation: 'getChunkMetadata',
@@ -455,6 +453,7 @@ export class CompositeReferenceGateway
    */
   private async getChunkMetadataFromNetwork(params: {
     offset: number;
+    excludeFqdns?: string[];
   }): Promise<{ host: string; metadata: ChunkHeaderMetadata | null }> {
     if (this.networkGatewaySource === null) {
       throw new Error('Network gateway source not configured');
@@ -462,11 +461,8 @@ export class CompositeReferenceGateway
 
     const { offset } = params;
 
-    const excludeFqdns =
-      this.observedGatewayFqdn !== null ? [this.observedGatewayFqdn] : [];
-
     const gateways = await this.networkGatewaySource.getEligibleGateways({
-      excludeFqdns,
+      excludeFqdns: params.excludeFqdns ?? [],
     });
 
     if (gateways.length === 0) {

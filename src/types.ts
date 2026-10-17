@@ -117,19 +117,30 @@ export interface ChunkHeaderMetadata {
   chunkRelativeStartOffset: bigint;
 }
 
+/**
+ * A source of reference answers that observed gateways are compared with.
+ *
+ * Every lookup takes an optional `excludeFqdns`. Callers pass the gateway
+ * under observation so it is never used as its own reference. Exclusion is
+ * per call rather than stored on the source, because one source serves many
+ * concurrent assessments.
+ */
 export interface ReferenceGatewaySource {
   getArnsResolution(params: {
     arnsName: string;
     entropy: Buffer;
     referenceContentLength?: string | null;
+    excludeFqdns?: string[];
   }): Promise<{ host: string; resolution: ArnsResolution }>;
 
   checkChunkAvailability(params: {
     offset: number;
+    excludeFqdns?: string[];
   }): Promise<{ host: string; available: boolean }>;
 
   getChunkMetadata(params: {
     offset: number;
+    excludeFqdns?: string[];
   }): Promise<{ host: string; metadata: ChunkHeaderMetadata | null }>;
 }
 
@@ -176,11 +187,37 @@ export interface GatewayArnsAssessments {
   pass: boolean;
 }
 
+/**
+ * Why a sampled chunk failed validation.
+ *
+ * - `timeout`: the gateway did not answer `/chunk/<offset>` in time.
+ * - `network`: connection-level failure (DNS, refused, TLS, reset).
+ * - `http_status`: the gateway answered with a non-2xx status (a 404
+ *   means it could not serve the chunk).
+ * - `invalid_chunk`: the response was not a usable chunk (not JSON,
+ *   empty or oversized chunk, missing or undecodable `data_path`).
+ * - `bad_proof`: the `data_path` Merkle proof does not validate against
+ *   the chain's data_root and tx bounds.
+ * - `unverifiable`: the gateway served a chunk, but the observer could
+ *   not anchor it to the chain (its own reference or Arweave lookups
+ *   failed). This is an observer-side failure, not evidence against the
+ *   gateway.
+ */
+export type OffsetFailureCategory =
+  | 'timeout'
+  | 'network'
+  | 'http_status'
+  | 'invalid_chunk'
+  | 'bad_proof'
+  | 'unverifiable';
+
 export interface OffsetSamplingAssessment {
   assessedAt: number;
   offset: number;
   pass: boolean;
   failureReason?: string;
+  /** Set on failures only. */
+  failureCategory?: OffsetFailureCategory;
   referenceGatewayAvailable?: boolean;
 }
 
@@ -189,6 +226,12 @@ export interface GatewayOffsetAssessments {
   assessments: OffsetSamplingAssessment[];
   validatedOffset?: number;
   pass: boolean;
+  /**
+   * True when the assessment failed without any sample the observer could
+   * judge (every sample `unverifiable`, or the check itself errored). An
+   * inconclusive assessment never fails the gateway.
+   */
+  inconclusive?: boolean;
 }
 
 export interface GatewayAssessments {
@@ -303,9 +346,4 @@ export interface ArnsConsensusResolver {
     excludeFqdns?: string[];
     referenceContentLength?: string | null;
   }): Promise<{ host: string; resolution: ArnsResolution }>;
-}
-
-export interface CompositeReferenceGatewaySource
-  extends ReferenceGatewaySource {
-  setObservedGateway(fqdn: string | null): void;
 }

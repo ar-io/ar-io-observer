@@ -19,7 +19,14 @@
 import pMap from 'p-map';
 import { Logger } from 'winston';
 
+import { MAX_FORK_DEPTH } from '../arweave.js';
 import { GatewayAssessor } from '../assessment/gateway-assessor.js';
+import {
+  OffsetAssessor,
+  offsetAssessmentPasses,
+  recordOffsetAssessmentMetrics,
+  selectGatewaysForOffsetAssessment,
+} from '../assessment/offset-assessor.js';
 import * as metrics from '../metrics.js';
 import { REPORT_FORMAT_VERSION } from '../observer.js';
 import {
@@ -28,6 +35,8 @@ import {
   EpochTimestampSource,
   GatewayAssessments,
   GatewayHostsSource,
+  GatewayOffsetAssessments,
+  HeightSource,
   ObserverReport,
   ReferenceGatewaySource,
   ReportSink,
@@ -47,6 +56,43 @@ const DEFAULT_CYCLE_INTERVAL_MS = 30 * 1000; // 30 seconds
 const DEFAULT_GATEWAY_ASSESSMENT_CONCURRENCY = 3;
 const DEFAULT_OBSERVATIONS_PER_GATEWAY = 3;
 const DEFAULT_MAJORITY_THRESHOLD = 2;
+
+// The offset search space is the weave up to a stable Arweave height,
+// rounded down to this many blocks (~33 hours) so that observers starting
+// the same epoch at different times almost always draw the same planned
+// offsets. Solana epochs carry no Arweave height to anchor to.
+const OFFSET_SEARCH_HEIGHT_QUANTUM = 1000;
+
+/**
+ * Offset (chunk-proof) observation settings: the OFFSET_* env vars.
+ */
+export interface OffsetObservationConfig {
+  /** OFFSET_OBSERVATION_ENABLED */
+  enabled: boolean;
+  /** OFFSET_OBSERVATION_SAMPLE_RATE: share of gateways sampled per epoch */
+  sampleRate: number;
+  /** OFFSET_SAMPLE_COUNT: offsets tried per sampled gateway */
+  sampleCount: number;
+  /** OFFSET_OBSERVATION_ENFORCEMENT_ENABLED: whether a failure fails the gateway */
+  enforcementEnabled: boolean;
+}
+
+/**
+ * Everything the continuous observer needs to run offset checks. Omit it
+ * to disable them.
+ */
+export interface OffsetObservationDeps {
+  assessor: OffsetAssessor;
+  /**
+   * Entropy every observer shares for the epoch. Do not pass the
+   * composite source (it mixes in per-observer randomness): sampling must
+   * be identical across observers so their votes are comparable.
+   */
+  sharedEntropySource: EntropySource;
+  /** Current Arweave height, to bound the stable offset range. */
+  heightSource: HeightSource;
+  config: OffsetObservationConfig;
+}
 
 // Sleep utility
 function sleep(ms: number): Promise<void> {
@@ -85,6 +131,15 @@ export class ContinuousObserver {
 
   private readonly scheduler: ContinuousObservationScheduler;
   private readonly assessor: GatewayAssessor;
+  private readonly offsetObservation: OffsetObservationDeps | undefined;
+
+  // Per-epoch offset sampling state. The selected gateways are kept in
+  // `state.offsetAssessmentGateways`; these are rebuilt after a restart.
+  private offsetEntropy?: Buffer;
+  private offsetSearchSpace?: Promise<{
+    maxStableOffset: number;
+    maxSearchHeight: number;
+  }>;
 
   private state?: ObservationState;
   private prescribedNames: string[] = [];
@@ -114,6 +169,7 @@ export class ContinuousObserver {
     submissionGate,
     nodeReleaseVersion,
     nameAssessmentConcurrency,
+    offsetObservation,
     config,
     log,
   }: {
@@ -138,6 +194,8 @@ export class ContinuousObserver {
     submissionGate?: SubmissionGate;
     nodeReleaseVersion: string;
     nameAssessmentConcurrency: number;
+    /** Offset (chunk-proof) checks. Omit to disable them. */
+    offsetObservation?: OffsetObservationDeps;
     config?: Partial<ContinuousObserverConfig>;
     log: Logger;
   }) {
@@ -151,6 +209,7 @@ export class ContinuousObserver {
     this.persistenceSink = persistenceSink;
     this.submissionSink = submissionSink;
     this.submissionGate = submissionGate;
+    this.offsetObservation = offsetObservation;
     this.log = log.child({ class: 'ContinuousObserver' });
 
     this.config = {
@@ -338,7 +397,9 @@ export class ContinuousObserver {
         }),
       ),
       gatewayWallets,
-      offsetAssessmentGateways: new Set(), // TODO: implement offset selection
+      // Filled once the shared epoch entropy is available; see
+      // `initializeOffsetSampling`.
+      offsetAssessmentGateways: new Set(),
       lastCycleTimestamp: Date.now(),
       reportSubmitted: false,
       submissionDeadlineExceeded: false,
@@ -421,7 +482,141 @@ export class ContinuousObserver {
       chosenCount: this.chosenNames.length,
     });
 
+    await this.initializeOffsetSampling();
+
     return true;
+  }
+
+  /**
+   * Choose this epoch's gateways for offset (chunk-proof) checks.
+   *
+   * Selection uses the shared epoch entropy over the gateway FQDNs in
+   * sorted order, so every observer with the same gateway list samples
+   * the same gateways, and each sampled gateway gets the same planned
+   * offsets (seeded by entropy + FQDN). Runs again after a restart and
+   * gives the same answer.
+   */
+  private async initializeOffsetSampling(): Promise<void> {
+    if (!this.state) {
+      throw new Error('State not initialized');
+    }
+
+    const offsetObservation = this.offsetObservation;
+    if (offsetObservation === undefined || !offsetObservation.config.enabled) {
+      this.state.offsetAssessmentGateways = new Set();
+      return;
+    }
+
+    // Same argument the batch observer passes for its entropy.
+    this.offsetEntropy = await offsetObservation.sharedEntropySource.getEntropy(
+      { height: this.state.epochStartHeight },
+    );
+
+    const fqdns = [...this.state.gatewayObservations.keys()].sort();
+    this.state.offsetAssessmentGateways = selectGatewaysForOffsetAssessment({
+      fqdns,
+      entropy: this.offsetEntropy,
+      enabled: offsetObservation.config.enabled,
+      sampleRate: offsetObservation.config.sampleRate,
+    });
+    await this.stateStore.save(this.state);
+
+    this.log.info('Selected gateways for offset observations', {
+      epochIndex: this.state.epochIndex,
+      totalGateways: fqdns.length,
+      sampleRate: offsetObservation.config.sampleRate,
+      selectedCount: this.state.offsetAssessmentGateways.size,
+      enforcementEnabled: offsetObservation.config.enforcementEnabled,
+      // Lets anyone recompute the sample and check observers agree.
+      offsetEntropy: this.offsetEntropy.toString('hex'),
+      selectedGateways: [...this.state.offsetAssessmentGateways].sort(),
+    });
+  }
+
+  /**
+   * Stable offset range for this epoch, fetched once and reused by every
+   * observation. A failed fetch is not cached, so the next observation
+   * retries.
+   */
+  private getOffsetSearchSpace(
+    offsetObservation: OffsetObservationDeps,
+  ): Promise<{ maxStableOffset: number; maxSearchHeight: number }> {
+    if (this.offsetSearchSpace === undefined) {
+      const searchSpace = (async () => {
+        const currentHeight = await offsetObservation.heightSource.getHeight();
+        const stableHeight = Math.max(1, currentHeight - MAX_FORK_DEPTH);
+        const maxSearchHeight = Math.max(
+          1,
+          Math.floor(stableHeight / OFFSET_SEARCH_HEIGHT_QUANTUM) *
+            OFFSET_SEARCH_HEIGHT_QUANTUM,
+        );
+        const maxStableOffset =
+          await offsetObservation.assessor.getWeaveSizeAtHeight(
+            maxSearchHeight,
+          );
+        this.log.info('Offset search space set for epoch', {
+          currentHeight,
+          maxSearchHeight,
+          maxStableOffset,
+        });
+        return { maxStableOffset, maxSearchHeight };
+      })();
+      searchSpace.catch(() => {
+        if (this.offsetSearchSpace === searchSpace) {
+          this.offsetSearchSpace = undefined;
+        }
+      });
+      this.offsetSearchSpace = searchSpace;
+    }
+    return this.offsetSearchSpace;
+  }
+
+  /**
+   * Offset assessment for one observation of a sampled gateway.
+   *
+   * Runs on every observation (not once per epoch), with the same planned
+   * offsets each time, so a transient timeout gets the same 2-of-3
+   * majority protection as the ownership and ArNS checks. Returns
+   * undefined, which never fails a gateway, when the observer cannot
+   * establish the search space itself.
+   */
+  private async assessOffsets(
+    fqdn: string,
+  ): Promise<GatewayOffsetAssessments | undefined> {
+    const offsetObservation = this.offsetObservation;
+    if (offsetObservation === undefined || this.offsetEntropy === undefined) {
+      return undefined;
+    }
+    const { enforcementEnabled, sampleCount } = offsetObservation.config;
+
+    let searchSpace;
+    try {
+      searchSpace = await this.getOffsetSearchSpace(offsetObservation);
+    } catch (error: any) {
+      this.log.warn(
+        'Could not determine offset search space; skipping offset check',
+        { fqdn, error: error?.message },
+      );
+      return undefined;
+    }
+
+    const offsetAssessments =
+      await offsetObservation.assessor.assessSampledGateway({
+        targetHost: fqdn,
+        entropy: this.offsetEntropy,
+        offsetSampleCount: sampleCount,
+        maxStableOffset: searchSpace.maxStableOffset,
+        maxSearchHeight: searchSpace.maxSearchHeight,
+        enforcementEnabled,
+      });
+
+    recordOffsetAssessmentMetrics({
+      sampled: true,
+      offsetAssessments,
+      enforcementEnabled,
+    });
+
+    return offsetAssessments;
   }
 
   /**
@@ -460,6 +655,8 @@ export class ContinuousObserver {
       this.prescribedNamesReady = false;
       this.prescribedNames = [];
       this.chosenNames = [];
+      this.offsetEntropy = undefined;
+      this.offsetSearchSpace = undefined;
       await this.initializeEpoch(currentEpochIndex);
       return;
     }
@@ -626,14 +823,34 @@ export class ContinuousObserver {
       expectedWallets,
     });
 
-    const arnsAssessments = await this.assessor.assessGatewayArns({
-      host: fqdn,
-      prescribedNames: this.prescribedNames,
-      chosenNames: this.chosenNames,
-    });
+    // ArNS and offset checks run in parallel, as in batch mode.
+    const offsetSampled =
+      this.offsetObservation?.config.enabled === true &&
+      this.state!.offsetAssessmentGateways.has(fqdn);
+    const [arnsAssessments, offsetAssessments] = await Promise.all([
+      this.assessor.assessGatewayArns({
+        host: fqdn,
+        prescribedNames: this.prescribedNames,
+        chosenNames: this.chosenNames,
+      }),
+      offsetSampled ? this.assessOffsets(fqdn) : Promise.resolve(undefined),
+    ]);
+    if (!offsetSampled) {
+      recordOffsetAssessmentMetrics({
+        sampled: false,
+        offsetAssessments: undefined,
+        enforcementEnabled: false,
+      });
+    }
 
-    // Calculate pass (for now, skip offset assessment)
-    const pass = ownershipAssessment.pass && arnsAssessments.pass;
+    // The batch observer's rule (r54+): a failed offset assessment fails
+    // the gateway only when enforcement is on.
+    const offsetPass = offsetAssessmentPasses({
+      offsetAssessments,
+      enforcementEnabled:
+        this.offsetObservation?.config.enforcementEnabled === true,
+    });
+    const pass = ownershipAssessment.pass && arnsAssessments.pass && offsetPass;
 
     // Log observation delay
     const delay = (observedAt - scheduledAt) / 1000;
@@ -644,6 +861,9 @@ export class ContinuousObserver {
       pass,
       ownershipPass: ownershipAssessment.pass,
       arnsPass: arnsAssessments.pass,
+      offsetSampled,
+      offsetAssessmentPass: offsetAssessments?.pass,
+      offsetPass,
       delaySeconds: delay.toFixed(1),
     });
 
@@ -653,6 +873,7 @@ export class ContinuousObserver {
       scheduledAt,
       ownershipAssessment,
       arnsAssessments,
+      ...(offsetAssessments !== undefined ? { offsetAssessments } : {}),
       pass,
     };
   }
@@ -842,6 +1063,9 @@ export class ContinuousObserver {
       gatewayAssessments[fqdn] = {
         ownershipAssessment: bestObservation.ownershipAssessment,
         arnsAssessments: bestObservation.arnsAssessments,
+        ...(bestObservation.offsetAssessments !== undefined
+          ? { offsetAssessments: bestObservation.offsetAssessments }
+          : {}),
         // Override pass with majority vote result
         pass: gatewayPass,
       };

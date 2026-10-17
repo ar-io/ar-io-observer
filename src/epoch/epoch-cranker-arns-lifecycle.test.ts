@@ -82,6 +82,9 @@ async function crankOnce(
   });
   // runCycle holds the crankEpochStep call; calling it directly skips tick()'s
   // random jitter sleep and the periodic balance check.
+  // The drain loop honours `running` (so stop() halts it); calling runCycle
+  // directly bypasses start(), so set it as a live cranker would.
+  (cranker as never as { running: boolean }).running = true;
   await (cranker as never as { runCycle: () => Promise<void> }).runCycle();
   expect(captured, 'crankEpochStep was never called').to.not.equal(null);
   return captured as unknown as Record<string, unknown>;

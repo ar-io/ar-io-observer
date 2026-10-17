@@ -14,7 +14,9 @@ import {
   ARIO_GAR_ERROR__EPOCH_WEIGHTS_CLOBBERED,
   ARIO_GAR_ERROR__INVALID_GATEWAY_ACCOUNT,
   ARIO_GAR_ERROR__INVALID_OBSERVATION,
+  ARIO_GAR_ERROR__LATEST_EPOCH_UNFINISHED,
   ARIO_GAR_ERROR__LEAVE_WINDOW_NOT_EXPIRED,
+  ARIO_GAR_ERROR__MISSING_LATEST_EPOCH_ACCOUNT,
   ARIO_GAR_ERROR__NOT_PRESCRIBED_OBSERVER,
   ARIO_GAR_ERROR__PRESCRIPTIONS_ALREADY_DONE,
   ARIO_GAR_ERROR__REWARDS_ALREADY_DISTRIBUTED,
@@ -97,6 +99,99 @@ describe('cranker error classification', () => {
   });
 
   describe('classifyError', () => {
+    // --- Wave 2 (ADR-0034 / ADR-0036) ---------------------------------
+    //
+    // 6102 means two OPPOSITE things depending on which instruction raised it,
+    // so a flat code lookup cannot classify it. Anchor logs
+    // `Instruction: <Name>` before the error, which is what tells them apart.
+    const anchorFromInstructions = (code: number, instructions: string[]) =>
+      Object.assign(new Error('Transaction simulation failed'), {
+        context: {
+          logs: [
+            'Program ComputeBudget111111111111111111111111111111 invoke [1]',
+            'Program ComputeBudget111111111111111111111111111111 success',
+            ...instructions.flatMap((ix) => [
+              'Program 89fNiiwgpFSPHKuqfNUkgYTYjtAJAhyqHjXmgXeppGpf invoke [1]',
+              `Program log: Instruction: ${ix}`,
+            ]),
+            `Program log: AnchorError occurred. Error Number: ${code}. Error Message: x.`,
+          ],
+        },
+      });
+
+    it('categorises LatestEpochUnfinished from finalize_gone as "not_ready"', () => {
+      // ROUTINE: ADR-0036 freezes registry positions while an epoch is
+      // unfinished, so the GC sweep is refused for the whole window between an
+      // epoch's creation and its distribution — the steady state, not an
+      // exception. Must not trip the health check.
+      expect(ARIO_GAR_ERROR__LATEST_EPOCH_UNFINISHED).to.equal(6102);
+      expect(
+        classifyError(
+          anchorFromInstructions(ARIO_GAR_ERROR__LATEST_EPOCH_UNFINISHED, [
+            'FinalizeGone',
+          ]),
+        ),
+      ).to.equal('not_ready');
+    });
+
+    it('categorises LatestEpochUnfinished from create_epoch as "real" — the network is halted', () => {
+      // THE ALARM. ADR-0034 refuses to supersede an unfinished epoch, so this
+      // means the previous epoch cannot be distributed and the entire
+      // lifecycle has stopped for everyone until an operator writes it off
+      // with `admin_close_stale_epoch`. A flat code lookup would retry a
+      // halted network in silence.
+      expect(
+        classifyError(
+          anchorFromInstructions(ARIO_GAR_ERROR__LATEST_EPOCH_UNFINISHED, [
+            'CreateEpoch',
+          ]),
+        ),
+      ).to.equal('real');
+    });
+
+    it('reads the LAST instruction, so a bundled sweep is still "not_ready"', () => {
+      // ADR-0036's race-free pattern puts finalize_gone in the SAME
+      // transaction as the final distribute_epoch batch. Both names appear in
+      // the logs; the failing one is the last.
+      expect(
+        classifyError(
+          anchorFromInstructions(ARIO_GAR_ERROR__LATEST_EPOCH_UNFINISHED, [
+            'DistributeEpoch',
+            'FinalizeGone',
+          ]),
+        ),
+      ).to.equal('not_ready');
+    });
+
+    it('defaults an unattributable LatestEpochUnfinished to "real", not "not_ready"', () => {
+      // No logs -> the instruction cannot be identified. The failure direction
+      // is deliberately toward NOISE rather than SILENCE: a spurious alert
+      // costs attention, a silently retried network halt costs the protocol.
+      expect(
+        classifyError(
+          new Error(
+            `AnchorError ... Error Number: ${ARIO_GAR_ERROR__LATEST_EPOCH_UNFINISHED}`,
+          ),
+        ),
+      ).to.equal('real');
+    });
+
+    // The deliberate opposite. This means THIS process is running a
+    // pre-Wave-2 client and did not send the Epoch PDA ADR-0034 requires, so
+    // it must be loud rather than quietly retried forever. Anchor derives 6102
+    // and 6103 adjacently, so both are pinned by value: a renumbering that
+    // swapped them would silently invert both behaviours.
+    it('categorises MissingLatestEpochAccount (6103) as "real"', () => {
+      expect(ARIO_GAR_ERROR__MISSING_LATEST_EPOCH_ACCOUNT).to.equal(6103);
+      expect(
+        classifyError(
+          new Error(
+            `AnchorError ... Error Number: ${ARIO_GAR_ERROR__MISSING_LATEST_EPOCH_ACCOUNT}`,
+          ),
+        ),
+      ).to.equal('real');
+    });
+
     it('categorises GAR program errors marked as already-done as "already_done"', () => {
       // Codes come from the generated IDL constants rather than literals:
       // these four were previously written out by hand and every one of

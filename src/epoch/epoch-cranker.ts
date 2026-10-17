@@ -66,6 +66,29 @@ export interface EpochCrankerConfig {
    * Threshold for `prune_gateway` (failed_consecutive >= N). Mirrors
    * `EpochSettings.max_consecutive_failures` (default 30).
    */
+  /**
+   * Max `crankEpochStep` calls per cycle (drain depth). Default 50.
+   * Env: MAX_CRANK_STEPS_PER_CYCLE.
+   *
+   * `crankEpochStep` advances the lifecycle by ONE step, and several steps are
+   * inherently multi-batch: distribution is one tx per `batchSize` gateways,
+   * and the post-distribution compound sweep is one tx per 6 delegations. At
+   * one step per cycle those become one tx per CYCLE — on staging (617
+   * gateways, 542 delegations, ~60s cycles) a single rollover spent ~42
+   * minutes distributing and would have spent ~91 more compounding. Because
+   * compound is sequenced immediately before "create the next epoch", the next
+   * epoch cannot be created until the sweep drains.
+   */
+  maxCrankStepsPerCycle?: number;
+  /**
+   * Wall-clock budget for the drain loop, ms. Default 45_000.
+   * Env: MAX_CRANK_STEP_MS.
+   *
+   * In practice this binds before the step count: each step is a confirmed
+   * transaction, so latency decides how many fit. Keep it below the cycle
+   * interval so a drain cannot push the next cycle late.
+   */
+  maxCrankStepMs?: number;
   cleanupFailureThreshold?: number;
   /**
    * Recent signatures to scan when reclaiming leaked prescribe Address Lookup
@@ -212,54 +235,105 @@ export class EpochCranker {
     //    size-safe prescribe prediction (≤50 Gateway PDAs, never the whole
     //    registry — the MAX_TX_ACCOUNT_LOCKS fix) and the InvalidGatewayAccount
     //    re-predict-and-retry. We only log + classify any thrown error.
+    // DRAIN, don't single-step. `crankEpochStep` advances the lifecycle by one
+    // step, so multi-batch phases (distribute, compound) used to take one
+    // CYCLE per batch. Keep calling it until it reports `idle` — genuinely
+    // nothing left to do — or a budget is hit.
+    //
+    // This sends exactly the instructions it always sent, in the same order;
+    // only the idle gap between them is removed.
     let action: string | undefined;
+    const maxSteps = this.config.maxCrankStepsPerCycle ?? 50;
+    const deadline = Date.now() + (this.config.maxCrankStepMs ?? 45_000);
+    let steps = 0;
+    let lastFingerprint: string | null = null;
     try {
-      const result = await ario.crankEpochStep({
-        batchSize: this.config.batchSize,
-        enableClose: this.config.closeEpochs,
-        epochRetention: this.config.epochRetention ?? 7,
-        nameRegistryAccount: this.config.nameRegistryAccount,
-        // Returned-name pruning is folded into the epoch step (solana.36+):
-        // tie it to the same cleanup config the runCleanup phases use.
-        enablePrune: this.config.enableCleanup !== false,
-        pruneBatchSize: this.config.cleanupBatchSize,
-        // Scan cadence stays tied to the cleanup interval on purpose. It is
-        // derived from the epoch duration specifically to cut credit-heavy
-        // getProgramAccounts scans on long epochs (adaptive-intervals.ts), and
-        // decoupling it would multiply them ~30x. The throughput problem that
-        // cadence used to cause is solved by pruneToReturnedTxsPerCycle below,
-        // which makes the deadline-bound step drain proportionally to the
-        // backlog rather than to the scan rate. Worst-case conversion latency
-        // is then one scan interval (30 min) against a 14-day auction window.
-        pruneScanIntervalMs: this.config.cleanupMinIntervalMs,
-        // The other two thirds of the ArNS lease lifecycle. Previously the
-        // cranker only drained ReturnedName PDAs — a queue nothing ever filled,
-        // because `prune_name_to_returned` is what creates them and no actor
-        // called it. Expired leases therefore accumulated on-chain and stayed
-        // resolvable-but-unbuyable indefinitely. Same cleanup gate as above.
-        enablePruneToReturned: this.config.enableCleanup !== false,
-        pruneToReturnedTxsPerCycle: this.config.cleanupToReturnedTxsPerCycle,
-        enablePruneExpired: this.config.enableCleanup !== false,
-        pruneExpiredBatchSize: this.config.cleanupBatchSize,
-      });
-      action = result.action;
-      if (result.action === 'idle') {
-        log.debug('Epoch idle', { reason: result.reason });
-      } else {
-        log.info(`Epoch ${result.action}`, {
-          epochIndex: result.epochIndex,
-          tx: result.txId,
-          progress: result.progress,
-          // Present when a batched step stopped early on a failed submission.
-          // Without it a partial drain is indistinguishable from a full one:
-          // the operator sees only a smaller progress.index and cannot tell
-          // whether the per-cycle budget or a real error bounded the work.
-          ...(result.partialFailureReason !== undefined
-            ? { partialFailureReason: result.partialFailureReason }
-            : {}),
+      // `this.running` is re-checked every iteration so stop() halts the drain
+      // promptly. Without it a shutdown mid-drain would keep submitting for up
+      // to the full budget — a regression the drain introduces, since a cycle
+      // used to be a single step.
+      while (this.running && steps < maxSteps && Date.now() < deadline) {
+        const result = await ario.crankEpochStep({
+          batchSize: this.config.batchSize,
+          enableClose: this.config.closeEpochs,
+          epochRetention: this.config.epochRetention ?? 7,
+          nameRegistryAccount: this.config.nameRegistryAccount,
+          // Returned-name pruning is folded into the epoch step (solana.36+):
+          // tie it to the same cleanup config the runCleanup phases use.
+          enablePrune: this.config.enableCleanup !== false,
+          pruneBatchSize: this.config.cleanupBatchSize,
+          // Scan cadence stays tied to the cleanup interval on purpose. It is
+          // derived from the epoch duration specifically to cut credit-heavy
+          // getProgramAccounts scans on long epochs (adaptive-intervals.ts), and
+          // decoupling it would multiply them ~30x. The throughput problem that
+          // cadence used to cause is solved by pruneToReturnedTxsPerCycle below,
+          // which makes the deadline-bound step drain proportionally to the
+          // backlog rather than to the scan rate. Worst-case conversion latency
+          // is then one scan interval (30 min) against a 14-day auction window.
+          pruneScanIntervalMs: this.config.cleanupMinIntervalMs,
+          // The other two thirds of the ArNS lease lifecycle. Previously the
+          // cranker only drained ReturnedName PDAs — a queue nothing ever filled,
+          // because `prune_name_to_returned` is what creates them and no actor
+          // called it. Expired leases therefore accumulated on-chain and stayed
+          // resolvable-but-unbuyable indefinitely. Same cleanup gate as above.
+          enablePruneToReturned: this.config.enableCleanup !== false,
+          pruneToReturnedTxsPerCycle: this.config.cleanupToReturnedTxsPerCycle,
+          enablePruneExpired: this.config.enableCleanup !== false,
+          pruneExpiredBatchSize: this.config.cleanupBatchSize,
+          // Gateway lifecycle (ar-io/ar-io-sdk#756). finalize_gone runs in the
+          // window between distribution and create_epoch, the only time
+          // ADR-0036 allows it. The delegate sweep moves delegations off
+          // leaving and delegation-disabled gateways into their delegates'
+          // withdrawal vaults during the observation window; it pays each
+          // vault's rent and pauses below the SDK's SOL floor, so it can't
+          // starve create_epoch. Same cleanup gate as the steps above.
+          enableFinalizeGone: this.config.enableCleanup !== false,
+          enableDelegateSweep: this.config.enableCleanup !== false,
         });
+        action = result.action;
+        steps += 1;
+        if (result.action === 'idle') {
+          log.debug('Epoch idle', { reason: result.reason });
+          break;
+        } else {
+          log.info(`Epoch ${result.action}`, {
+            epochIndex: result.epochIndex,
+            tx: result.txId,
+            progress: result.progress,
+            // Present when a batched step stopped early on a failed submission.
+            // Without it a partial drain is indistinguishable from a full one:
+            // the operator sees only a smaller progress.index and cannot tell
+            // whether the per-cycle budget or a real error bounded the work.
+            ...(result.partialFailureReason !== undefined
+              ? { partialFailureReason: result.partialFailureReason }
+              : {}),
+          });
+        }
+
+        // Non-progress guard. Draining only makes sense while the step is
+        // advancing something; a step reporting the SAME action and the same
+        // progress twice running is not making headway, and looping would fire
+        // the whole budget at a wedged lifecycle instead of one tx as before.
+        //
+        // The progress tuple is what separates the two cases: distribution
+        // advances `index`, while the compound sweep holds `index` at the batch
+        // size and shrinks `total` as it drains — so real work always moves one
+        // of them.
+        const fingerprint = `${result.action}:${result.progress?.index ?? ''}/${result.progress?.total ?? ''}`;
+        if (fingerprint === lastFingerprint) {
+          log.debug('Crank step repeated without progress; ending drain', {
+            action: result.action,
+            steps,
+          });
+          break;
+        }
+        lastFingerprint = fingerprint;
       }
     } catch (err) {
+      // An error ends the drain. `action` keeps the last SUCCESSFUL value, so
+      // the cleanup gate below still sees a non-idle state and stays out of
+      // the way — same behaviour as before, since cleanup only ran after a
+      // clean idle.
       this.handleError(err, 'crank_epoch');
     }
 
@@ -339,7 +413,12 @@ export class EpochCranker {
     // gate that stranded imported returned names. Removed from runCleanup so
     // there's a single source of truth — see the crankEpochStep call in runCycle.
 
-    // Phase 3: Deficient gateways → prune_gateway, plus Gone gateways → finalize_gone.
+    // Phase 3: Deficient gateways → prune_gateway.
+    //
+    // finalize_gone is NOT here. ADR-0036 lets it succeed only between an
+    // epoch's distribution and the next epoch's creation, and cleanup runs only
+    // mid-epoch, so every call here returned 6102. crankEpochStep finalizes
+    // departed gateways inside that window instead (ar-io/ar-io-sdk#756).
     if (budget.remaining > 0) {
       try {
         const deficient = await ario.getDeficientGateways(failureThreshold);
@@ -358,30 +437,6 @@ export class EpochCranker {
         }
       } catch (err) {
         this.handleError(err, 'cleanup_deficient_gateways_scan');
-      }
-    }
-    if (budget.remaining > 0) {
-      try {
-        // Only gateways whose leave window has elapsed AND have no remaining
-        // delegated stake are actually finalize_gone-able. getGoneGateways()
-        // over-returns every Leaving gateway, so finalizing per result reverts
-        // (LeaveWindowNotExpired / 6079) on every not-yet-eligible one each
-        // cycle — pure noise. getFinalizableGoneGateways(now) pre-filters to the
-        // on-chain eligibility conditions. Requires @ar.io/sdk with
-        // ar-io/ar-io-sdk#685.
-        const gone = await ario.getFinalizableGoneGateways(now);
-        for (const g of gone) {
-          if (budget.remaining <= 0) break;
-          try {
-            await ario.finalizeGone({ gateway: g.operator });
-            budget.remaining--;
-            log.info('Finalized gone gateway', { operator: g.operator });
-          } catch (err) {
-            this.handleError(err, 'finalize_gone');
-          }
-        }
-      } catch (err) {
-        this.handleError(err, 'cleanup_gone_gateways_scan');
       }
     }
 

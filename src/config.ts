@@ -189,9 +189,13 @@ export const ALWAYS_SAVE_REPORTS =
 export const OFFSET_OBSERVATION_ENABLED =
   env.varOrDefault('OFFSET_OBSERVATION_ENABLED', 'true') === 'true';
 
+// Every gateway by default: at 0.20 a gateway that answers ArNS but serves no
+// chunks went unchecked in four epochs out of five. The selection is shared
+// by every observer, so a rate below 1.0 only narrows which gateways can be
+// failed for it.
 export const OFFSET_OBSERVATION_SAMPLE_RATE = Math.max(
   0.0,
-  Math.min(1.0, +env.varOrDefault('OFFSET_OBSERVATION_SAMPLE_RATE', '0.20')),
+  Math.min(1.0, +env.varOrDefault('OFFSET_OBSERVATION_SAMPLE_RATE', '1.0')),
 );
 
 export const OFFSET_SAMPLE_COUNT = +env.varOrDefault(
@@ -541,6 +545,18 @@ export const CLEANUP_TO_RETURNED_TXS_PER_CYCLE = parsePositiveIntEnv(
   'CLEANUP_TO_RETURNED_TXS_PER_CYCLE',
   '10',
 );
+// Drain multi-batch crank phases (distribute, compound) within a cycle instead
+// of one tx per cycle. 45s keeps a drain inside a typical 60s interval;
+// whatever does not fit simply continues next cycle.
+// Strict parser on purpose. `parsePositiveIntEnv` uses parseInt, so
+// MAX_CRANK_STEP_MS='45s' would parse as 45 — a 45 MILLISECOND budget, which
+// silently reverts the drain to roughly one step per cycle. That is the exact
+// failure `parsePositiveIntEnvOrUndefined` documents ("'15ms'->15"), so use it
+// and supply the default here.
+export const MAX_CRANK_STEPS_PER_CYCLE =
+  parsePositiveIntEnvOrUndefined('MAX_CRANK_STEPS_PER_CYCLE') ?? 50;
+export const MAX_CRANK_STEP_MS =
+  parsePositiveIntEnvOrUndefined('MAX_CRANK_STEP_MS') ?? 45_000;
 // Optional: when unset, the cranker derives the cleanup cadence from the epoch
 // duration (see src/epoch/adaptive-intervals.ts). An explicit value always wins.
 export const CLEANUP_MIN_INTERVAL_MS = parsePositiveIntEnvOrUndefined(

@@ -60,7 +60,7 @@ import log from './log.js';
 import { SolanaNamesSource } from './names/solana-names-source.js';
 import { RandomArnsNamesSource } from './names/random-arns-names-source.js';
 import { StaticArnsNameList } from './names/static-arns-name-list.js';
-import { Observer } from './observer.js';
+import { Observer, createObserverGotClient } from './observer.js';
 import { DefaultArnsConsensusResolver } from './reference/arns-consensus-resolver.js';
 import { CompositeReferenceGateway } from './reference/composite-reference-gateway.js';
 import { FallbackReferenceGateway } from './reference/fallback-reference-gateway.js';
@@ -74,6 +74,7 @@ import {
   ReportSinkEntry,
 } from './store/pipeline-report-sink.js';
 import { TurboReportSink } from './store/turbo-report-sink.js';
+import { OffsetAssessor } from './assessment/offset-assessor.js';
 import { ContinuousObserver } from './continuous/continuous-observer.js';
 import { FsObservationStateStore } from './continuous/observation-state-store.js';
 import type { ObserverReport } from './types.js';
@@ -417,6 +418,8 @@ const solanaRpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
       cleanupBatchSize: config.CLEANUP_BATCH_SIZE,
       maxCleanupTxsPerCycle: config.MAX_CLEANUP_TXS_PER_CYCLE,
       cleanupToReturnedTxsPerCycle: config.CLEANUP_TO_RETURNED_TXS_PER_CYCLE,
+      maxCrankStepsPerCycle: config.MAX_CRANK_STEPS_PER_CYCLE,
+      maxCrankStepMs: config.MAX_CRANK_STEP_MS,
       cleanupFailureThreshold: config.CLEANUP_FAILURE_THRESHOLD,
       altReclaimScanLimit: config.ALT_RECLAIM_SCAN_LIMIT,
       cleanupMinIntervalMs,
@@ -824,6 +827,22 @@ export function createContinuousObserver(): ContinuousObserver {
     submissionGate,
     nodeReleaseVersion: config.AR_IO_NODE_RELEASE,
     nameAssessmentConcurrency: config.NAME_ASSESSMENT_CONCURRENCY,
+    offsetObservation: {
+      assessor: new OffsetAssessor({
+        referenceGateway,
+        arweaveUrl: config.ARWEAVE_URL,
+        gotClient: createObserverGotClient(config.AR_IO_NODE_RELEASE),
+      }),
+      // Shared, not composite: offset sampling must match across observers.
+      sharedEntropySource: sharedEpochEntropySource,
+      heightSource: chainSource,
+      config: {
+        enabled: config.OFFSET_OBSERVATION_ENABLED,
+        sampleRate: config.OFFSET_OBSERVATION_SAMPLE_RATE,
+        sampleCount: config.OFFSET_SAMPLE_COUNT,
+        enforcementEnabled: config.OFFSET_OBSERVATION_ENFORCEMENT_ENABLED,
+      },
+    },
     config: {
       cycleIntervalMs: config.OBSERVATION_CYCLE_INTERVAL_MS,
       gatewayAssessmentConcurrency: config.GATEWAY_ASSESSMENT_CONCURRENCY,

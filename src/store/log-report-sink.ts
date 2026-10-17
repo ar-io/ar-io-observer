@@ -21,6 +21,7 @@ import {
   ArnsNameAssessment,
   ArnsNameAssessments,
   GatewayOffsetAssessments,
+  OffsetFailureCategory,
   OffsetSamplingAssessment,
   ReportInfo,
   ReportSink,
@@ -88,6 +89,7 @@ export class LogReportSink implements ReportSink {
       offset,
       pass: assessment.pass,
       failureReason: assessment.failureReason,
+      failureCategory: assessment.failureCategory,
       referenceGatewayAvailable: assessment.referenceGatewayAvailable,
       assessedAt: assessment.assessedAt,
     });
@@ -157,6 +159,7 @@ export class LogReportSink implements ReportSink {
     failedOffsets: Array<{
       offset: number;
       failureReason?: string;
+      failureCategory?: OffsetFailureCategory;
       referenceGatewayAvailable?: boolean;
     }>;
   } {
@@ -165,6 +168,7 @@ export class LogReportSink implements ReportSink {
     const failedOffsets: Array<{
       offset: number;
       failureReason?: string;
+      failureCategory?: OffsetFailureCategory;
       referenceGatewayAvailable?: boolean;
     }> = [];
 
@@ -180,6 +184,7 @@ export class LogReportSink implements ReportSink {
         failedOffsets.push({
           offset: assessment.offset,
           failureReason: assessment.failureReason,
+          failureCategory: assessment.failureCategory,
           referenceGatewayAvailable: assessment.referenceGatewayAvailable,
         });
       }
