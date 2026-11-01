@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 
+import { isAssessableArnsName } from './lib/arns-validation.js';
 import * as env from './lib/env.js';
 
 export const args = await yargs(hideBin(process.argv))
@@ -114,6 +115,15 @@ export const OBSERVED_GATEWAY_HOSTS = parseCommaSeparatedList(
 export const ARNS_NAMES = parseCommaSeparatedList(
   env.varOrDefault('ARNS_NAMES', args.arnsNames ?? ''),
 );
+
+const invalidArnsNames = ARNS_NAMES.filter(
+  (name) => !isAssessableArnsName(name),
+);
+if (invalidArnsNames.length > 0) {
+  throw new Error(
+    `Invalid configuration: ARNS_NAMES contains names that are not valid hostname labels: ${invalidArnsNames.join(', ')}.`,
+  );
+}
 
 // Whitepaper v3.0.0 §10.3: "eight (8) 'chosen names' selected
 // independently by each observer". The default lived at `1` since the
