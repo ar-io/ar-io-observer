@@ -22,6 +22,7 @@
 import type winston from 'winston';
 
 import type { SolanaARIOReadable } from '@ar.io/sdk';
+import { isAssessableArnsName } from '../lib/arns-validation.js';
 import type { ArnsNameList, ArnsNamesSource } from '../types.js';
 
 export interface SolanaNamesSourceConfig {
@@ -98,7 +99,10 @@ export class SolanaNamesSource implements ArnsNamesSource, ArnsNameList {
         limit: this.pageSize,
       });
       for (const record of page.items) {
-        if (record.name) seen.add(record.name);
+        // Unusable names stay out so the chosen-name sampler picks another.
+        if (record.name && isAssessableArnsName(record.name)) {
+          seen.add(record.name);
+        }
       }
       cursor = page.nextCursor;
       pages += 1;

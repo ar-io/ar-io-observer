@@ -492,6 +492,20 @@ describe('Observer', function () {
       nock.cleanAll();
     });
 
+    describe('assessArnsNames', function () {
+      it('leaves out names that are not valid hostname labels', async function () {
+        // punycode for U+25B6 U+FE0F, rejected by the URL parser
+        const assessments = await observer.assessArnsNames({
+          host: 'gateway.example.com',
+          names: ['xn--g1h4420f'],
+          entropy: Buffer.alloc(32),
+        });
+
+        expect(assessments).to.deep.equal({});
+        expect(referenceGatewayStub.getArnsResolution.called).to.equal(false);
+      });
+    });
+
     describe('calculateFailureRate', function () {
       it('should return 0 for empty report', function () {
         const report: ObserverReport = createReport({

@@ -20,6 +20,7 @@ import { Got } from 'got';
 import pMap from 'p-map';
 import { Logger } from 'winston';
 
+import { isAssessableArnsName } from '../lib/arns-validation.js';
 import { createGatewayHttpClient } from '../lib/http-client.js';
 import * as metrics from '../metrics.js';
 import { assessOwnership, getArnsResolution } from '../observer.js';
@@ -200,8 +201,9 @@ export class GatewayAssessor {
     host: string;
     names: string[];
   }): Promise<ArnsNameAssessments> {
+    const assessableNames = names.filter(isAssessableArnsName);
     return pMap(
-      names,
+      assessableNames,
       async (name) => {
         try {
           return await this.assessArnsName({ host, arnsName: name });
@@ -227,7 +229,7 @@ export class GatewayAssessor {
       { concurrency: this.nameAssessmentConcurrency },
     ).then((results) => {
       return results.reduce((assessments, assessment, index) => {
-        assessments[names[index]] = assessment;
+        assessments[assessableNames[index]] = assessment;
         return assessments;
       }, {} as ArnsNameAssessments);
     });

@@ -27,6 +27,7 @@ import {
   selectGatewaysForOffsetAssessment,
 } from './assessment/offset-assessor.js';
 import * as config from './config.js';
+import { isAssessableArnsName } from './lib/arns-validation.js';
 import { customHashPRNG } from './lib/prng.js';
 import log from './log.js';
 import * as metrics from './metrics.js';
@@ -448,8 +449,9 @@ export class Observer {
     names: string[];
     entropy: Buffer;
   }): Promise<ArnsNameAssessments> {
+    const assessableNames = names.filter(isAssessableArnsName);
     return pMap(
-      names,
+      assessableNames,
       async (name) => {
         try {
           return await this.assessArnsName({
@@ -479,7 +481,7 @@ export class Observer {
       { concurrency: this.nameAssessmentConcurrency },
     ).then((results) => {
       return results.reduce((assessments, assessment, index) => {
-        assessments[names[index]] = assessment;
+        assessments[assessableNames[index]] = assessment;
         return assessments;
       }, {} as ArnsNameAssessments);
     });
@@ -626,7 +628,10 @@ export class Observer {
           enforcementEnabled: config.OFFSET_OBSERVATION_ENFORCEMENT_ENABLED,
         });
 
-        const nameCount = new Set([...prescribedNames, ...chosenNames]).size;
+        const nameCount = Object.keys({
+          ...prescribedAssessments,
+          ...chosenAssessments,
+        }).length;
         const namePassCount = Object.values({
           ...prescribedAssessments,
           ...chosenAssessments,
