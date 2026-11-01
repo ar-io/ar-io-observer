@@ -158,6 +158,20 @@ describe('SolanaNamesSource', () => {
       const names = await src.getAllNames(0);
       expect(names).to.deep.equal(['also-real', 'real']);
     });
+
+    it('skips names that are not valid hostname labels', async () => {
+      const stub = sinon.stub().resolves({
+        // xn--g1h4420f is punycode for U+25B6 U+FE0F, rejected by URL
+        items: [{ name: 'real' }, { name: 'xn--g1h4420f' }],
+        nextCursor: undefined,
+      });
+      // only getArNSRecords is used by getAllNames
+      const readable = {
+        getArNSRecords: stub,
+      } as unknown as SolanaARIOReadable;
+      const src = new SolanaNamesSource({ readable, log: makeLog() });
+      expect(await src.getAllNames(0)).to.deep.equal(['real']);
+    });
   });
 
   describe('convenience methods', () => {

@@ -18,6 +18,13 @@
 
 import { ArnsResolution } from '../types.js';
 
+// Registered names can still be invalid hostname labels (xn--g1h4420f is
+// punycode for U+25B6 U+FE0F, which IDNA rejects). No gateway can be reached
+// under such a name, so it can't be used for assessment.
+export function isAssessableArnsName(name: string): boolean {
+  return URL.canParse(`https://${name}.invalid/`);
+}
+
 export function validateArnsResolutionHeaders(
   resolution: ArnsResolution,
   source: string,
