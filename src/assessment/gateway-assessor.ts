@@ -20,6 +20,10 @@ import { Got } from 'got';
 import pMap from 'p-map';
 import { Logger } from 'winston';
 
+import {
+  ReferenceResolutionError,
+  compareArnsResolutions,
+} from '../lib/arns-validation.js';
 import { createGatewayHttpClient } from '../lib/http-client.js';
 import * as metrics from '../metrics.js';
 import { assessOwnership, getArnsResolution } from '../observer.js';
@@ -144,10 +148,15 @@ export class GatewayAssessor {
       throw new Error('Entropy not set for epoch');
     }
 
-    const referenceResolution = await this.referenceResolutionCache.get(
-      arnsName,
-      host,
-    );
+    let referenceResolution: ArnsResolution;
+    try {
+      referenceResolution = await this.referenceResolutionCache.get(
+        arnsName,
+        host,
+      );
+    } catch (error) {
+      throw new ReferenceResolutionError(error);
+    }
 
     const arnsResolutionTimer = metrics.arnsResolutionHistogram.startTimer();
     const gatewayResolution = await getArnsResolution({
@@ -158,23 +167,11 @@ export class GatewayAssessor {
     });
     arnsResolutionTimer();
 
-    let pass = true;
-    let failureReason: string | undefined = undefined;
-
-    const checkedProperties: Array<keyof ArnsResolution> = [
-      'resolvedId',
-      'ttlSeconds',
-      'contentType',
-      'dataHashDigest',
-    ];
-    for (const property of checkedProperties) {
-      if (referenceResolution[property] !== gatewayResolution[property]) {
-        pass = false;
-        failureReason =
-          (failureReason !== undefined ? failureReason + ', ' : '') +
-          `${property} mismatch`;
-      }
-    }
+    const failureReason = compareArnsResolutions(
+      referenceResolution,
+      gatewayResolution,
+    );
+    const pass = failureReason === undefined;
 
     return {
       assessedAt: Math.floor(Date.now() / 1000),
@@ -221,15 +218,23 @@ export class GatewayAssessor {
             resolvedDataHash: null,
             failureReason: errorMessage?.slice(0, 512),
             pass: false,
+            ...(err instanceof ReferenceResolutionError
+              ? { excluded: true }
+              : {}),
           };
         }
       },
       { concurrency: this.nameAssessmentConcurrency },
     ).then((results) => {
-      return results.reduce((assessments, assessment, index) => {
-        assessments[names[index]] = assessment;
-        return assessments;
-      }, {} as ArnsNameAssessments);
+      // Keyed by ArNS name, and `__proto__` is a valid one, so the object
+      // has no prototype for an assignment to replace.
+      return results.reduce(
+        (assessments, assessment, index) => {
+          assessments[names[index]] = assessment;
+          return assessments;
+        },
+        Object.create(null) as ArnsNameAssessments,
+      );
     });
   }
 
@@ -250,11 +255,11 @@ export class GatewayAssessor {
       this.assessArnsNames({ host, names: chosenNames }),
     ]);
 
-    // Calculate pass rate
+    // Calculate pass rate over the names the reference could resolve
     const allAssessments = [
       ...Object.values(prescribedAssessments),
       ...Object.values(chosenAssessments),
-    ];
+    ].filter((a) => a.excluded !== true);
     const totalNames = allAssessments.length;
     const passingNames = allAssessments.filter((a) => a.pass).length;
     const passRate = totalNames > 0 ? passingNames / totalNames : 0;

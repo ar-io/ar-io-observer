@@ -38,3 +38,68 @@ export function validateArnsResolutionHeaders(
     );
   }
 }
+
+// A name is reachable only as the subdomain label `<name>.<host>`, and
+// hostnames reach a gateway lowercased, so a name with uppercase letters,
+// dots or other characters a label cannot carry can never resolve there.
+// The registry holds a few (`1.21212E+14`: a number a spreadsheet wrote in
+// scientific notation), and every gateway fails them.
+const SUBDOMAIN_LABEL = /^[a-z0-9_-]{1,63}$/;
+
+/**
+ * Whether `name` can be resolved as a gateway subdomain label.
+ */
+export function isSubdomainLabel(name: string): boolean {
+  return SUBDOMAIN_LABEL.test(name);
+}
+
+/**
+ * The media type of a Content-Type header, without its parameters.
+ *
+ * Gateways disagree on parameters for the same bytes: a gateway that
+ * cached an item from an upstream peer may keep that peer's
+ * `application/json; charset=utf-8`, while one that indexed the item serves
+ * the tag's `application/json`. Neither is wrong, so only the media type is
+ * compared.
+ */
+export function mediaType(contentType: string | null): string | null {
+  if (contentType === null) return null;
+  return contentType.split(';')[0].trim().toLowerCase();
+}
+
+/**
+ * Compare a gateway's resolution with the reference's, returning why they
+ * differ, or undefined when they match.
+ */
+export function compareArnsResolutions(
+  reference: ArnsResolution,
+  gateway: ArnsResolution,
+): string | undefined {
+  const mismatches: string[] = [];
+  if (reference.resolvedId !== gateway.resolvedId) {
+    mismatches.push('resolvedId mismatch');
+  }
+  if (reference.ttlSeconds !== gateway.ttlSeconds) {
+    mismatches.push('ttlSeconds mismatch');
+  }
+  if (mediaType(reference.contentType) !== mediaType(gateway.contentType)) {
+    mismatches.push('contentType mismatch');
+  }
+  if (reference.dataHashDigest !== gateway.dataHashDigest) {
+    mismatches.push('dataHashDigest mismatch');
+  }
+  return mismatches.length > 0 ? mismatches.join(', ') : undefined;
+}
+
+/**
+ * The reference gateway could not resolve a name, so a gateway's
+ * resolution of it cannot be judged.
+ */
+export class ReferenceResolutionError extends Error {
+  constructor(cause: unknown) {
+    const message =
+      cause instanceof Error ? cause.message : String(cause ?? 'unknown');
+    super(`Reference resolution failed: ${message}`);
+    this.name = 'ReferenceResolutionError';
+  }
+}

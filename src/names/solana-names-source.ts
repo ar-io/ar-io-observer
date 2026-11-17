@@ -22,6 +22,7 @@
 import type winston from 'winston';
 
 import type { SolanaARIOReadable } from '@ar.io/sdk';
+import { isSubdomainLabel } from '../lib/arns-validation.js';
 import type { ArnsNameList, ArnsNamesSource } from '../types.js';
 
 export interface SolanaNamesSourceConfig {
@@ -90,6 +91,7 @@ export class SolanaNamesSource implements ArnsNamesSource, ArnsNameList {
 
   private async fetchAllNames(): Promise<string[]> {
     const seen = new Set<string>();
+    const unreachable: string[] = [];
     let cursor: string | undefined;
     let pages = 0;
     do {
@@ -98,7 +100,14 @@ export class SolanaNamesSource implements ArnsNamesSource, ArnsNameList {
         limit: this.pageSize,
       });
       for (const record of page.items) {
-        if (record.name) seen.add(record.name);
+        if (!record.name) continue;
+        // No gateway can serve a name that is not a subdomain label, so
+        // choosing one would fail every gateway on it.
+        if (isSubdomainLabel(record.name)) {
+          seen.add(record.name);
+        } else {
+          unreachable.push(record.name);
+        }
       }
       cursor = page.nextCursor;
       pages += 1;
@@ -110,6 +119,11 @@ export class SolanaNamesSource implements ArnsNamesSource, ArnsNameList {
       count: names.length,
       pages,
     });
+    if (unreachable.length > 0) {
+      this.log.verbose('Skipped ArNS names that are not subdomain labels', {
+        names: unreachable,
+      });
+    }
     return names;
   }
 }
