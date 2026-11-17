@@ -784,14 +784,28 @@ export class Observer {
       observations.push(observation);
     }
 
-    // Calculate failure rates and select the observation with the lowest rate
+    // Select the observation with the fewest failing gateways, then the
+    // lowest failure rate. The rate alone is not enough: when the reference
+    // resolves no name, the names are excluded and the rate drops to the
+    // ownership checks, though every gateway fails for want of a scored name.
+    const rank = (observation: ObserverReport) => ({
+      failedGateways: Object.values(observation.gatewayAssessments).filter(
+        (gatewayAssessment) => !gatewayAssessment.pass,
+      ).length,
+      failureRate: this.calculateFailureRate(observation),
+    });
+
     let bestObservation = observations[0];
-    let lowestFailureRate = this.calculateFailureRate(observations[0]);
+    let bestRank = rank(observations[0]);
 
     for (let i = 1; i < observations.length; i++) {
-      const failureRate = this.calculateFailureRate(observations[i]);
-      if (failureRate < lowestFailureRate) {
-        lowestFailureRate = failureRate;
+      const candidate = rank(observations[i]);
+      if (
+        candidate.failedGateways < bestRank.failedGateways ||
+        (candidate.failedGateways === bestRank.failedGateways &&
+          candidate.failureRate < bestRank.failureRate)
+      ) {
+        bestRank = candidate;
         bestObservation = observations[i];
       }
     }

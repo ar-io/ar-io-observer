@@ -766,6 +766,73 @@ describe('Observer', function () {
           report.gatewayAssessments['gateway1.com'].ownershipAssessment.pass,
         ).to.be.true;
       });
+
+      it('prefers a passing gateway over a reference outage', async function () {
+        observedGatewayHostListStub.getHosts.returns(
+          Promise.resolve([{ fqdn: 'gateway1.com', wallet: 'wallet1' }]),
+        );
+        const name = (pass: boolean, excluded = false) => ({
+          assessedAt: 100,
+          expectedId: null,
+          resolvedId: null,
+          expectedDataHash: null,
+          resolvedDataHash: null,
+          pass,
+          ...(excluded ? { excluded: true } : {}),
+        });
+        const observation = (
+          chosenNames: ObserverReport['gatewayAssessments'][string]['arnsAssessments']['chosenNames'],
+          pass: boolean,
+        ): ObserverReport =>
+          createReport({
+            gatewayAssessments: {
+              'gateway1.com': {
+                ownershipAssessment: {
+                  expectedWallets: ['wallet1'],
+                  observedWallet: 'wallet1',
+                  pass: true,
+                },
+                arnsAssessments: { prescribedNames: {}, chosenNames, pass },
+                pass,
+              },
+            },
+          });
+
+        const runSingleObservationStub = sinon.stub(
+          observer as any,
+          'runSingleObservation',
+        );
+        // The reference resolved nothing: every name excluded, rate 0, fails
+        runSingleObservationStub.onCall(0).resolves(
+          observation(
+            {
+              a: name(false, true),
+              b: name(false, true),
+              c: name(false, true),
+              d: name(false, true),
+              e: name(false, true),
+            },
+            false,
+          ),
+        );
+        // Four of five names pass: rate 1/6, passes
+        runSingleObservationStub.onCall(1).resolves(
+          observation(
+            {
+              a: name(true),
+              b: name(true),
+              c: name(true),
+              d: name(true),
+              e: name(false),
+            },
+            true,
+          ),
+        );
+
+        const report = await observer.generateReport();
+
+        expect(report.gatewayAssessments['gateway1.com'].pass).to.be.true;
+      });
     });
 
     describe('gateway order shuffling', function () {
