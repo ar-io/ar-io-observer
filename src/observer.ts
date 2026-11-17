@@ -478,10 +478,15 @@ export class Observer {
       },
       { concurrency: this.nameAssessmentConcurrency },
     ).then((results) => {
-      return results.reduce((assessments, assessment, index) => {
-        assessments[names[index]] = assessment;
-        return assessments;
-      }, {} as ArnsNameAssessments);
+      // Keyed by ArNS name, and `__proto__` is a valid one, so the object
+      // has no prototype for an assignment to replace.
+      return results.reduce(
+        (assessments, assessment, index) => {
+          assessments[names[index]] = assessment;
+          return assessments;
+        },
+        Object.create(null) as ArnsNameAssessments,
+      );
     });
   }
 
@@ -705,6 +710,10 @@ export class Observer {
       // Count prescribed name assessments
       Object.values(gatewayAssessment.arnsAssessments.prescribedNames).forEach(
         (assessment) => {
+          // Not scored against the gateway, so not a failure of this one
+          if (assessment.excluded === true) {
+            return;
+          }
           totalAssessments++;
           if (!assessment.pass) {
             failedAssessments++;
@@ -715,6 +724,10 @@ export class Observer {
       // Count chosen name assessments
       Object.values(gatewayAssessment.arnsAssessments.chosenNames).forEach(
         (assessment) => {
+          // Not scored against the gateway, so not a failure of this one
+          if (assessment.excluded === true) {
+            return;
+          }
           totalAssessments++;
           if (!assessment.pass) {
             failedAssessments++;

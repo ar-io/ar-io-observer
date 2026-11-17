@@ -548,6 +548,47 @@ describe('Observer', function () {
         expect(failureRate).to.equal(1 / 3);
       });
 
+      it('does not count names the reference could not resolve', function () {
+        const assessment = {
+          assessedAt: 100,
+          expectedId: null,
+          resolvedId: null,
+          expectedDataHash: null,
+          resolvedDataHash: null,
+        };
+        const report: ObserverReport = createReport({
+          gatewayAssessments: {
+            'gateway1.com': {
+              ownershipAssessment: {
+                expectedWallets: ['wallet1'],
+                observedWallet: 'wallet1',
+                pass: true,
+              },
+              arnsAssessments: {
+                prescribedNames: {
+                  name1: { ...assessment, pass: false },
+                },
+                chosenNames: {
+                  name2: { ...assessment, pass: true },
+                  name3: {
+                    ...assessment,
+                    pass: false,
+                    excluded: true,
+                    failureReason: 'Reference resolution failed: ENOTFOUND',
+                  },
+                },
+                pass: false,
+              },
+              pass: false,
+            },
+          },
+        });
+
+        const failureRate = (observer as any).calculateFailureRate(report);
+        // 1 failure out of 3 scored assessments (1 ownership + 2 names)
+        expect(failureRate).to.equal(1 / 3);
+      });
+
       it('should calculate correct failure rate for multiple gateways', function () {
         const report: ObserverReport = createReport({
           gatewayAssessments: {

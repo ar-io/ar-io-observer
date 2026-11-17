@@ -226,10 +226,15 @@ export class GatewayAssessor {
       },
       { concurrency: this.nameAssessmentConcurrency },
     ).then((results) => {
-      return results.reduce((assessments, assessment, index) => {
-        assessments[names[index]] = assessment;
-        return assessments;
-      }, {} as ArnsNameAssessments);
+      // Keyed by ArNS name, and `__proto__` is a valid one, so the object
+      // has no prototype for an assignment to replace.
+      return results.reduce(
+        (assessments, assessment, index) => {
+          assessments[names[index]] = assessment;
+          return assessments;
+        },
+        Object.create(null) as ArnsNameAssessments,
+      );
     });
   }
 

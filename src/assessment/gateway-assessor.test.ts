@@ -151,6 +151,30 @@ describe('GatewayAssessor', () => {
     expect(result.pass).to.be.false;
   });
 
+  it('scores a name that is also an Object.prototype key', async () => {
+    // `__proto__` is a valid ArNS name. Assigned into a plain object it
+    // would replace the prototype and drop out of the pass rate: 3 of 3
+    // instead of 3 of 4.
+    const names: Record<string, ArnsResolution> = Object.create(null);
+    for (const name of ['a', 'b', 'c', '__proto__']) {
+      names[name] = referenceResolution('text/plain');
+    }
+    for (const name of ['a', 'b', 'c']) {
+      serveName(name, 'text/plain');
+    }
+    nock(`https://__proto__.${HOST}`).persist().head('/').reply(502);
+
+    const result = await assessor(names).assessGatewayArns({
+      host: HOST,
+      prescribedNames: [],
+      chosenNames: ['a', 'b', 'c', '__proto__'],
+    });
+
+    expect(Object.keys(result.chosenNames)).to.include('__proto__');
+    expect(result.chosenNames['__proto__'].pass).to.be.false;
+    expect(result.pass).to.be.false;
+  });
+
   it('fails the gateway when the reference resolves no name', async () => {
     const result = await assessor({}).assessGatewayArns({
       host: HOST,
