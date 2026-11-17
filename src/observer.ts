@@ -214,7 +214,10 @@ export async function getArnsResolution({
 
   let headResponse: Response;
   try {
-    headResponse = await got.head(url);
+    // Match the GETs: compressing proxies drop Content-Length otherwise.
+    headResponse = await got.head(url, {
+      headers: { 'Accept-Encoding': 'identity' },
+    });
   } catch (error: any) {
     if ((error as any)?.response?.statusCode === 404) {
       return arnsResolution(error.response);

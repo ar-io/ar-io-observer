@@ -158,6 +158,59 @@ describe('Observer', function () {
       expect(result.timings).to.be.a.string;
     });
 
+    it('should hash the same bytes for reference and target when HEAD is compressed', async function () {
+      // Emulates a compressing proxy: Content-Length only for identity.
+      const data = Buffer.alloc(OneMiB + 500);
+      for (let i = 0; i < data.length; i++) data[i] = i % 251;
+      nock(url)
+        .persist()
+        .head('/')
+        .reply(function () {
+          const identity = this.req.headers['accept-encoding'] === 'identity';
+          return [
+            200,
+            '',
+            {
+              'Content-Type': 'text/html',
+              'x-arns-resolved-id': defaultArnsResolvedId,
+              'x-arns-ttl-seconds': defaultArnsTtlSeconds,
+              ...(identity
+                ? { 'Content-Length': String(data.length) }
+                : { 'Content-Encoding': 'br' }),
+            },
+          ];
+        });
+      nock(url)
+        .persist()
+        .get('/')
+        .reply(function () {
+          const range = /^bytes=(\d+)-(\d+)$/.exec(
+            String(this.req.headers.range ?? ''),
+          );
+          if (range === null) {
+            return [200, data, { 'Content-Length': String(data.length) }];
+          }
+          const start = Number(range[1]);
+          const end = Number(range[2]);
+          return [
+            206,
+            data.subarray(start, end + 1),
+            { 'Content-Range': `bytes ${start}-${end}/${data.length}` },
+          ];
+        });
+
+      const reference = await getArnsResolution({ url, got, entropy });
+      const target = await getArnsResolution({
+        url,
+        got,
+        entropy,
+        referenceGatewayContentLength: reference.contentLength,
+      });
+
+      expect(reference.contentLength).to.equal(String(data.length));
+      expect(reference.dataHashDigest).to.equal(target.dataHashDigest);
+    });
+
     it('should resolve with correct properties on a 404 response for HEAD requests', async function () {
       nock(url).head('/').reply(404);
 
