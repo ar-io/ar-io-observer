@@ -166,6 +166,12 @@ export interface ArnsNameAssessment {
   resolvedDataHash: string | null;
   pass: boolean;
   failureReason?: string;
+  /**
+   * True when the reference gateway could not resolve the name, so there was
+   * nothing to compare the gateway with. The name is recorded as failed but
+   * left out of the gateway's ArNS pass rate.
+   */
+  excluded?: boolean;
   timings?: {
     wait?: number;
     dns?: number;

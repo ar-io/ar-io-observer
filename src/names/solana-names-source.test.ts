@@ -158,6 +158,22 @@ describe('SolanaNamesSource', () => {
       const names = await src.getAllNames(0);
       expect(names).to.deep.equal(['also-real', 'real']);
     });
+
+    it('skips names that cannot be a subdomain label', async () => {
+      const stub = sinon.stub().resolves({
+        items: [
+          { name: 'real' },
+          { name: '1.21212E+14' },
+          { name: 'Upper' },
+          { name: 'under_score' },
+        ],
+        nextCursor: undefined,
+      });
+      const readable = { getArNSRecords: stub } as any;
+      const src = new SolanaNamesSource({ readable, log: makeLog() });
+      expect(await src.getAllNames(0)).to.deep.equal(['real', 'under_score']);
+      expect(await src.getNamesCount(0)).to.equal(2);
+    });
   });
 
   describe('convenience methods', () => {

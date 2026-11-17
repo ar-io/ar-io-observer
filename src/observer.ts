@@ -27,6 +27,10 @@ import {
   selectGatewaysForOffsetAssessment,
 } from './assessment/offset-assessor.js';
 import * as config from './config.js';
+import {
+  ReferenceResolutionError,
+  compareArnsResolutions,
+} from './lib/arns-validation.js';
 import { customHashPRNG } from './lib/prng.js';
 import log from './log.js';
 import * as metrics from './metrics.js';
@@ -392,10 +396,15 @@ export class Observer {
       throw new Error('Reference gateway resolution cache not set');
     }
 
-    const referenceResolution = await this.referenceGatewayResolutionCache.get(
-      arnsName,
-      host,
-    );
+    let referenceResolution: ArnsResolution;
+    try {
+      referenceResolution = await this.referenceGatewayResolutionCache.get(
+        arnsName,
+        host,
+      );
+    } catch (error) {
+      throw new ReferenceResolutionError(error);
+    }
 
     const arnsResolutionTimer = metrics.arnsResolutionHistogram.startTimer();
     const gatewayResolution = await getArnsResolution({
@@ -406,23 +415,11 @@ export class Observer {
     });
     arnsResolutionTimer();
 
-    let pass = true;
-    let failureReason: string | undefined = undefined;
-
-    const checkedProperties: Array<keyof ArnsResolution> = [
-      'resolvedId',
-      'ttlSeconds',
-      'contentType',
-      'dataHashDigest',
-    ];
-    for (const property of checkedProperties) {
-      if (referenceResolution[property] !== gatewayResolution[property]) {
-        pass = false;
-        failureReason =
-          (failureReason !== undefined ? failureReason + ', ' : '') +
-          `${property} mismatch`;
-      }
-    }
+    const failureReason = compareArnsResolutions(
+      referenceResolution,
+      gatewayResolution,
+    );
+    const pass = failureReason === undefined;
 
     return {
       assessedAt: +(Date.now() / 1000).toFixed(0),
@@ -473,6 +470,9 @@ export class Observer {
             resolvedDataHash: null,
             failureReason: errorMessage?.slice(0, 512),
             pass: false,
+            ...(err instanceof ReferenceResolutionError
+              ? { excluded: true }
+              : {}),
           };
         }
       },
@@ -626,15 +626,18 @@ export class Observer {
           enforcementEnabled: config.OFFSET_OBSERVATION_ENFORCEMENT_ENABLED,
         });
 
-        const nameCount = new Set([...prescribedNames, ...chosenNames]).size;
-        const namePassCount = Object.values({
+        // Names the reference could not resolve are left out of the rate
+        const scoredAssessments = Object.values({
           ...prescribedAssessments,
           ...chosenAssessments,
-        }).reduce(
+        }).filter((assessment) => assessment.excluded !== true);
+        const nameCount = scoredAssessments.length;
+        const namePassCount = scoredAssessments.reduce(
           (count, assessment) => (assessment.pass ? count + 1 : count),
           0,
         );
-        const namesPass = namePassCount >= nameCount * NAME_PASS_THRESHOLD;
+        const namesPass =
+          nameCount > 0 && namePassCount >= nameCount * NAME_PASS_THRESHOLD;
 
         // Check if offset observation enforcement should affect pass status
         const offsetPass = offsetAssessmentPasses({
